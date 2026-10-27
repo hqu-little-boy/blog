@@ -11,7 +11,6 @@ import { slugifyStr } from "@/utils/slugify";
 import { toTransitionName } from "@/utils/toTransitionName";
 import EditPost from "./_components/EditPost.astro";
 import ShareLinks from "./_components/ShareLinks.astro";
-import BackButton from "./_components/BackButton.astro";
 import BackToTopButton from "./_components/BackToTopButton.astro";
 import AdjacentPostNav from "./_components/AdjacentPostNav.astro";
 import TableOfContents from "./_components/TableOfContents.astro";
@@ -106,16 +105,11 @@ const ogImage = ogImageUrl
   pubDatetime={pubDatetime}
   modDatetime={modDatetime}
 >
-  <Header />
-
-  <BackButton class="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8" />
+  <Header showBackButton={config.features.showBackButton} />
 
   <main
     id="main-content"
-    class:list={[
-      "mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 pb-12",
-      { "mt-8": !config.features.showBackButton },
-    ]}
+    class="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 pt-8 pb-12"
     data-pagefind-body
   >
     <div
