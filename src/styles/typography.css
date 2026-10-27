@@ -170,4 +170,13 @@
     stroke: var(--color-muted-foreground) !important;
     fill: var(--color-muted-foreground) !important;
   }
+
+  /* ===== KaTeX Math Formulas ===== */
+  .katex-display {
+    @apply my-6 overflow-x-auto overflow-y-hidden py-2 text-center text-foreground;
+  }
+
+  .katex {
+    @apply text-foreground;
+  }
 }
