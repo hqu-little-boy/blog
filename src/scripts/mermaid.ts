@@ -1,3 +1,5 @@
+import { setupDiagramPanZoom } from "./diagram-pan-zoom";
+
 /**
  * Client-side dynamic loader and renderer for Mermaid diagrams.
  * Only loads mermaid bundle when diagrams are present on the current page.
@@ -80,6 +82,9 @@ async function renderMermaid() {
         console.error("[Mermaid] Render error:", renderError);
       }
     }
+
+    // Attach pan & zoom interactions to newly rendered Mermaid SVGs
+    setupDiagramPanZoom();
   } catch (loadError) {
     console.error("[Mermaid] Failed to load library:", loadError);
   }

@@ -138,11 +138,21 @@
   }
 
   /* ===== Diagrams (Mermaid & Graphviz) ===== */
+  .diagram-wrapper,
   .mermaid-wrapper,
   .graphviz-wrapper {
-    @apply my-6 flex flex-col items-center justify-center overflow-x-auto rounded-2xl border border-border/70 bg-surface/50 p-6 transition-all duration-300 shadow-xs dark:bg-surface/30;
+    @apply my-6 flex flex-col items-center justify-center rounded-2xl border border-border/70 bg-surface/50 p-4 sm:p-6 transition-all duration-300 shadow-xs dark:bg-surface/30;
   }
 
+  .diagram-viewport {
+    @apply w-full overflow-hidden flex items-center justify-center min-h-[140px] select-none;
+  }
+
+  .diagram-canvas {
+    @apply flex items-center justify-center;
+  }
+
+  .diagram-canvas svg,
   .mermaid-wrapper svg,
   .graphviz-wrapper svg {
     @apply max-w-full h-auto;
