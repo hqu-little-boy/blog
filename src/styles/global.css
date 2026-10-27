@@ -52,3 +52,19 @@ article h4 {
   scroll-margin-top: 5.5rem;
 }
 
+/* Floating desktop TOC pinned to the left gutter outside centered reading layout */
+.toc-desktop-sidebar {
+  position: fixed;
+  top: 5.5rem;
+  right: calc(50% + 24rem + 1.25rem);
+  width: 14rem;
+  z-index: 30;
+}
+
+@media (min-width: 1536px) {
+  .toc-desktop-sidebar {
+    right: calc(50% + 24rem + 2rem);
+    width: 16rem;
+  }
+}
+

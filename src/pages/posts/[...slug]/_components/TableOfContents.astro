@@ -66,8 +66,15 @@ const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
 }
 
 <script>
+  let removePrevScrollListener: (() => void) | null = null;
+
   function setupTocScrollSpy() {
-    const links = document.querySelectorAll<HTMLAnchorElement>(".toc-link");
+    if (removePrevScrollListener) {
+      removePrevScrollListener();
+      removePrevScrollListener = null;
+    }
+
+    const links = Array.from(document.querySelectorAll<HTMLAnchorElement>(".toc-link"));
     if (!links.length) return;
 
     const headings = Array.from(
@@ -90,29 +97,35 @@ const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
     let ticking = false;
 
     function updateActiveHeading() {
-      // 120px offset to account for sticky header
-      const scrollPosition = window.scrollY + 120;
+      const threshold = 110; // Under sticky header
       let currentSlug = "";
 
-      for (let i = 0; i < headings.length; i++) {
-        const h = headings[i];
-        if (h.offsetTop <= scrollPosition) {
-          currentSlug = h.id;
-        } else {
-          break;
+      const atBottom =
+        window.innerHeight + window.scrollY >=
+        document.documentElement.scrollHeight - 50;
+
+      if (atBottom && headings.length > 0) {
+        currentSlug = headings[headings.length - 1].id;
+      } else if (window.scrollY < 80) {
+        currentSlug = "";
+      } else {
+        for (let i = 0; i < headings.length; i++) {
+          const rect = headings[i].getBoundingClientRect();
+          if (rect.top <= threshold) {
+            currentSlug = headings[i].id;
+          } else {
+            break;
+          }
         }
       }
 
-      // If at top of page, clear or select first
-      if (window.scrollY < 100) {
-        currentSlug = "";
-      }
-
+      let activeLink: HTMLAnchorElement | null = null;
       links.forEach(link => {
         const slug = link.dataset.slug;
         const isActive = slug === currentSlug;
 
         if (isActive) {
+          activeLink = link;
           link.classList.add(
             "bg-accent/15",
             "text-accent",
@@ -130,6 +143,13 @@ const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
           link.classList.add("border-transparent");
         }
       });
+
+      if (activeLink) {
+        (activeLink as HTMLElement).scrollIntoView({
+          block: "nearest",
+          inline: "nearest",
+        });
+      }
     }
 
     function onScroll() {
@@ -143,6 +163,10 @@ const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
     }
 
     window.addEventListener("scroll", onScroll, { passive: true });
+    removePrevScrollListener = () => {
+      window.removeEventListener("scroll", onScroll);
+    };
+
     updateActiveHeading();
   }
 
