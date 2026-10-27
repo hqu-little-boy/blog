@@ -38,7 +38,7 @@ const periods = getTimePeriods(page.data, locale, config.site.timezone);
     <!-- 移动端微型快捷跳转药丸 (仅在窄屏下展示，且仅当节点 > 1 时出现) -->
     {
       periods.length > 1 && (
-        <div class="xl:hidden -mt-2 mb-6 flex items-center gap-2 overflow-x-auto pb-2 text-xs scrollbar-none">
+        <div class="lg:hidden -mt-2 mb-6 flex items-center gap-2 overflow-x-auto pb-2 text-xs scrollbar-none">
           <span class="text-muted-foreground shrink-0 font-medium text-[11px] uppercase tracking-wider">
             时间段:
           </span>
@@ -58,22 +58,32 @@ const periods = getTimePeriods(page.data, locale, config.site.timezone);
       )
     }
 
-    <!-- 文章列表按时间段组织 -->
-    <div class="space-y-10">
+    <!-- 文章列表：左侧贯穿极简垂直时间线，中间嵌入时间段节点 -->
+    <div class="relative ps-6 sm:ps-8 ms-2 sm:ms-3 border-s-2 border-border/80 dark:border-border/50 space-y-12 my-6">
       {
         periods.map(period => (
-          <section id={period.id} class="period-section scroll-mt-24">
-            <!-- 极简时间段分割与节点标尺 -->
-            <div class="mb-4 flex items-center gap-2.5 text-xs sm:text-sm font-semibold tracking-wide text-muted-foreground">
-              <span class="inline-block size-2 rounded-full bg-accent/80 ring-4 ring-accent/15" />
-              <span class="text-foreground/90 font-medium">{period.label}</span>
-              <span class="text-xs text-muted-foreground/60 font-mono font-normal">
-                ({period.count} 篇)
+          <section id={period.id} class="period-section relative scroll-mt-28">
+            <!-- 嵌在左侧竖线中心的时间节点圆点 -->
+            <div
+              class="absolute -start-[32px] sm:-start-[40px] top-1 flex items-center justify-center"
+              aria-hidden="true"
+            >
+              <span class="flex size-3.5 items-center justify-center rounded-full border-2 border-accent bg-background dark:bg-background ring-4 ring-background">
+                <span class="size-1.5 rounded-full bg-accent" />
               </span>
-              <div class="h-px flex-1 bg-border/60 ms-2" />
             </div>
 
-            <ul>
+            <!-- 时间段展示与篇数 -->
+            <div class="flex items-center gap-2 mb-4">
+              <span class="text-base sm:text-lg font-semibold tracking-tight text-foreground">
+                {period.label}
+              </span>
+              <span class="rounded-full bg-muted/70 px-2.5 py-0.5 text-xs font-mono text-muted-foreground">
+                {period.count} 篇
+              </span>
+            </div>
+
+            <ul class="space-y-4">
               {period.posts.map(data => (
                 <Card {...data} />
               ))}

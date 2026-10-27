@@ -11,67 +11,45 @@ const { periods } = Astro.props;
 {
   periods.length > 0 && (
     <aside
-      aria-label="时间段导航"
-      class="hidden xl:block timeline-desktop-rail select-none"
+      aria-label="快速时间导航"
+      class="hidden lg:block timeline-desktop-rail select-none pointer-events-auto"
     >
-      <div class="rounded-2xl border border-border/70 bg-surface/85 dark:bg-surface/30 p-4 backdrop-blur-md shadow-xs transition-all duration-300">
-        <!-- 头部小标头 -->
-        <div class="mb-3.5 flex items-center gap-2 pb-2.5 border-b border-border/70 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-          <svg
-            class="size-4 text-accent"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <circle cx="12" cy="12" r="10" />
-            <polyline points="12 6 12 12 16 14" />
-          </svg>
-          <span>时间段导航</span>
-          <span class="ms-auto rounded-full bg-muted/70 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
-            {periods.length}
-          </span>
-        </div>
+      <!-- 极简风格：纯净的竖线与穿插其间的圆点，无卡片框与厚重背景 -->
+      <nav class="relative py-2 ps-1">
+        <!-- 垂直贯穿细线（上下渐隐淡出，极致极简） -->
+        <div
+          aria-hidden="true"
+          class="timeline-track-line absolute left-[6px] top-1 bottom-1 w-[1.5px] bg-gradient-to-b from-transparent via-border to-transparent dark:via-border/60"
+        />
 
-        <!-- 极简竖线与点容器 -->
-        <nav class="relative py-1">
-          <!-- 垂直竖线（从第一个圆点中心延伸到最后一个圆点中心） -->
-          <div
-            aria-hidden="true"
-            class="timeline-rail-line absolute left-[6px] top-[14px] bottom-[14px] w-[1.5px] bg-border/80 dark:bg-border/60 rounded-full"
-          />
+        <ul class="relative space-y-6">
+          {periods.map(period => (
+            <li>
+              <a
+                href={`#${period.id}`}
+                data-timeline-target={period.id}
+                class="timeline-node-link group flex items-center gap-3 py-1 outline-none transition-all duration-200"
+                title={`跳转到 ${period.label} (${period.count} 篇)`}
+              >
+                <!-- 串在竖线上的小圆点 -->
+                <span class="timeline-dot relative z-10 flex size-3.5 items-center justify-center rounded-full border-2 border-border/80 bg-background dark:bg-background transition-all duration-300 group-hover:scale-125 group-hover:border-accent">
+                  <span class="timeline-dot-inner size-1 rounded-full bg-border/80 transition-all duration-300 group-hover:bg-accent" />
+                </span>
 
-          <ul class="space-y-3.5">
-            {periods.map(period => (
-              <li>
-                <a
-                  href={`#${period.id}`}
-                  data-timeline-target={period.id}
-                  class="timeline-node-link group flex items-center gap-3 py-0.5 transition-all duration-200 outline-none"
-                  title={`${period.label} (${period.count} 篇)`}
-                >
-                  <!-- 节点小圆点 -->
-                  <span class="timeline-dot relative z-10 flex size-3.5 items-center justify-center rounded-full border-2 border-border/90 bg-background dark:bg-surface transition-all duration-200 group-hover:border-accent group-hover:scale-125">
-                    <span class="timeline-dot-inner size-1 rounded-full bg-transparent transition-all duration-200 group-hover:bg-accent" />
+                <!-- 极简时间段标签 -->
+                <span class="timeline-label flex items-baseline gap-1.5 text-xs font-mono text-muted-foreground/75 transition-all duration-300 group-hover:text-foreground">
+                  <span class="font-medium tracking-tight">
+                    {period.label}
                   </span>
-
-                  <!-- 时间段标签与篇数 -->
-                  <span class="timeline-label flex items-baseline gap-1.5 text-xs text-muted-foreground transition-all duration-200 group-hover:text-foreground">
-                    <span class="font-medium tracking-tight">
-                      {period.label}
-                    </span>
-                    <span class="text-[10px] font-mono opacity-60">
-                      ({period.count})
-                    </span>
+                  <span class="text-[10px] opacity-60">
+                    ({period.count})
                   </span>
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-      </div>
+                </span>
+              </a>
+            </li>
+          ))}
+        </ul>
+      </nav>
     </aside>
   )
 }
@@ -85,15 +63,19 @@ const { periods } = Astro.props;
       removeScrollListener = null;
     }
 
-    const links = Array.from(
-      document.querySelectorAll<HTMLAnchorElement>(".timeline-node-link")
+    const jumpLinks = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>(
+        ".timeline-node-link, a[href^='#date-'], a[href^='#month-'], a[href^='#year-']"
+      )
     );
-    if (!links.length) return;
 
     // 平滑点击跳转
-    links.forEach(link => {
+    jumpLinks.forEach(link => {
       link.addEventListener("click", e => {
-        const targetId = link.getAttribute("data-timeline-target");
+        const href = link.getAttribute("href") || "";
+        const targetId =
+          link.getAttribute("data-timeline-target") ||
+          (href.startsWith("#") ? href.slice(1) : "");
         if (!targetId) return;
         const targetEl = document.getElementById(targetId);
         if (targetEl) {
@@ -103,6 +85,11 @@ const { periods } = Astro.props;
         }
       });
     });
+
+    const links = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>(".timeline-node-link")
+    );
+    if (!links.length) return;
 
     const sections = links
       .map(link => {
@@ -116,7 +103,7 @@ const { periods } = Astro.props;
     let ticking = false;
 
     function updateActiveNode() {
-      const threshold = 150;
+      const threshold = 180;
       let currentActiveId: string | null = null;
 
       for (let i = 0; i < sections.length; i++) {
@@ -150,7 +137,7 @@ const { periods } = Astro.props;
             "shadow-xs"
           );
           innerDot?.classList.add("!bg-background");
-          label?.classList.add("!text-accent", "font-semibold");
+          label?.classList.add("!text-accent", "!font-semibold");
         } else {
           link.classList.remove("is-active");
           dot?.classList.remove(
@@ -162,7 +149,7 @@ const { periods } = Astro.props;
             "shadow-xs"
           );
           innerDot?.classList.remove("!bg-background");
-          label?.classList.remove("!text-accent", "font-semibold");
+          label?.classList.remove("!text-accent", "!font-semibold");
         }
       });
     }
