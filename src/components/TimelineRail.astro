@@ -1,0 +1,189 @@
+---
+import type { TimePeriod } from "@/utils/getTimePeriods";
+
+type Props = {
+  periods: TimePeriod[];
+};
+
+const { periods } = Astro.props;
+---
+
+{
+  periods.length > 0 && (
+    <aside
+      aria-label="时间段导航"
+      class="hidden xl:block timeline-desktop-rail select-none"
+    >
+      <div class="rounded-2xl border border-border/70 bg-surface/85 dark:bg-surface/30 p-4 backdrop-blur-md shadow-xs transition-all duration-300">
+        <!-- 头部小标头 -->
+        <div class="mb-3.5 flex items-center gap-2 pb-2.5 border-b border-border/70 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <svg
+            class="size-4 text-accent"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <circle cx="12" cy="12" r="10" />
+            <polyline points="12 6 12 12 16 14" />
+          </svg>
+          <span>时间段导航</span>
+          <span class="ms-auto rounded-full bg-muted/70 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
+            {periods.length}
+          </span>
+        </div>
+
+        <!-- 极简竖线与点容器 -->
+        <nav class="relative py-1">
+          <!-- 垂直竖线（从第一个圆点中心延伸到最后一个圆点中心） -->
+          <div
+            aria-hidden="true"
+            class="timeline-rail-line absolute left-[6px] top-[14px] bottom-[14px] w-[1.5px] bg-border/80 dark:bg-border/60 rounded-full"
+          />
+
+          <ul class="space-y-3.5">
+            {periods.map(period => (
+              <li>
+                <a
+                  href={`#${period.id}`}
+                  data-timeline-target={period.id}
+                  class="timeline-node-link group flex items-center gap-3 py-0.5 transition-all duration-200 outline-none"
+                  title={`${period.label} (${period.count} 篇)`}
+                >
+                  <!-- 节点小圆点 -->
+                  <span class="timeline-dot relative z-10 flex size-3.5 items-center justify-center rounded-full border-2 border-border/90 bg-background dark:bg-surface transition-all duration-200 group-hover:border-accent group-hover:scale-125">
+                    <span class="timeline-dot-inner size-1 rounded-full bg-transparent transition-all duration-200 group-hover:bg-accent" />
+                  </span>
+
+                  <!-- 时间段标签与篇数 -->
+                  <span class="timeline-label flex items-baseline gap-1.5 text-xs text-muted-foreground transition-all duration-200 group-hover:text-foreground">
+                    <span class="font-medium tracking-tight">
+                      {period.label}
+                    </span>
+                    <span class="text-[10px] font-mono opacity-60">
+                      ({period.count})
+                    </span>
+                  </span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+      </div>
+    </aside>
+  )
+}
+
+<script>
+  let removeScrollListener: (() => void) | null = null;
+
+  function initTimelineScrollSpy() {
+    if (removeScrollListener) {
+      removeScrollListener();
+      removeScrollListener = null;
+    }
+
+    const links = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>(".timeline-node-link")
+    );
+    if (!links.length) return;
+
+    // 平滑点击跳转
+    links.forEach(link => {
+      link.addEventListener("click", e => {
+        const targetId = link.getAttribute("data-timeline-target");
+        if (!targetId) return;
+        const targetEl = document.getElementById(targetId);
+        if (targetEl) {
+          e.preventDefault();
+          targetEl.scrollIntoView({ behavior: "smooth" });
+          history.replaceState(null, "", `#${targetId}`);
+        }
+      });
+    });
+
+    const sections = links
+      .map(link => {
+        const id = link.getAttribute("data-timeline-target");
+        return id ? document.getElementById(id) : null;
+      })
+      .filter((el): el is HTMLElement => el !== null);
+
+    if (!sections.length) return;
+
+    let ticking = false;
+
+    function updateActiveNode() {
+      const threshold = 150;
+      let currentActiveId: string | null = null;
+
+      for (let i = 0; i < sections.length; i++) {
+        const rect = sections[i].getBoundingClientRect();
+        if (rect.top <= threshold) {
+          currentActiveId = sections[i].id;
+        } else {
+          break;
+        }
+      }
+
+      if (!currentActiveId && sections.length > 0) {
+        currentActiveId = sections[0].id;
+      }
+
+      links.forEach(link => {
+        const id = link.getAttribute("data-timeline-target");
+        const dot = link.querySelector(".timeline-dot");
+        const innerDot = link.querySelector(".timeline-dot-inner");
+        const label = link.querySelector(".timeline-label");
+        const isActive = id === currentActiveId;
+
+        if (isActive) {
+          link.classList.add("is-active");
+          dot?.classList.add(
+            "!border-accent",
+            "!bg-accent",
+            "scale-125",
+            "ring-4",
+            "ring-accent/20",
+            "shadow-xs"
+          );
+          innerDot?.classList.add("!bg-background");
+          label?.classList.add("!text-accent", "font-semibold");
+        } else {
+          link.classList.remove("is-active");
+          dot?.classList.remove(
+            "!border-accent",
+            "!bg-accent",
+            "scale-125",
+            "ring-4",
+            "ring-accent/20",
+            "shadow-xs"
+          );
+          innerDot?.classList.remove("!bg-background");
+          label?.classList.remove("!text-accent", "font-semibold");
+        }
+      });
+    }
+
+    function onScroll() {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          updateActiveNode();
+          ticking = false;
+        });
+        ticking = true;
+      }
+    }
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    updateActiveNode();
+
+    removeScrollListener = () => {
+      window.removeEventListener("scroll", onScroll);
+    };
+  }
+
+  document.addEventListener("astro:page-load", initTimelineScrollSpy);
+</script>

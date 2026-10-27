@@ -8,7 +8,9 @@ import Main from "@/components/Main.astro";
 import Card from "@/components/Card.astro";
 import Footer from "@/components/Footer.astro";
 import Pagination from "@/components/Pagination.astro";
+import TimelineRail from "@/components/TimelineRail.astro";
 import { getSortedPosts } from "@/utils/getSortedPosts";
+import { getTimePeriods } from "@/utils/getTimePeriods";
 import { useTranslations } from "@/i18n";
 import config from "@/config";
 
@@ -21,6 +23,7 @@ const { page } = Astro.props;
 
 const locale = Astro.currentLocale ?? config.site.lang;
 const t = useTranslations(locale);
+const periods = getTimePeriods(page.data, locale, config.site.timezone);
 ---
 
 <Layout title={`${t.pages.postsTitle} | ${config.site.title}`}>
@@ -29,9 +32,56 @@ const t = useTranslations(locale);
   <Breadcrumb />
 
   <Main pageTitle={t.pages.postsTitle} pageDesc={t.pages.postsDesc}>
-    <ul>
-      {page.data.map(data => <Card {...data} />)}
-    </ul>
+    <!-- 左侧悬浮极简时间导航线 (桌面端) -->
+    <TimelineRail {periods} />
+
+    <!-- 移动端微型快捷跳转药丸 (仅在窄屏下展示，且仅当节点 > 1 时出现) -->
+    {
+      periods.length > 1 && (
+        <div class="xl:hidden -mt-2 mb-6 flex items-center gap-2 overflow-x-auto pb-2 text-xs scrollbar-none">
+          <span class="text-muted-foreground shrink-0 font-medium text-[11px] uppercase tracking-wider">
+            时间段:
+          </span>
+          {periods.map(period => (
+            <a
+              href={`#${period.id}`}
+              class="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface/80 px-2.5 py-1 text-muted-foreground hover:border-accent hover:text-accent transition-colors"
+            >
+              <span class="size-1.5 rounded-full bg-accent/70" />
+              <span>{period.label}</span>
+              <span class="text-[10px] font-mono opacity-60">
+                ({period.count})
+              </span>
+            </a>
+          ))}
+        </div>
+      )
+    }
+
+    <!-- 文章列表按时间段组织 -->
+    <div class="space-y-10">
+      {
+        periods.map(period => (
+          <section id={period.id} class="period-section scroll-mt-24">
+            <!-- 极简时间段分割与节点标尺 -->
+            <div class="mb-4 flex items-center gap-2.5 text-xs sm:text-sm font-semibold tracking-wide text-muted-foreground">
+              <span class="inline-block size-2 rounded-full bg-accent/80 ring-4 ring-accent/15" />
+              <span class="text-foreground/90 font-medium">{period.label}</span>
+              <span class="text-xs text-muted-foreground/60 font-mono font-normal">
+                ({period.count} 篇)
+              </span>
+              <div class="h-px flex-1 bg-border/60 ms-2" />
+            </div>
+
+            <ul>
+              {period.posts.map(data => (
+                <Card {...data} />
+              ))}
+            </ul>
+          </section>
+        ))
+      }
+    </div>
   </Main>
 
   <Pagination {page} />
