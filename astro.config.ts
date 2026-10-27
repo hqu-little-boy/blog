@@ -17,6 +17,7 @@ import {
   transformerNotationWordHighlight,
 } from "@shikijs/transformers";
 import { transformerFileName } from "./src/utils/transformers/fileName";
+import { remarkDiagrams } from "./src/utils/plugins/remark-diagrams";
 import config from "./astro-paper.config";
 
 export default defineConfig({
@@ -38,13 +39,14 @@ export default defineConfig({
   markdown: {
     processor: unified({
       remarkPlugins: [
+        remarkDiagrams,
         remarkToc,
         [remarkCollapse, { test: "Table of contents" }],
       ],
       rehypePlugins: [rehypeCallouts],
     }),
     shikiConfig: {
-      themes: { light: "min-light", dark: "night-owl" },
+      themes: { light: "github-light", dark: "github-dark" },
       defaultColor: false,
       wrap: false,
       transformers: [

@@ -136,4 +136,38 @@
       @apply border-border rounded-sm border px-0.5 py-px;
     }
   }
+
+  /* ===== Diagrams (Mermaid & Graphviz) ===== */
+  .mermaid-wrapper,
+  .graphviz-wrapper {
+    @apply my-6 flex flex-col items-center justify-center overflow-x-auto rounded-2xl border border-border/70 bg-surface/50 p-6 transition-all duration-300 shadow-xs dark:bg-surface/30;
+  }
+
+  .mermaid-wrapper svg,
+  .graphviz-wrapper svg {
+    @apply max-w-full h-auto;
+  }
+
+  .graphviz-wrapper svg text {
+    fill: var(--color-foreground) !important;
+    font-family: var(--font-app-sans) !important;
+  }
+
+  .graphviz-wrapper svg .node ellipse,
+  .graphviz-wrapper svg .node polygon,
+  .graphviz-wrapper svg .node path {
+    stroke: var(--color-accent) !important;
+    fill: var(--color-surface-container) !important;
+    stroke-width: 1.5px !important;
+  }
+
+  .graphviz-wrapper svg .edge path {
+    stroke: var(--color-muted-foreground) !important;
+    stroke-width: 1.5px !important;
+  }
+
+  .graphviz-wrapper svg .edge polygon {
+    stroke: var(--color-muted-foreground) !important;
+    fill: var(--color-muted-foreground) !important;
+  }
 }

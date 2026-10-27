@@ -218,10 +218,16 @@ const ogImage = ogImageUrl
   addHeadingLinks();
 
   function attachCopyButtons() {
-    const copyButtonLabel = "Copy";
-    const codeBlocks = Array.from(document.querySelectorAll("pre"));
+    const copyButtonLabel = "复制";
+    const copiedLabel = "已复制";
+    const copyIcon = `<svg class="size-3.5 inline-block me-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>`;
+    const checkIcon = `<svg class="size-3.5 inline-block me-1 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>`;
+
+    const codeBlocks = Array.from(document.querySelectorAll("pre:not(.mermaid)"));
 
     for (const codeBlock of codeBlocks) {
+      if (codeBlock.querySelector(".copy-code")) continue;
+
       const wrapper = document.createElement("div");
       wrapper.style.position = "relative";
 
@@ -231,11 +237,11 @@ const ogImage = ogImageUrl
 
       const topClass = hasFileNameOffset
         ? "top-(--file-name-offset)"
-        : "-top-3";
+        : "-top-3.5";
 
       const copyButton = document.createElement("button");
-      copyButton.className = `copy-code absolute end-3 ${topClass} rounded bg-muted border border-muted px-2 py-1 text-xs leading-4 text-foreground font-medium`;
-      copyButton.innerHTML = copyButtonLabel;
+      copyButton.className = `copy-code absolute end-3 ${topClass} rounded-full border border-border/80 bg-surface/90 dark:bg-surface px-2.5 py-0.5 text-xs font-medium text-muted-foreground shadow-xs hover:border-accent/40 hover:bg-accent/15 hover:text-accent transition-all duration-200 inline-flex items-center select-none cursor-pointer z-10`;
+      copyButton.innerHTML = `${copyIcon}<span>${copyButtonLabel}</span>`;
       codeBlock.setAttribute("tabindex", "0");
       codeBlock.appendChild(copyButton);
 
@@ -253,11 +259,11 @@ const ogImage = ogImageUrl
 
       await navigator.clipboard.writeText(text ?? "");
 
-      button.innerText = "Copied";
+      button.innerHTML = `${checkIcon}<span class="text-accent">${copiedLabel}</span>`;
 
       setTimeout(() => {
-        button.innerText = copyButtonLabel;
-      }, 700);
+        button.innerHTML = `${copyIcon}<span>${copyButtonLabel}</span>`;
+      }, 1200);
     }
   }
   attachCopyButtons();
