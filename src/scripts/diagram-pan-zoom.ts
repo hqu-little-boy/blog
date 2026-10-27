@@ -18,6 +18,26 @@ interface DiagramState {
 let activeModal: HTMLElement | null = null;
 let closeModalHandler: (() => void) | null = null;
 
+/**
+ * Accurately finds the diagram SVG inside a wrapper, strictly ignoring toolbar and hint icons.
+ */
+function getDiagramSvg(wrapper: HTMLElement): SVGElement | null {
+  // 1. Direct canvas/viewport/mermaid child svg
+  const canvasSvg = wrapper.querySelector<SVGElement>(".diagram-canvas svg");
+  if (canvasSvg && !canvasSvg.closest(".diagram-toolbar, .diagram-hint")) return canvasSvg;
+
+  const mermaidSvg = wrapper.querySelector<SVGElement>(".mermaid svg");
+  if (mermaidSvg && !mermaidSvg.closest(".diagram-toolbar, .diagram-hint")) return mermaidSvg;
+
+  const viewportSvg = wrapper.querySelector<SVGElement>(".diagram-viewport svg");
+  if (viewportSvg && !viewportSvg.closest(".diagram-toolbar, .diagram-hint")) return viewportSvg;
+
+  // 2. Fallback: find any SVG that does NOT belong to toolbar or hint
+  const allSvgs = Array.from(wrapper.querySelectorAll<SVGElement>("svg"));
+  const diagramSvg = allSvgs.find(s => !s.closest(".diagram-toolbar, .diagram-hint"));
+  return diagramSvg ?? null;
+}
+
 function applyTransform(canvas: HTMLElement, state: DiagramState) {
   canvas.style.transform = `translate(${state.translateX}px, ${state.translateY}px) scale(${state.scale})`;
   canvas.style.transformOrigin = "center center";
@@ -44,7 +64,7 @@ function initDiagramWrapper(wrapper: HTMLElement) {
   if (!viewport || !canvas) {
     const target =
       wrapper.querySelector(".mermaid") ||
-      wrapper.querySelector("svg");
+      getDiagramSvg(wrapper);
     if (!target) return;
 
     viewport = document.createElement("div");
@@ -257,7 +277,7 @@ function initDiagramWrapper(wrapper: HTMLElement) {
 function openFullscreenDiagram(wrapper: HTMLElement) {
   if (activeModal) return;
 
-  const originalSvg = wrapper.querySelector("svg");
+  const originalSvg = getDiagramSvg(wrapper);
   if (!originalSvg) return;
 
   // Clone SVG - keep ID intact so Mermaid internal CSS (#id selectors) and markers work properly!
