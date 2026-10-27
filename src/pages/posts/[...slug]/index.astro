@@ -14,6 +14,7 @@ import ShareLinks from "./_components/ShareLinks.astro";
 import BackButton from "./_components/BackButton.astro";
 import BackToTopButton from "./_components/BackToTopButton.astro";
 import AdjacentPostNav from "./_components/AdjacentPostNav.astro";
+import TableOfContents from "./_components/TableOfContents.astro";
 import config from "@/config";
 
 export async function getStaticPaths() {
@@ -73,7 +74,8 @@ const {
   hideEditPost,
 } = post.data;
 
-const { Content } = await render(post);
+const { Content, headings } = await render(post);
+const tocHeadings = headings.filter(h => h.depth >= 2 && h.depth <= 4);
 
 let ogImageUrl: string | undefined;
 
@@ -106,60 +108,114 @@ const ogImage = ogImageUrl
 >
   <Header />
 
-  <BackButton />
+  <BackButton class="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8" />
 
   <main
     id="main-content"
-    class:list={["app-layout", { "mt-8": !config.features.showBackButton }]}
+    class:list={[
+      "mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 pb-12",
+      { "mt-8": !config.features.showBackButton },
+    ]}
     data-pagefind-body
   >
-    <h1
-      style={{ viewTransitionName: toTransitionName(post.id) }}
-      class="text-accent inline-block text-2xl font-bold sm:text-3xl"
-    >
-      {title}
-    </h1>
-
-    <div class="my-2 flex items-center gap-2">
-      <Datetime {pubDatetime} {modDatetime} {timezone} size="lg" />
-      <span
-        aria-hidden="true"
-        class:list={[
-          "text-muted-foreground max-sm:hidden",
-          { hidden: !config.features.editPost?.enabled || hideEditPost },
-        ]}
-      >
-        |
-      </span>
-      <EditPost {hideEditPost} {post} class="max-sm:hidden" />
-    </div>
-
-    <article
-      id="article"
+    <div
       class:list={[
-        "mt-8 w-full",
-        "app-prose max-w-app",
-        "prose-pre:bg-(--shiki-light-bg) dark:prose-pre:bg-(--shiki-dark-bg)",
+        "items-start",
+        tocHeadings.length > 0
+          ? "lg:grid lg:grid-cols-[250px_1fr] lg:gap-10 xl:grid-cols-[270px_1fr] xl:gap-14"
+          : "max-w-3xl mx-auto",
       ]}
     >
-      <Content />
-    </article>
+      {/* Left Sidebar: Sticky TOC on Desktop */}
+      {
+        tocHeadings.length > 0 && (
+          <aside class="hidden lg:block sticky top-24 max-h-[calc(100vh-7rem)] overflow-y-auto pr-2 pb-6 scrollbar-thin">
+            <div class="rounded-2xl border border-border/70 bg-surface/60 dark:bg-surface/20 p-4.5 backdrop-blur-xs shadow-xs">
+              <TableOfContents headings={tocHeadings} />
+            </div>
+          </aside>
+        )
+      }
 
-    <hr class="my-8 border-dashed" />
+      {/* Main Post Content */}
+      <div class="min-w-0 max-w-3xl">
+        <h1
+          style={{ viewTransitionName: toTransitionName(post.id) }}
+          class="text-accent inline-block text-2xl font-bold sm:text-3xl"
+        >
+          {title}
+        </h1>
 
-    <EditPost class="sm:hidden" {hideEditPost} {post} />
+        <div class="my-2 flex items-center gap-2">
+          <Datetime {pubDatetime} {modDatetime} {timezone} size="lg" />
+          <span
+            aria-hidden="true"
+            class:list={[
+              "text-muted-foreground max-sm:hidden",
+              { hidden: !config.features.editPost?.enabled || hideEditPost },
+            ]}
+          >
+            |
+          </span>
+          <EditPost {hideEditPost} {post} class="max-sm:hidden" />
+        </div>
 
-    <BackToTopButton />
+        {/* Mobile / Tablet Collapsible TOC */}
+        {
+          tocHeadings.length > 0 && (
+            <details class="lg:hidden my-6 rounded-2xl border border-border/70 bg-surface/60 dark:bg-surface/30 p-4 transition-all">
+              <summary class="cursor-pointer font-medium text-sm text-foreground flex items-center justify-between select-none">
+                <span class="inline-flex items-center gap-2">
+                  <svg
+                    class="size-4 text-accent"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M4 6h16M4 12h10M4 18h14" />
+                  </svg>
+                  <span>本文目录 ({tocHeadings.length})</span>
+                </span>
+                <span class="text-xs text-muted-foreground">展开 / 收起</span>
+              </summary>
+              <div class="mt-3 pt-3 border-t border-border/50">
+                <TableOfContents headings={tocHeadings} isMobile />
+              </div>
+            </details>
+          )
+        }
 
-    <ul class="mt-4 mb-8 flex flex-wrap gap-4 sm:my-8">
-      {tags.map(tag => <Tag tag={slugifyStr(tag)} tagName={tag} size="sm" />)}
-    </ul>
+        <article
+          id="article"
+          class:list={[
+            "mt-8 w-full",
+            "app-prose max-w-none",
+            "prose-pre:bg-(--shiki-light-bg) dark:prose-pre:bg-(--shiki-dark-bg)",
+          ]}
+        >
+          <Content />
+        </article>
 
-    <ShareLinks />
+        <hr class="my-8 border-dashed" />
 
-    <hr class="my-8 border-dashed" />
+        <EditPost class="sm:hidden" {hideEditPost} {post} />
 
-    <AdjacentPostNav {prevPost} {nextPost} />
+        <BackToTopButton />
+
+        <ul class="mt-4 mb-8 flex flex-wrap gap-4 sm:my-8">
+          {tags.map(tag => <Tag tag={slugifyStr(tag)} tagName={tag} size="sm" />)}
+        </ul>
+
+        <ShareLinks />
+
+        <hr class="my-8 border-dashed" />
+
+        <AdjacentPostNav {prevPost} {nextPost} />
+      </div>
+    </div>
   </main>
   <Footer />
 </PostLayout>

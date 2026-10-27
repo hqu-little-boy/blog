@@ -1,0 +1,150 @@
+---
+import type { MarkdownHeading } from "astro";
+
+type Props = {
+  headings: MarkdownHeading[];
+  isMobile?: boolean;
+};
+
+const { headings, isMobile = false } = Astro.props;
+
+// Filter headings to h2, h3, h4
+const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
+---
+
+{
+  toc.length > 0 && (
+    <nav class:list={["toc-nav select-none", { "py-1": isMobile }]}>
+      {!isMobile && (
+        <div class="mb-3.5 flex items-center gap-2 pb-2.5 border-b border-border/70 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          <svg
+            class="size-4 text-accent"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="M4 6h16M4 12h10M4 18h14" />
+          </svg>
+          <span>本文目录</span>
+          <span class="ms-auto rounded-full bg-muted/70 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
+            {toc.length}
+          </span>
+        </div>
+      )}
+
+      <ul class="space-y-1 text-sm max-h-[calc(100vh-10rem)] overflow-y-auto pr-1">
+        {toc.map(heading => {
+          const depth = heading.depth;
+
+          return (
+            <li>
+              <a
+                href={`#${heading.slug}`}
+                data-slug={heading.slug}
+                class:list={[
+                  "toc-link block rounded-lg px-2.5 py-1.5 transition-all duration-200 line-clamp-1 border-s-2 border-transparent",
+                  "hover:bg-accent/15 hover:text-accent hover:border-accent/40",
+                  {
+                    "font-medium text-foreground/90 text-sm": depth === 2,
+                    "ps-5 text-xs text-muted-foreground font-normal": depth === 3,
+                    "ps-8 text-xs text-muted-foreground/80 font-normal": depth === 4,
+                  },
+                ]}
+                title={heading.text}
+              >
+                {heading.text}
+              </a>
+            </li>
+          );
+        })}
+      </ul>
+    </nav>
+  )
+}
+
+<script>
+  function setupTocScrollSpy() {
+    const links = document.querySelectorAll<HTMLAnchorElement>(".toc-link");
+    if (!links.length) return;
+
+    const headings = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        "article h2, article h3, article h4"
+      )
+    );
+    if (!headings.length) return;
+
+    // Mobile: close details on link click
+    links.forEach(link => {
+      link.addEventListener("click", () => {
+        const details = link.closest("details");
+        if (details) {
+          details.removeAttribute("open");
+        }
+      });
+    });
+
+    let ticking = false;
+
+    function updateActiveHeading() {
+      // 120px offset to account for sticky header
+      const scrollPosition = window.scrollY + 120;
+      let currentSlug = "";
+
+      for (let i = 0; i < headings.length; i++) {
+        const h = headings[i];
+        if (h.offsetTop <= scrollPosition) {
+          currentSlug = h.id;
+        } else {
+          break;
+        }
+      }
+
+      // If at top of page, clear or select first
+      if (window.scrollY < 100) {
+        currentSlug = "";
+      }
+
+      links.forEach(link => {
+        const slug = link.dataset.slug;
+        const isActive = slug === currentSlug;
+
+        if (isActive) {
+          link.classList.add(
+            "bg-accent/15",
+            "text-accent",
+            "font-semibold",
+            "border-accent"
+          );
+          link.classList.remove("border-transparent");
+        } else {
+          link.classList.remove(
+            "bg-accent/15",
+            "text-accent",
+            "font-semibold",
+            "border-accent"
+          );
+          link.classList.add("border-transparent");
+        }
+      });
+    }
+
+    function onScroll() {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          updateActiveHeading();
+          ticking = false;
+        });
+        ticking = true;
+      }
+    }
+
+    window.addEventListener("scroll", onScroll, { passive: true });
+    updateActiveHeading();
+  }
+
+  document.addEventListener("astro:page-load", setupTocScrollSpy);
+</script>

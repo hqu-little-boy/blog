@@ -42,6 +42,13 @@
 }
 
 :target {
-  scroll-margin-block: 1rem;
+  scroll-margin-block: 5rem;
+}
+
+article h1,
+article h2,
+article h3,
+article h4 {
+  scroll-margin-top: 5.5rem;
 }
 
