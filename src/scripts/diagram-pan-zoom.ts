@@ -260,14 +260,48 @@ function openFullscreenDiagram(wrapper: HTMLElement) {
   const originalSvg = wrapper.querySelector("svg");
   if (!originalSvg) return;
 
-  // Clone SVG
+  // Clone SVG - keep ID intact so Mermaid internal CSS (#id selectors) and markers work properly!
   const clonedSvg = originalSvg.cloneNode(true) as SVGElement;
+
+  // Extract native viewBox dimensions or fallback to bounding client rect
+  const viewBox = originalSvg.getAttribute("viewBox");
+  let naturalW = 800;
+  let naturalH = 500;
+
+  if (viewBox) {
+    const parts = viewBox.trim().split(/[\s,]+/).map(Number);
+    if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+      naturalW = parts[2];
+      naturalH = parts[3];
+    }
+  } else {
+    const rect = originalSvg.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      naturalW = rect.width;
+      naturalH = rect.height;
+    }
+  }
+
+  // Calculate initial responsive display size: fit comfortably inside 88vw and 78vh
+  const availableW = window.innerWidth * 0.88;
+  const availableH = Math.max(window.innerHeight - 90, 200) * 0.82;
+  const aspect = naturalW / naturalH;
+
+  let initialW = availableW;
+  let initialH = initialW / aspect;
+
+  if (initialH > availableH) {
+    initialH = availableH;
+    initialW = initialH * aspect;
+  }
+
+  // Set explicit dimensions on cloned SVG so it NEVER collapses to 0 in flexbox
+  clonedSvg.style.width = `${Math.round(initialW)}px`;
+  clonedSvg.style.height = `${Math.round(initialH)}px`;
   clonedSvg.style.maxWidth = "none";
   clonedSvg.style.maxHeight = "none";
-  clonedSvg.style.width = "auto";
-  clonedSvg.style.height = "auto";
   clonedSvg.style.display = "block";
-  clonedSvg.removeAttribute("id");
+  clonedSvg.style.overflow = "visible";
 
   // Create modal backdrop
   const modal = document.createElement("div");
@@ -552,6 +586,11 @@ export function setupDiagramPanZoom() {
 }
 
 // Lifecycle listeners
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", setupDiagramPanZoom);
+} else {
+  setupDiagramPanZoom();
+}
 document.addEventListener("astro:page-load", setupDiagramPanZoom);
 document.addEventListener("astro:before-swap", () => {
   if (closeModalHandler) {

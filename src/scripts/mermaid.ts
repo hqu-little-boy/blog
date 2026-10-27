@@ -6,9 +6,19 @@ import { setupDiagramPanZoom } from "./diagram-pan-zoom";
  * Supports theme toggling and Astro View Transitions.
  */
 
+function decodeHtml(html: string): string {
+  const txt = document.createElement("textarea");
+  txt.innerHTML = html;
+  return txt.value;
+}
+
+let isRendering = false;
+
 async function renderMermaid() {
   const elements = document.querySelectorAll<HTMLElement>(".mermaid");
   if (!elements || elements.length === 0) return;
+  if (isRendering) return;
+  isRendering = true;
 
   try {
     const { default: mermaid } = await import("mermaid");
@@ -17,7 +27,7 @@ async function renderMermaid() {
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "loose",
-      fontFamily: "var(--font-app-sans)",
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
       theme: isDark ? "dark" : "base",
       themeVariables: isDark
         ? {
@@ -68,18 +78,16 @@ async function renderMermaid() {
 
     for (let i = 0; i < elements.length; i++) {
       const el = elements[i];
-      const source = el.dataset.source || el.textContent || "";
-      if (!source.trim()) continue;
-
-      el.removeAttribute("data-processed");
-      el.textContent = source;
+      const rawSource = el.dataset.source || el.textContent || "";
+      const source = decodeHtml(rawSource).trim();
+      if (!source) continue;
 
       try {
-        const uniqueId = `mermaid-chart-${Date.now()}-${i}`;
+        const uniqueId = `mermaid-svg-${Date.now()}-${i}`;
         const { svg } = await mermaid.render(uniqueId, source);
         el.innerHTML = svg;
       } catch (renderError) {
-        console.error("[Mermaid] Render error:", renderError);
+        console.error("[Mermaid] Render error on diagram", i, renderError);
       }
     }
 
@@ -87,10 +95,17 @@ async function renderMermaid() {
     setupDiagramPanZoom();
   } catch (loadError) {
     console.error("[Mermaid] Failed to load library:", loadError);
+  } finally {
+    isRendering = false;
   }
 }
 
-// Attach to ViewTransitions and initial page load
+// Lifecycle listeners: run immediately if DOM is ready, or on DOMContentLoaded, AND on astro:page-load
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", renderMermaid);
+} else {
+  renderMermaid();
+}
 document.addEventListener("astro:page-load", renderMermaid);
 
 // Re-render when theme changes (light <-> dark)
