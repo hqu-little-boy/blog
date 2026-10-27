@@ -8,7 +8,6 @@ import Main from "@/components/Main.astro";
 import Card from "@/components/Card.astro";
 import Footer from "@/components/Footer.astro";
 import Pagination from "@/components/Pagination.astro";
-import TimelineRail from "@/components/TimelineRail.astro";
 import { getSortedPosts } from "@/utils/getSortedPosts";
 import { getTimePeriods } from "@/utils/getTimePeriods";
 import { useTranslations } from "@/i18n";
@@ -32,23 +31,20 @@ const periods = getTimePeriods(page.data, locale, config.site.timezone);
   <Breadcrumb />
 
   <Main pageTitle={t.pages.postsTitle} pageDesc={t.pages.postsDesc}>
-    <!-- 左侧悬浮极简时间导航线 (桌面端) -->
-    <TimelineRail {periods} />
-
-    <!-- 移动端微型快捷跳转药丸 (仅在窄屏下展示，且仅当节点 > 1 时出现) -->
+    <!-- 快捷时间段跳转 (当存在多个时间段时展示，支持点击平滑直达各时间段) -->
     {
       periods.length > 1 && (
-        <div class="lg:hidden -mt-2 mb-6 flex items-center gap-2 overflow-x-auto pb-2 text-xs scrollbar-none">
+        <div class="-mt-2 mb-8 flex items-center gap-2 overflow-x-auto pb-2 text-xs scrollbar-none">
           <span class="text-muted-foreground shrink-0 font-medium text-[11px] uppercase tracking-wider">
-            时间段:
+            时间段跳转:
           </span>
           {periods.map(period => (
             <a
               href={`#${period.id}`}
-              class="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface/80 px-2.5 py-1 text-muted-foreground hover:border-accent hover:text-accent transition-colors"
+              class="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface/80 hover:bg-accent/10 px-3 py-1 text-muted-foreground hover:border-accent hover:text-accent transition-all duration-200"
             >
               <span class="size-1.5 rounded-full bg-accent/70" />
-              <span>{period.label}</span>
+              <span class="font-medium">{period.label}</span>
               <span class="text-[10px] font-mono opacity-60">
                 ({period.count})
               </span>
@@ -64,23 +60,29 @@ const periods = getTimePeriods(page.data, locale, config.site.timezone);
         periods.map(period => (
           <section id={period.id} class="period-section relative scroll-mt-28">
             <!-- 嵌在左侧竖线中心的时间节点圆点 -->
-            <div
-              class="absolute -start-[32px] sm:-start-[40px] top-1 flex items-center justify-center"
-              aria-hidden="true"
+            <a
+              href={`#${period.id}`}
+              title={`定位到 ${period.label}`}
+              class="absolute -start-[32px] sm:-start-[40px] top-1 flex items-center justify-center outline-none group"
             >
-              <span class="flex size-3.5 items-center justify-center rounded-full border-2 border-accent bg-background dark:bg-background ring-4 ring-background">
+              <span class="flex size-3.5 items-center justify-center rounded-full border-2 border-accent bg-background dark:bg-background ring-4 ring-background transition-transform duration-200 group-hover:scale-125">
                 <span class="size-1.5 rounded-full bg-accent" />
               </span>
-            </div>
+            </a>
 
             <!-- 时间段展示与篇数 -->
             <div class="flex items-center gap-2 mb-4">
-              <span class="text-base sm:text-lg font-semibold tracking-tight text-foreground">
-                {period.label}
-              </span>
-              <span class="rounded-full bg-muted/70 px-2.5 py-0.5 text-xs font-mono text-muted-foreground">
-                {period.count} 篇
-              </span>
+              <a
+                href={`#${period.id}`}
+                class="hover:text-accent transition-colors flex items-center gap-2"
+              >
+                <span class="text-base sm:text-lg font-semibold tracking-tight text-foreground">
+                  {period.label}
+                </span>
+                <span class="rounded-full bg-muted/70 px-2.5 py-0.5 text-xs font-mono text-muted-foreground">
+                  {period.count} 篇
+                </span>
+              </a>
             </div>
 
             <ul class="space-y-4">
@@ -98,3 +100,29 @@ const periods = getTimePeriods(page.data, locale, config.site.timezone);
 
   <Footer noMarginTop={page.lastPage > 1} />
 </Layout>
+
+<script>
+  function setupTimelineSmoothScroll() {
+    const jumpLinks = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>(
+        "a[href^='#date-'], a[href^='#month-'], a[href^='#year-']"
+      )
+    );
+
+    jumpLinks.forEach(link => {
+      link.addEventListener("click", e => {
+        const href = link.getAttribute("href") || "";
+        const targetId = href.startsWith("#") ? href.slice(1) : "";
+        if (!targetId) return;
+        const targetEl = document.getElementById(targetId);
+        if (targetEl) {
+          e.preventDefault();
+          targetEl.scrollIntoView({ behavior: "smooth" });
+          history.replaceState(null, "", `#${targetId}`);
+        }
+      });
+    });
+  }
+
+  document.addEventListener("astro:page-load", setupTimelineSmoothScroll);
+</script>

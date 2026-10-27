@@ -68,20 +68,4 @@ article h4 {
   }
 }
 
-/* Floating desktop Timeline Rail pinned to the left gutter on posts list */
-.timeline-desktop-rail {
-  position: fixed;
-  top: 10.5rem;
-  right: calc(50% + 24rem + 1rem);
-  width: max-content;
-  max-width: 12rem;
-  z-index: 25;
-}
-
-@media (min-width: 1536px) {
-  .timeline-desktop-rail {
-    right: calc(50% + 24rem + 1.75rem);
-  }
-}
-
 
