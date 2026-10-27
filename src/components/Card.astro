@@ -1,0 +1,61 @@
+---
+import type { CollectionEntry } from "astro:content";
+import { getPostUrl } from "@/utils/getPostPaths";
+import { toTransitionName } from "@/utils/toTransitionName";
+import Datetime from "./Datetime.astro";
+
+type Props = {
+  variant?: "h2" | "h3";
+} & CollectionEntry<"posts">;
+
+const { variant: Heading = "h2", id, data, filePath } = Astro.props;
+
+const { title, description, tags, ...props } = data;
+const postUrl = getPostUrl(id, filePath, Astro.currentLocale);
+---
+
+<li
+  class="group relative my-4 rounded-2xl border border-border/70 bg-surface/60 dark:bg-surface/30 p-5 sm:p-6 transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] hover:-translate-y-1 hover:border-accent/40 hover:bg-surface-container/60 dark:hover:bg-surface-container/50 hover:shadow-lg dark:hover:shadow-black/25"
+>
+  <a
+    href={postUrl}
+    class="absolute inset-0 z-10 rounded-2xl focus-visible:outline-accent focus-visible:outline-2 focus-visible:ring-2 focus-visible:ring-accent/40"
+    aria-label={title}
+  ></a>
+
+  <div class="relative z-0">
+    <a
+      href={postUrl}
+      class="text-foreground transition-colors duration-200 group-hover:text-accent"
+      tabindex="-1"
+    >
+      <Heading
+        transition:name={toTransitionName(id)}
+        class="text-lg font-semibold tracking-tight sm:text-xl"
+      >
+        {title}
+      </Heading>
+    </a>
+
+    <div class="mt-2 mb-2 flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
+      <Datetime {...props} />
+    </div>
+
+    <p class="text-muted-foreground text-sm leading-relaxed sm:text-base line-clamp-2">
+      {description}
+    </p>
+
+    {
+      tags && tags.length > 0 && (
+        <div class="mt-4 flex flex-wrap gap-1.5">
+          {tags.map(tag => (
+            <span class="rounded-full border border-border/50 bg-muted/60 px-2.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors group-hover:border-accent/25 group-hover:bg-accent/10 group-hover:text-accent">
+              #{tag}
+            </span>
+          ))}
+        </div>
+      )
+    }
+  </div>
+</li>
+
