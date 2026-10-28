@@ -9,7 +9,7 @@ import Card from "@/components/Card.astro";
 import Footer from "@/components/Footer.astro";
 import Pagination from "@/components/Pagination.astro";
 import { getSortedPosts } from "@/utils/getSortedPosts";
-import { getTimePeriods } from "@/utils/getTimePeriods";
+import { getTimelineHierarchy } from "@/utils/getTimePeriods";
 import { useTranslations } from "@/i18n";
 import config from "@/config";
 
@@ -22,7 +22,11 @@ const { page } = Astro.props;
 
 const locale = Astro.currentLocale ?? config.site.lang;
 const t = useTranslations(locale);
-const periods = getTimePeriods(page.data, locale, config.site.timezone);
+const { years, jumpTargets } = getTimelineHierarchy(
+  page.data,
+  locale,
+  config.site.timezone
+);
 ---
 
 <Layout title={`${t.pages.postsTitle} | ${config.site.title}`}>
@@ -31,22 +35,31 @@ const periods = getTimePeriods(page.data, locale, config.site.timezone);
   <Breadcrumb />
 
   <Main pageTitle={t.pages.postsTitle} pageDesc={t.pages.postsDesc}>
-    <!-- 快捷时间段跳转 (当存在多个时间段时展示，支持点击平滑直达各时间段) -->
+    <!-- 极简快速跳转 (当存在多个时间节点时展示，支持点击平滑直达各节点) -->
     {
-      periods.length > 1 && (
+      jumpTargets.length > 1 && (
         <div class="-mt-2 mb-8 flex items-center gap-2 overflow-x-auto pb-2 text-xs scrollbar-none">
           <span class="text-muted-foreground shrink-0 font-medium text-[11px] uppercase tracking-wider">
-            时间段跳转:
+            时间索引:
           </span>
-          {periods.map(period => (
+          {jumpTargets.map(target => (
             <a
-              href={`#${period.id}`}
+              href={`#${target.id}`}
               class="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface/80 hover:bg-accent/10 px-3 py-1 text-muted-foreground hover:border-accent hover:text-accent transition-all duration-200"
             >
-              <span class="size-1.5 rounded-full bg-accent/70" />
-              <span class="font-medium">{period.label}</span>
+              <span
+                class:list={[
+                  "rounded-full bg-accent",
+                  {
+                    "size-2": target.type === "year",
+                    "size-1.5": target.type === "month",
+                    "size-1": target.type === "day",
+                  },
+                ]}
+              />
+              <span class="font-medium">{target.label}</span>
               <span class="text-[10px] font-mono opacity-60">
-                ({period.count})
+                ({target.count})
               </span>
             </a>
           ))}
@@ -54,45 +67,124 @@ const periods = getTimePeriods(page.data, locale, config.site.timezone);
       )
     }
 
-    <!-- 文章列表：左侧贯穿极简垂直时间线，中间嵌入时间段节点 -->
-    <div class="relative ps-6 sm:ps-8 ms-2 sm:ms-3 border-s-2 border-border/80 dark:border-border/50 space-y-12 my-6">
-      {
-        periods.map(period => (
-          <section id={period.id} class="period-section relative scroll-mt-28">
-            <!-- 嵌在左侧竖线中心的时间节点圆点 -->
-            <a
-              href={`#${period.id}`}
-              title={`定位到 ${period.label}`}
-              class="absolute -start-[32px] sm:-start-[40px] top-1 flex items-center justify-center outline-none group"
-            >
-              <span class="flex size-3.5 items-center justify-center rounded-full border-2 border-accent bg-background dark:bg-background ring-4 ring-background transition-transform duration-200 group-hover:scale-125">
-                <span class="size-1.5 rounded-full bg-accent" />
-              </span>
-            </a>
+    <!-- 最纯粹极简时间线：年月日（大、中、小）三种圆点居中嵌于单一垂直竖线 -->
+    <div class="relative my-8">
+      <!-- 贯穿始终的垂直竖线 (中心线位于 left: 16px) -->
+      <div
+        aria-hidden="true"
+        class="absolute top-2.5 bottom-6 left-[15px] w-[2px] bg-border/80 dark:bg-border/60 rounded-full"
+      />
 
-            <!-- 时间段展示与篇数 -->
-            <div class="flex items-center gap-2 mb-4">
+      <!-- 年、月、日层级列表 -->
+      <div class="space-y-12">
+        {
+          years.map(year => (
+            <section
+              id={`year-${year.year}`}
+              class="timeline-year relative scroll-mt-28"
+            >
+              <!-- 大圆点：年 (size-5 = 20px) -->
               <a
-                href={`#${period.id}`}
-                class="hover:text-accent transition-colors flex items-center gap-2"
+                href={`#year-${year.year}`}
+                title={`定位到 ${year.yearLabel}`}
+                class="absolute left-[16px] -translate-x-1/2 top-1 flex items-center justify-center outline-none group"
               >
-                <span class="text-base sm:text-lg font-semibold tracking-tight text-foreground">
-                  {period.label}
-                </span>
-                <span class="rounded-full bg-muted/70 px-2.5 py-0.5 text-xs font-mono text-muted-foreground">
-                  {period.count} 篇
+                <span class="flex size-5 items-center justify-center rounded-full border-2 border-accent bg-background dark:bg-background ring-4 ring-background transition-transform duration-200 group-hover:scale-125">
+                  <span class="size-2 rounded-full bg-accent" />
                 </span>
               </a>
-            </div>
 
-            <ul class="space-y-4">
-              {period.posts.map(data => (
-                <Card {...data} />
-              ))}
-            </ul>
-          </section>
-        ))
-      }
+              <!-- 年份标题展示 -->
+              <div class="ps-9 sm:ps-11 flex items-center gap-2.5 mb-6">
+                <a
+                  href={`#year-${year.year}`}
+                  class="text-2xl sm:text-3xl font-extrabold tracking-tight font-mono text-foreground hover:text-accent transition-colors"
+                >
+                  {year.yearLabel}
+                </a>
+                <span class="rounded-full bg-accent/15 px-2.5 py-0.5 text-xs font-mono font-medium text-accent">
+                  {year.totalPosts} 篇
+                </span>
+              </div>
+
+              <!-- 月份层级 -->
+              <div class="space-y-10">
+                {year.months.map(month => (
+                  <div
+                    id={`month-${year.year}-${month.month}`}
+                    class="timeline-month relative scroll-mt-28"
+                  >
+                    <!-- 中圆点：月 (size-3.5 = 14px) -->
+                    <a
+                      href={`#month-${year.year}-${month.month}`}
+                      title={`定位到 ${month.monthLabel}`}
+                      class="absolute left-[16px] -translate-x-1/2 top-1 flex items-center justify-center outline-none group"
+                    >
+                      <span class="flex size-3.5 items-center justify-center rounded-full border-2 border-accent/80 bg-background dark:bg-background ring-4 ring-background transition-transform duration-200 group-hover:scale-125">
+                        <span class="size-1.5 rounded-full bg-accent/90" />
+                      </span>
+                    </a>
+
+                    <!-- 月份标题展示 -->
+                    <div class="ps-9 sm:ps-11 flex items-center gap-2 mb-5">
+                      <a
+                        href={`#month-${year.year}-${month.month}`}
+                        class="text-base sm:text-lg font-bold tracking-tight text-foreground/90 font-mono hover:text-accent transition-colors"
+                      >
+                        {month.monthLabel}
+                      </a>
+                      <span class="text-xs font-mono text-muted-foreground/75 font-normal">
+                        ({month.totalPosts} 篇)
+                      </span>
+                    </div>
+
+                    <!-- 日期层级 -->
+                    <div class="space-y-8">
+                      {month.days.map(day => (
+                        <div
+                          id={`date-${day.dateKey}`}
+                          class="timeline-day relative scroll-mt-28"
+                        >
+                          <!-- 小圆点：日 (size-2.5 = 10px) -->
+                          <a
+                            href={`#date-${day.dateKey}`}
+                            title={`定位到 ${day.dateLabel}`}
+                            class="absolute left-[16px] -translate-x-1/2 top-1 flex items-center justify-center outline-none group"
+                          >
+                            <span class="size-2.5 rounded-full border-2 border-accent bg-accent ring-4 ring-background transition-transform duration-200 group-hover:scale-150" />
+                          </a>
+
+                          <!-- 日期标签展示 -->
+                          <div class="ps-9 sm:ps-11 flex items-center gap-2 mb-3">
+                            <a
+                              href={`#date-${day.dateKey}`}
+                              class="text-xs sm:text-sm font-semibold tracking-wide font-mono text-muted-foreground hover:text-accent transition-colors"
+                            >
+                              {day.dateLabel}
+                            </a>
+                            {day.posts.length > 1 && (
+                              <span class="text-[11px] font-mono text-muted-foreground/60 font-normal">
+                                ({day.posts.length} 篇)
+                              </span>
+                            )}
+                          </div>
+
+                          <!-- 属于该日期的文章卡片列表 -->
+                          <ul class="ps-9 sm:ps-11 space-y-4">
+                            {day.posts.map(post => (
+                              <Card {...post} />
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ))
+        }
+      </div>
     </div>
   </Main>
 

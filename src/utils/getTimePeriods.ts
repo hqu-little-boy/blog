@@ -1,80 +1,84 @@
 import type { CollectionEntry } from "astro:content";
 import config from "@/config";
 
-export type TimePeriod = {
-  id: string;
-  label: string;
-  shortLabel: string;
-  count: number;
+export type DayGroup = {
+  day: string;
+  dateKey: string;
+  dateLabel: string;
   posts: CollectionEntry<"posts">[];
 };
 
+export type MonthGroup = {
+  month: string;
+  monthKey: string;
+  monthLabel: string;
+  totalPosts: number;
+  days: DayGroup[];
+};
+
+export type YearGroup = {
+  year: string;
+  yearKey: string;
+  yearLabel: string;
+  totalPosts: number;
+  months: MonthGroup[];
+};
+
+export type TimelineJumpTarget = {
+  id: string;
+  type: "year" | "month" | "day";
+  label: string;
+  count: number;
+};
+
+export type TimelineHierarchyResult = {
+  years: YearGroup[];
+  jumpTargets: TimelineJumpTarget[];
+};
+
 /**
- * Intelligently groups posts into time periods based on their temporal distribution.
- *
- * Strategy:
- * - If posts span >= 3 distinct years: group by Year (e.g. "2026 年")
- * - Else if posts span >= 2 distinct year-months: group by Year-Month (e.g. "2026 年 10 月")
- * - Else if posts span >= 2 distinct dates: group by Date (e.g. "10 月 27 日")
- * - Else (e.g. all on same day): group individually by post
+ * Groups posts hierarchically into Year (大圆点) -> Month (中圆点) -> Day (小圆点)
  */
-export function getTimePeriods(
+export function getTimelineHierarchy(
   posts: CollectionEntry<"posts">[],
   locale: string = config.site.lang ?? "zh",
   timeZone: string = config.site.timezone ?? "Asia/Shanghai"
-): TimePeriod[] {
-  if (!posts || posts.length === 0) return [];
-
-  const yearFormatter = new Intl.DateTimeFormat(locale, {
-    timeZone,
-    year: "numeric",
-  });
-  const monthFormatter = new Intl.DateTimeFormat(locale, {
-    timeZone,
-    year: "numeric",
-    month: "long",
-  });
-  const dateFormatter = new Intl.DateTimeFormat(locale, {
-    timeZone,
-    month: "long",
-    day: "numeric",
-  });
-
-  const years = new Set<string>();
-  const yearMonths = new Set<string>();
-  const dates = new Set<string>();
-
-  posts.forEach(post => {
-    const d = new Date(post.data.pubDatetime);
-    // Format ISO-like tokens for grouping keys in current timezone
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }).formatToParts(d);
-
-    const y = parts.find(p => p.type === "year")?.value || "";
-    const m = parts.find(p => p.type === "month")?.value || "";
-    const day = parts.find(p => p.type === "day")?.value || "";
-
-    years.add(y);
-    yearMonths.add(`${y}-${m}`);
-    dates.add(`${y}-${m}-${day}`);
-  });
-
-  let mode: "year" | "yearMonth" | "date" = "date";
-  if (years.size >= 3) {
-    mode = "year";
-  } else if (yearMonths.size >= 2) {
-    mode = "yearMonth";
-  } else if (dates.size >= 2) {
-    mode = "date";
-  } else {
-    mode = "date";
+): TimelineHierarchyResult {
+  if (!posts || posts.length === 0) {
+    return { years: [], jumpTargets: [] };
   }
 
-  const groupMap = new Map<string, TimePeriod>();
+  const isZh = locale.startsWith("zh");
+  const monthFormatterEn = new Intl.DateTimeFormat("en", {
+    timeZone,
+    month: "short",
+  });
+
+  const yearMap = new Map<
+    string,
+    {
+      year: string;
+      yearLabel: string;
+      totalPosts: number;
+      monthMap: Map<
+        string,
+        {
+          month: string;
+          monthLabel: string;
+          totalPosts: number;
+          dayMap: Map<
+            string,
+            {
+              day: string;
+              dateLabel: string;
+              dateKey: string;
+              posts: CollectionEntry<"posts">[];
+            }
+          >;
+        }
+      >;
+    }
+  >();
 
   posts.forEach(post => {
     const d = new Date(post.data.pubDatetime);
@@ -89,38 +93,81 @@ export function getTimePeriods(
     const m = parts.find(p => p.type === "month")?.value || "";
     const day = parts.find(p => p.type === "day")?.value || "";
 
-    let key = "";
-    let label = "";
-    let shortLabel = "";
+    const yearLabel = isZh ? `${y} 年` : y;
+    const monthLabel = isZh ? `${Number(m)} 月` : monthFormatterEn.format(d);
+    const dateLabel = isZh ? `${Number(day)} 日` : `${monthLabel} ${Number(day)}`;
+    const dateKey = `${y}-${m}-${day}`;
 
-    if (mode === "year") {
-      key = `year-${y}`;
-      label = yearFormatter.format(d);
-      shortLabel = y;
-    } else if (mode === "yearMonth") {
-      key = `month-${y}-${m}`;
-      label = monthFormatter.format(d);
-      shortLabel = `${y}.${m}`;
-    } else {
-      key = `date-${y}-${m}-${day}`;
-      label = dateFormatter.format(d);
-      shortLabel = `${m}-${day}`;
+    if (!yearMap.has(y)) {
+      yearMap.set(y, {
+        year: y,
+        yearLabel,
+        totalPosts: 0,
+        monthMap: new Map(),
+      });
     }
+    const yearObj = yearMap.get(y)!;
+    yearObj.totalPosts += 1;
 
-    if (!groupMap.has(key)) {
-      groupMap.set(key, {
-        id: key,
-        label,
-        shortLabel,
-        count: 0,
+    if (!yearObj.monthMap.has(m)) {
+      yearObj.monthMap.set(m, {
+        month: m,
+        monthLabel,
+        totalPosts: 0,
+        dayMap: new Map(),
+      });
+    }
+    const monthObj = yearObj.monthMap.get(m)!;
+    monthObj.totalPosts += 1;
+
+    if (!monthObj.dayMap.has(day)) {
+      monthObj.dayMap.set(day, {
+        day,
+        dateLabel,
+        dateKey,
         posts: [],
       });
     }
-
-    const group = groupMap.get(key)!;
-    group.count += 1;
-    group.posts.push(post);
+    const dayObj = monthObj.dayMap.get(day)!;
+    dayObj.posts.push(post);
   });
 
-  return Array.from(groupMap.values());
+  const years: YearGroup[] = Array.from(yearMap.values()).map(y => ({
+    year: y.year,
+    yearKey: y.year,
+    yearLabel: y.yearLabel,
+    totalPosts: y.totalPosts,
+    months: Array.from(y.monthMap.values()).map(m => ({
+      month: m.month,
+      monthKey: `${y.year}-${m.month}`,
+      monthLabel: m.monthLabel,
+      totalPosts: m.totalPosts,
+      days: Array.from(m.dayMap.values()),
+    })),
+  }));
+
+  // Generate jump targets for quick navigation
+  const jumpTargets: TimelineJumpTarget[] = [];
+  years.forEach(y => {
+    // If multiple years exist, add year jump target
+    if (years.length > 1) {
+      jumpTargets.push({
+        id: `year-${y.year}`,
+        type: "year",
+        label: y.yearLabel,
+        count: y.totalPosts,
+      });
+    }
+
+    y.months.forEach(m => {
+      jumpTargets.push({
+        id: `month-${y.year}-${m.month}`,
+        type: "month",
+        label: `${y.year} · ${m.monthLabel}`,
+        count: m.totalPosts,
+      });
+    });
+  });
+
+  return { years, jumpTargets };
 }
