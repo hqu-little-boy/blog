@@ -1,7 +1,7 @@
 ---
 author: hqu-little-boy
 pubDatetime: 2026-10-31T21:20:00Z
-title: 第 2 章（下）RISC-V ISA 介绍 — 学习笔记
+title: 解构 RISC-V 架构与设计哲学：从模块化 ISA、Hart 抽象到特权级保护与 Trap 机制全景剖析
 featured: true
 draft: false
 tags:
