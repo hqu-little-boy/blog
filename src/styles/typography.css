@@ -28,7 +28,7 @@
     }
 
     a {
-      @apply text-accent hover:text-accent/80 wrap-break-word underline underline-offset-4 decoration-accent/30 hover:decoration-accent transition-colors focus-visible:no-underline;
+      @apply text-accent hover:text-accent/80 decoration-accent/30 hover:decoration-accent wrap-break-word underline underline-offset-4 transition-colors focus-visible:no-underline;
     }
 
     ul {
@@ -44,7 +44,7 @@
     }
 
     img {
-      @apply rounded-2xl border-border mx-auto border shadow-sm;
+      @apply border-border mx-auto rounded-2xl border shadow-sm;
     }
 
     img[role="button"] {
@@ -60,7 +60,7 @@
     }
 
     table {
-      @apply rounded-xl overflow-hidden;
+      @apply overflow-hidden rounded-xl;
       th,
       td {
         @apply border-border border p-2;
@@ -87,7 +87,7 @@
     }
 
     code {
-      @apply bg-muted/80 text-foreground font-medium rounded-lg px-1.5 py-0.5 wrap-break-word before:content-none after:content-none;
+      @apply bg-muted/80 text-foreground rounded-lg px-1.5 py-0.5 font-medium wrap-break-word before:content-none after:content-none;
     }
 
     .astro-code code {
@@ -95,7 +95,7 @@
     }
 
     blockquote {
-      @apply border-s-4 border-s-accent bg-surface-container/60 dark:bg-surface-container/40 px-4 py-2 rounded-e-xl wrap-break-word not-italic opacity-90;
+      @apply border-s-accent bg-surface-container/60 dark:bg-surface-container/40 rounded-e-xl border-s-4 px-4 py-2 wrap-break-word not-italic opacity-90;
     }
 
     details:not(.callout) {
@@ -113,7 +113,7 @@
 
   /* ===== Code Blocks & Syntax Highlighting ===== */
   .astro-code {
-    @apply rounded-2xl outline-border flex border bg-(--shiki-light-bg) text-(--shiki-light) [&_span]:text-(--shiki-light) shadow-sm my-4;
+    @apply outline-border my-4 flex rounded-2xl border bg-(--shiki-light-bg) text-(--shiki-light) shadow-sm [&_span]:text-(--shiki-light);
   }
 
   html[data-theme="dark"] .astro-code {
@@ -141,11 +141,11 @@
   .diagram-wrapper,
   .mermaid-wrapper,
   .graphviz-wrapper {
-    @apply my-6 flex flex-col items-center justify-center rounded-2xl border border-border/70 bg-surface/50 p-4 sm:p-6 transition-all duration-300 shadow-xs dark:bg-surface/30;
+    @apply border-border/70 bg-surface/50 dark:bg-surface/30 my-6 flex flex-col items-center justify-center rounded-2xl border p-4 shadow-xs transition-all duration-300 sm:p-6;
   }
 
   .diagram-viewport {
-    @apply w-full overflow-hidden flex items-center justify-center min-h-[140px] select-none;
+    @apply flex min-h-[140px] w-full items-center justify-center overflow-hidden select-none;
   }
 
   .diagram-canvas {
@@ -155,7 +155,7 @@
   .diagram-canvas svg,
   .mermaid-wrapper svg,
   .graphviz-wrapper svg {
-    @apply max-w-full h-auto;
+    @apply h-auto max-w-full;
   }
 
   .graphviz-wrapper svg text {
@@ -181,9 +181,18 @@
     fill: var(--color-muted-foreground) !important;
   }
 
+  /* ===== Diagram Source Code Panel ===== */
+  .diagram-source-panel {
+    @apply w-full text-left transition-all duration-200;
+  }
+
+  .diagram-source-pre {
+    @apply text-foreground bg-surface-container/70 dark:bg-surface-container/40 border-border/70 overflow-x-auto rounded-xl border font-mono text-xs;
+  }
+
   /* ===== KaTeX Math Formulas ===== */
   .katex-display {
-    @apply my-6 overflow-x-auto overflow-y-hidden py-2 text-center text-foreground;
+    @apply text-foreground my-6 overflow-x-auto overflow-y-hidden py-2 text-center;
   }
 
   .katex {

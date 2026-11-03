@@ -22,12 +22,14 @@ async function renderMermaid() {
 
   try {
     const { default: mermaid } = await import("mermaid");
-    const isDark = document.firstElementChild?.getAttribute("data-theme") === "dark";
+    const isDark =
+      document.firstElementChild?.getAttribute("data-theme") === "dark";
 
     mermaid.initialize({
       startOnLoad: false,
       securityLevel: "loose",
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+      fontFamily:
+        '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
       theme: isDark ? "dark" : "base",
       themeVariables: isDark
         ? {
@@ -87,6 +89,7 @@ async function renderMermaid() {
         const { svg } = await mermaid.render(uniqueId, source);
         el.innerHTML = svg;
       } catch (renderError) {
+        // eslint-disable-next-line no-console
         console.error("[Mermaid] Render error on diagram", i, renderError);
       }
     }
@@ -94,6 +97,7 @@ async function renderMermaid() {
     // Attach pan & zoom interactions to newly rendered Mermaid SVGs
     setupDiagramPanZoom();
   } catch (loadError) {
+    // eslint-disable-next-line no-console
     console.error("[Mermaid] Failed to load library:", loadError);
   } finally {
     isRendering = false;

@@ -24,17 +24,24 @@ let closeModalHandler: (() => void) | null = null;
 function getDiagramSvg(wrapper: HTMLElement): SVGElement | null {
   // 1. Direct canvas/viewport/mermaid child svg
   const canvasSvg = wrapper.querySelector<SVGElement>(".diagram-canvas svg");
-  if (canvasSvg && !canvasSvg.closest(".diagram-toolbar, .diagram-hint")) return canvasSvg;
+  if (canvasSvg && !canvasSvg.closest(".diagram-toolbar, .diagram-hint"))
+    return canvasSvg;
 
   const mermaidSvg = wrapper.querySelector<SVGElement>(".mermaid svg");
-  if (mermaidSvg && !mermaidSvg.closest(".diagram-toolbar, .diagram-hint")) return mermaidSvg;
+  if (mermaidSvg && !mermaidSvg.closest(".diagram-toolbar, .diagram-hint"))
+    return mermaidSvg;
 
-  const viewportSvg = wrapper.querySelector<SVGElement>(".diagram-viewport svg");
-  if (viewportSvg && !viewportSvg.closest(".diagram-toolbar, .diagram-hint")) return viewportSvg;
+  const viewportSvg = wrapper.querySelector<SVGElement>(
+    ".diagram-viewport svg"
+  );
+  if (viewportSvg && !viewportSvg.closest(".diagram-toolbar, .diagram-hint"))
+    return viewportSvg;
 
   // 2. Fallback: find any SVG that does NOT belong to toolbar or hint
   const allSvgs = Array.from(wrapper.querySelectorAll<SVGElement>("svg"));
-  const diagramSvg = allSvgs.find(s => !s.closest(".diagram-toolbar, .diagram-hint"));
+  const diagramSvg = allSvgs.find(
+    s => !s.closest(".diagram-toolbar, .diagram-hint")
+  );
   return diagramSvg ?? null;
 }
 
@@ -62,9 +69,7 @@ function initDiagramWrapper(wrapper: HTMLElement) {
 
   // If wrapper didn't have viewport/canvas structure, wrap its SVG or mermaid container
   if (!viewport || !canvas) {
-    const target =
-      wrapper.querySelector(".mermaid") ||
-      getDiagramSvg(wrapper);
+    const target = wrapper.querySelector(".mermaid") || getDiagramSvg(wrapper);
     if (!target) return;
 
     viewport = document.createElement("div");
@@ -86,17 +91,20 @@ function initDiagramWrapper(wrapper: HTMLElement) {
     toolbar.className =
       "diagram-toolbar absolute top-3 right-3 flex items-center gap-1 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 z-10 rounded-full border border-border/70 bg-surface/90 dark:bg-surface/80 p-1 shadow-xs backdrop-blur-md";
     toolbar.innerHTML = `
-      <button type="button" class="diagram-btn-zoom-in rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors" title="放大 (+)" aria-label="放大">
+      <button type="button" class="diagram-btn-zoom-in rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="放大 (+)" aria-label="放大">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
       </button>
-      <button type="button" class="diagram-btn-zoom-out rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors" title="缩小 (-)" aria-label="缩小">
+      <button type="button" class="diagram-btn-zoom-out rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="缩小 (-)" aria-label="缩小">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
       </button>
-      <button type="button" class="diagram-btn-reset rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors" title="还原 (100%)" aria-label="还原">
+      <button type="button" class="diagram-btn-reset rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="还原 (100%)" aria-label="还原">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
       </button>
       <span class="w-px h-3.5 bg-border/60 mx-0.5" aria-hidden="true"></span>
-      <button type="button" class="diagram-btn-fullscreen rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors" title="全屏查看" aria-label="全屏查看">
+      <button type="button" class="diagram-btn-source rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="查看源码" aria-label="查看源码">
+        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+      </button>
+      <button type="button" class="diagram-btn-fullscreen rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="全屏查看" aria-label="全屏查看">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
       </button>
     `;
@@ -131,7 +139,64 @@ function initDiagramWrapper(wrapper: HTMLElement) {
   const btnZoomIn = wrapper.querySelector(".diagram-btn-zoom-in");
   const btnZoomOut = wrapper.querySelector(".diagram-btn-zoom-out");
   const btnReset = wrapper.querySelector(".diagram-btn-reset");
+  const btnSource = wrapper.querySelector<HTMLButtonElement>(
+    ".diagram-btn-source"
+  );
   const btnFullscreen = wrapper.querySelector(".diagram-btn-fullscreen");
+  const sourcePanel = wrapper.querySelector<HTMLElement>(
+    ".diagram-source-panel"
+  );
+
+  if (btnSource && sourcePanel) {
+    const btnCopy = sourcePanel.querySelector<HTMLButtonElement>(
+      ".diagram-btn-copy-source"
+    );
+    const btnClose = sourcePanel.querySelector<HTMLButtonElement>(
+      ".diagram-btn-close-source"
+    );
+    const codeEl = sourcePanel.querySelector("code");
+
+    const setSourceVisible = (show: boolean) => {
+      if (show) {
+        sourcePanel.classList.remove("hidden");
+        btnSource.classList.add("text-accent", "bg-muted/80");
+      } else {
+        sourcePanel.classList.add("hidden");
+        btnSource.classList.remove("text-accent", "bg-muted/80");
+      }
+    };
+
+    btnSource.addEventListener("click", e => {
+      e.stopPropagation();
+      const isHidden = sourcePanel.classList.contains("hidden");
+      setSourceVisible(isHidden);
+    });
+
+    btnClose?.addEventListener("click", e => {
+      e.stopPropagation();
+      setSourceVisible(false);
+    });
+
+    btnCopy?.addEventListener("click", async e => {
+      e.stopPropagation();
+      const text = codeEl?.textContent || "";
+      await navigator.clipboard.writeText(text);
+
+      const originalHtml = btnCopy.innerHTML;
+      btnCopy.innerHTML = `
+        <svg class="size-3.5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6 9 17l-5-5"/>
+        </svg>
+        <span class="text-accent">已复制</span>
+      `;
+      btnCopy.classList.add("text-accent");
+
+      setTimeout(() => {
+        btnCopy.innerHTML = originalHtml;
+        btnCopy.classList.remove("text-accent");
+      }, 2000);
+    });
+  }
 
   btnZoomIn?.addEventListener("click", e => {
     e.stopPropagation();
@@ -251,9 +316,16 @@ function initDiagramWrapper(wrapper: HTMLElement) {
           e.touches[1].clientX - e.touches[0].clientX,
           e.touches[1].clientY - e.touches[0].clientY
         );
-        state.scale = Math.min(Math.max(initialScale * (dist / initialDist), 0.5), 6);
+        state.scale = Math.min(
+          Math.max(initialScale * (dist / initialDist), 0.5),
+          6
+        );
         applyTransform(canvas!, state);
-      } else if (e.touches.length === 1 && state.isDragging && state.scale > 1) {
+      } else if (
+        e.touches.length === 1 &&
+        state.isDragging &&
+        state.scale > 1
+      ) {
         e.preventDefault();
         const dx = e.touches[0].clientX - state.startX;
         const dy = e.touches[0].clientY - state.startY;
@@ -289,7 +361,10 @@ function openFullscreenDiagram(wrapper: HTMLElement) {
   let naturalH = 500;
 
   if (viewBox) {
-    const parts = viewBox.trim().split(/[\s,]+/).map(Number);
+    const parts = viewBox
+      .trim()
+      .split(/[\s,]+/)
+      .map(Number);
     if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
       naturalW = parts[2];
       naturalH = parts[3];
@@ -337,7 +412,8 @@ function openFullscreenDiagram(wrapper: HTMLElement) {
     "flex items-center justify-between px-4 py-3 sm:px-6 border-b border-border/60 bg-surface/80 dark:bg-surface/50 backdrop-blur-md";
 
   const titleGroup = document.createElement("div");
-  titleGroup.className = "flex items-center gap-2.5 sm:gap-3 text-xs sm:text-sm text-foreground";
+  titleGroup.className =
+    "flex items-center gap-2.5 sm:gap-3 text-xs sm:text-sm text-foreground";
   titleGroup.innerHTML = `
     <span class="inline-flex items-center gap-1.5 rounded-full bg-accent/15 px-3 py-1 font-semibold text-accent">
       <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -404,7 +480,118 @@ function openFullscreenDiagram(wrapper: HTMLElement) {
     </svg>
   `;
 
-  controls.append(zoomBadge, btnZoomOut, btnZoomIn, btnReset, divider, btnClose);
+  const sourceCode =
+    wrapper.querySelector(".diagram-source-panel code")?.textContent ||
+    wrapper.querySelector<HTMLElement>(".mermaid")?.dataset.source ||
+    "";
+  const rawLang =
+    wrapper.getAttribute("data-diagram-lang") ||
+    (wrapper.classList.contains("mermaid-wrapper") ? "mermaid" : "graphviz");
+  const lang = rawLang.toUpperCase();
+
+  let modalSourcePanel: HTMLElement | null = null;
+  if (sourceCode) {
+    const btnSource = document.createElement("button");
+    btnSource.type = "button";
+    btnSource.className =
+      "rounded-full p-2 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer";
+    btnSource.title = "查看源码";
+    btnSource.setAttribute("aria-label", "查看源码");
+    btnSource.innerHTML = `
+      <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="16 18 22 12 16 6"/>
+        <polyline points="8 6 2 12 8 18"/>
+      </svg>
+    `;
+
+    modalSourcePanel = document.createElement("div");
+    modalSourcePanel.className =
+      "diagram-modal-source-panel hidden absolute top-16 right-4 sm:right-6 w-[92vw] max-w-lg z-20 rounded-2xl border border-border/80 bg-surface/95 dark:bg-surface/90 backdrop-blur-xl shadow-2xl overflow-hidden transition-all duration-200";
+    modalSourcePanel.innerHTML = `
+      <div class="flex items-center justify-between px-4 py-2.5 border-b border-border/60 bg-surface/80 dark:bg-surface/50 text-xs select-none">
+        <div class="flex items-center gap-2">
+          <span class="px-2 py-0.5 rounded font-mono text-[11px] font-semibold tracking-wider text-accent bg-accent/15 uppercase">
+            ${lang}
+          </span>
+          <span class="text-muted-foreground font-medium">图表源码</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <button type="button" class="diagram-btn-modal-copy inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="复制代码" aria-label="复制代码">
+            <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
+            <span>复制代码</span>
+          </button>
+          <button type="button" class="diagram-btn-modal-close-source p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/70 transition-colors cursor-pointer" title="关闭" aria-label="关闭">
+            <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+      <pre class="p-4 m-0 overflow-x-auto text-xs font-mono text-foreground leading-relaxed max-h-[60vh] overflow-y-auto selection:bg-accent/30"><code class="diagram-modal-source-code"></code></pre>
+    `;
+    modalSourcePanel.querySelector<HTMLElement>(
+      ".diagram-modal-source-code"
+    )!.textContent = sourceCode;
+
+    const btnModalCopy = modalSourcePanel.querySelector<HTMLButtonElement>(
+      ".diagram-btn-modal-copy"
+    );
+    const btnModalClose = modalSourcePanel.querySelector<HTMLButtonElement>(
+      ".diagram-btn-modal-close-source"
+    );
+
+    btnSource.addEventListener("click", e => {
+      e.stopPropagation();
+      const isHidden = modalSourcePanel!.classList.contains("hidden");
+      if (isHidden) {
+        modalSourcePanel!.classList.remove("hidden");
+        btnSource.classList.add("text-accent", "bg-muted/80");
+      } else {
+        modalSourcePanel!.classList.add("hidden");
+        btnSource.classList.remove("text-accent", "bg-muted/80");
+      }
+    });
+
+    btnModalClose?.addEventListener("click", e => {
+      e.stopPropagation();
+      modalSourcePanel!.classList.add("hidden");
+      btnSource.classList.remove("text-accent", "bg-muted/80");
+    });
+
+    btnModalCopy?.addEventListener("click", async e => {
+      e.stopPropagation();
+      await navigator.clipboard.writeText(sourceCode);
+      const originalHtml = btnModalCopy.innerHTML;
+      btnModalCopy.innerHTML = `
+        <svg class="size-3.5 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20 6 9 17l-5-5"/>
+        </svg>
+        <span class="text-accent">已复制</span>
+      `;
+      btnModalCopy.classList.add("text-accent");
+      setTimeout(() => {
+        btnModalCopy.innerHTML = originalHtml;
+        btnModalCopy.classList.remove("text-accent");
+      }, 2000);
+    });
+
+    controls.append(
+      zoomBadge,
+      btnZoomOut,
+      btnZoomIn,
+      btnReset,
+      divider,
+      btnSource,
+      btnClose
+    );
+  } else {
+    controls.append(
+      zoomBadge,
+      btnZoomOut,
+      btnZoomIn,
+      btnReset,
+      divider,
+      btnClose
+    );
+  }
   header.append(titleGroup, controls);
 
   // Viewport & canvas
@@ -419,6 +606,7 @@ function openFullscreenDiagram(wrapper: HTMLElement) {
   viewport.appendChild(canvas);
 
   modal.append(header, viewport);
+  if (modalSourcePanel) modal.append(modalSourcePanel);
   document.body.appendChild(modal);
   document.body.style.overflow = "hidden";
   activeModal = modal;
@@ -496,8 +684,10 @@ function openFullscreenDiagram(wrapper: HTMLElement) {
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       if (!state.isDragging) return;
-      state.translateX = state.startTranslateX + (moveEvent.clientX - state.startX);
-      state.translateY = state.startTranslateY + (moveEvent.clientY - state.startY);
+      state.translateX =
+        state.startTranslateX + (moveEvent.clientX - state.startX);
+      state.translateY =
+        state.startTranslateY + (moveEvent.clientY - state.startY);
       updateTransform();
     };
 
@@ -545,12 +735,17 @@ function openFullscreenDiagram(wrapper: HTMLElement) {
           e.touches[1].clientX - e.touches[0].clientX,
           e.touches[1].clientY - e.touches[0].clientY
         );
-        state.scale = Math.min(Math.max(initialPinchScale * (dist / initialPinchDist), 0.2), 10);
+        state.scale = Math.min(
+          Math.max(initialPinchScale * (dist / initialPinchDist), 0.2),
+          10
+        );
         updateTransform();
       } else if (e.touches.length === 1 && state.isDragging) {
         e.preventDefault();
-        state.translateX = state.startTranslateX + (e.touches[0].clientX - state.startX);
-        state.translateY = state.startTranslateY + (e.touches[0].clientY - state.startY);
+        state.translateX =
+          state.startTranslateX + (e.touches[0].clientX - state.startX);
+        state.translateY =
+          state.startTranslateY + (e.touches[0].clientY - state.startY);
         updateTransform();
       }
     },
@@ -577,6 +772,12 @@ function openFullscreenDiagram(wrapper: HTMLElement) {
   // Keyboard navigation
   function onKeyDown(e: KeyboardEvent) {
     if (e.key === "Escape") {
+      if (modalSourcePanel && !modalSourcePanel.classList.contains("hidden")) {
+        modalSourcePanel.classList.add("hidden");
+        const btnSource = controls.querySelector(".diagram-btn-source");
+        btnSource?.classList.remove("text-accent", "bg-muted/80");
+        return;
+      }
       closeModal();
     } else if (e.key === "+" || e.key === "=") {
       state.scale = Math.min(state.scale * 1.25, 10);
