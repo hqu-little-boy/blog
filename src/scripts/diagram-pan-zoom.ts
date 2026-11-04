@@ -89,22 +89,25 @@ function initDiagramWrapper(wrapper: HTMLElement) {
   if (!toolbar) {
     toolbar = document.createElement("div");
     toolbar.className =
-      "diagram-toolbar absolute top-3 right-3 flex items-center gap-1 opacity-90 sm:opacity-0 sm:group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 z-10 rounded-full border border-border/70 bg-surface/90 dark:bg-surface/80 p-1 shadow-xs backdrop-blur-md";
+      "diagram-toolbar absolute top-3 right-3 flex items-center gap-1 opacity-95 sm:opacity-85 sm:hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 z-10 rounded-full border border-border/70 bg-surface/90 dark:bg-surface/80 p-1 shadow-xs backdrop-blur-md";
     toolbar.innerHTML = `
-      <button type="button" class="diagram-btn-zoom-in rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="放大 (+)" aria-label="放大">
-        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+      <div class="diagram-zoom-controls flex items-center gap-1">
+        <button type="button" class="diagram-btn-zoom-in rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="放大 (+)" aria-label="放大">
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+        </button>
+        <button type="button" class="diagram-btn-zoom-out rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="缩小 (-)" aria-label="缩小">
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
+        </button>
+        <button type="button" class="diagram-btn-reset rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="还原 (100%)" aria-label="还原">
+          <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+        </button>
+        <span class="w-px h-3.5 bg-border/60 mx-0.5" aria-hidden="true"></span>
+      </div>
+      <button type="button" class="diagram-btn-source inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-accent hover:bg-muted/70 transition-all cursor-pointer" title="查看源码" aria-label="查看源码">
+        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+        <span class="diagram-btn-source-label">源码</span>
       </button>
-      <button type="button" class="diagram-btn-zoom-out rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="缩小 (-)" aria-label="缩小">
-        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>
-      </button>
-      <button type="button" class="diagram-btn-reset rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="还原 (100%)" aria-label="还原">
-        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-      </button>
-      <span class="w-px h-3.5 bg-border/60 mx-0.5" aria-hidden="true"></span>
-      <button type="button" class="diagram-btn-source rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="查看源码" aria-label="查看源码">
-        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-      </button>
-      <button type="button" class="diagram-btn-fullscreen rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="全屏查看" aria-label="全屏查看">
+      <button type="button" class="diagram-btn-fullscreen diagram-zoom-controls rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="全屏查看" aria-label="全屏查看">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
       </button>
     `;
@@ -155,14 +158,36 @@ function initDiagramWrapper(wrapper: HTMLElement) {
       ".diagram-btn-close-source"
     );
     const codeEl = sourcePanel.querySelector("code");
+    const zoomControls = wrapper.querySelectorAll<HTMLElement>(
+      ".diagram-zoom-controls"
+    );
+
+    const codeIconSvg = `<svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`;
+    const chartIconSvg = `<svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>`;
 
     const setSourceVisible = (show: boolean) => {
       if (show) {
         sourcePanel.classList.remove("hidden");
-        btnSource.classList.add("text-accent", "bg-muted/80");
+        viewport?.classList.add("hidden");
+        hint?.classList.add("hidden");
+        zoomControls.forEach(el => el.classList.add("hidden"));
+
+        btnSource.classList.add("text-accent", "bg-accent/15", "font-semibold");
+        btnSource.title = "返回图表预览";
+        btnSource.innerHTML = `${chartIconSvg}<span class="diagram-btn-source-label">图表</span>`;
       } else {
         sourcePanel.classList.add("hidden");
-        btnSource.classList.remove("text-accent", "bg-muted/80");
+        viewport?.classList.remove("hidden");
+        hint?.classList.remove("hidden");
+        zoomControls.forEach(el => el.classList.remove("hidden"));
+
+        btnSource.classList.remove(
+          "text-accent",
+          "bg-accent/15",
+          "font-semibold"
+        );
+        btnSource.title = "查看源码";
+        btnSource.innerHTML = `${codeIconSvg}<span class="diagram-btn-source-label">源码</span>`;
       }
     };
 
@@ -506,14 +531,14 @@ function openFullscreenDiagram(wrapper: HTMLElement) {
 
     modalSourcePanel = document.createElement("div");
     modalSourcePanel.className =
-      "diagram-modal-source-panel hidden absolute top-16 right-4 sm:right-6 w-[92vw] max-w-lg z-20 rounded-2xl border border-border/80 bg-surface/95 dark:bg-surface/90 backdrop-blur-xl shadow-2xl overflow-hidden transition-all duration-200";
+      "diagram-modal-source-panel hidden absolute top-16 right-4 sm:right-6 w-[92vw] max-w-lg z-20 rounded-2xl border border-border/80 bg-surface/95 dark:bg-surface/90 backdrop-blur-xl shadow-2xl overflow-hidden transition-all duration-200 select-text";
     modalSourcePanel.innerHTML = `
       <div class="flex items-center justify-between px-4 py-2.5 border-b border-border/60 bg-surface/80 dark:bg-surface/50 text-xs select-none">
         <div class="flex items-center gap-2">
           <span class="px-2 py-0.5 rounded font-mono text-[11px] font-semibold tracking-wider text-accent bg-accent/15 uppercase">
             ${lang}
           </span>
-          <span class="text-muted-foreground font-medium">图表源码</span>
+          <span class="text-muted-foreground font-medium">图表源码 (支持逐字选择复制)</span>
         </div>
         <div class="flex items-center gap-2">
           <button type="button" class="diagram-btn-modal-copy inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="复制代码" aria-label="复制代码">
@@ -525,7 +550,7 @@ function openFullscreenDiagram(wrapper: HTMLElement) {
           </button>
         </div>
       </div>
-      <pre class="p-4 m-0 overflow-x-auto text-xs font-mono text-foreground leading-relaxed max-h-[60vh] overflow-y-auto selection:bg-accent/30"><code class="diagram-modal-source-code"></code></pre>
+      <pre class="p-4 m-0 overflow-x-auto text-xs font-mono text-foreground leading-relaxed max-h-[60vh] overflow-y-auto selection:bg-accent/30 select-text cursor-text"><code class="diagram-modal-source-code select-text cursor-text"></code></pre>
     `;
     modalSourcePanel.querySelector<HTMLElement>(
       ".diagram-modal-source-code"

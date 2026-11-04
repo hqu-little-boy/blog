@@ -183,11 +183,20 @@
 
   /* ===== Diagram Source Code Panel ===== */
   .diagram-source-panel {
-    @apply w-full text-left transition-all duration-200;
+    @apply w-full text-left transition-all duration-200 select-text;
+  }
+
+  .diagram-source-pre,
+  .diagram-source-pre code,
+  .diagram-modal-source-panel pre,
+  .diagram-modal-source-panel code {
+    @apply text-foreground cursor-text select-text;
+    user-select: text !important;
+    -webkit-user-select: text !important;
   }
 
   .diagram-source-pre {
-    @apply text-foreground bg-surface-container/70 dark:bg-surface-container/40 border-border/70 overflow-x-auto rounded-xl border font-mono text-xs;
+    @apply bg-surface-container/70 dark:bg-surface-container/40 border-border/70 overflow-x-auto rounded-xl border font-mono text-xs;
   }
 
   /* ===== KaTeX Math Formulas ===== */

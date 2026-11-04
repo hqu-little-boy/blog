@@ -16,7 +16,7 @@ description: 深度解析 RISC-V 64 位控制核裸机（Bare-metal）固件反�
 
 > **前言**：在 AI 芯片（NPU/DSA）或现代 SoC 固件开发中，让一颗全新流片或仿真的 RISC-V 控制核在**没有 Linux、没有操作系统（Bare-metal 裸机）**的环境下，从上电复位开始跑通第一个 C++ 应用程序，是验证硬件与软件执行契约的“第一道龙门”。
 > 
-> 本文以真实的 RISC-V 64 位控制核冒烟测试程序 `test_bringup_smoke_ctrl.elf` 的反汇编为蓝本，从最底层的汇编指令与特权 CSR 寄存器展开，结合清晰直观的 **Mermaid 交互图** 与 **Graphviz 内存拓扑图**，系统复盘从 `_start` 复位入口、Trap 现场保护、C/C++ Runtime 启动、平台阶段分步初始化、堆内存分配，到 Andes 厂商扩展与 `menvcfg` 实战踩坑的完整底层技术内幕。
+> 本文以典型的 RISC-V 64 位控制核冒烟测试程序 `riscv_bringup_smoke.elf` 的反汇编为蓝本，从最底层的汇编指令与特权 CSR 寄存器展开，结合清晰直观的 **Mermaid 交互图** 与 **Graphviz 内存拓扑图**，系统复盘从 `_start` 复位入口、Trap 现场保护、C/C++ Runtime 启动、平台阶段分步初始化、堆内存分配，到 Andes 厂商扩展与 `menvcfg` 实战踩坑的完整底层技术内幕。
 
 ---
 
@@ -33,21 +33,21 @@ description: 深度解析 RISC-V 64 位控制核裸机（Bare-metal）固件反�
   - [2.3 机器模式特权配置与 PMP 内存防火墙](#23-机器模式特权配置与-pmp-内存防火墙)
   - [2.4 实战惊魂：`0x30a`（`menvcfg`）非法指令异常（Trap）的复盘与防范](#24-实战惊魂0x30amenvcfg非法指令异常trap的复盘与防范)
   - [2.5 裸机异常处理的精髓：`mscratch` 与通用寄存器的“乾坤大挪移”](#25-裸机异常处理的精髓mscratch-与通用寄存器的乾坤大挪移)
-  - [2.6 引导参数交接：从 `a0` 到 `EB_bootIf`](#26-引导参数交接从-a0-到-eb_bootif)
-- [三、第二阶段：`EG_runtimeInit`——唤醒 C/C++ 运行时](#三第二阶段eg_runtimeinit唤醒-cc-运行时)
+  - [2.6 引导参数交接：从 `a0` 到 `BM_bootIf`](#26-引导参数交接从-a0-到-bm_bootif)
+- [三、第二阶段：`BM_runtimeInit`——唤醒 C/C++ 运行时](#三第二阶段bm_runtimeinit唤醒-cc-运行时)
   - [3.1 C++ 全局对象初始化秘密：`.init_array` 与 `__libc_init_array`](#31-c-全局对象初始化秘密init_array-与-__libc_init_array)
   - [3.2 析构处理：`atexit(__libc_fini_array)` 及其在裸机中的现实约束](#32-析构处理atexit__libc_fini_array-及其在裸机中的现实约束)
   - [3.3 为什么标准输出必须设置 `_IONBF`（无缓冲）？](#33-为什么标准输出必须设置-_ionbf无缓冲)
-- [四、第三阶段：`EB_bringup`——分阶段有限状态机（FSM）](#四第三阶段eb_bringup分阶段有限状态机fsm)
+- [四、第三阶段：`BM_bringup`——分阶段有限状态机（FSM）](#四第三阶段bm_bringup分阶段有限状态机fsm)
   - [4.1 硬件初始化的 11 个依赖阶段](#41-硬件初始化的-11-个依赖阶段)
-  - [4.2 状态追踪与进度编码机制（`EL_writeCode`）](#42-状态追踪与进度编码机制el_writecode)
-- [五、第四阶段：`EB_main`——真正的冒烟验证实战](#五第四阶段eb_main真正的冒烟验证实战)
+  - [4.2 状态追踪与进度编码机制（`BM_writeCode`）](#42-状态追踪与进度编码机制bm_writecode)
+- [五、第四阶段：`BM_main`——真正的冒烟验证实战](#五第四阶段bm_main真正的冒烟验证实战)
   - [5.1 内存段真伪自检：`.data`、`.bss` 与魔数校验](#51-内存段真伪自检databss-与魔数校验)
   - [5.2 没有操作系统时，`malloc` 是如何工作的？（`_sbrk` 与 4KB 堆空间）](#52-没有操作系统时malloc-是如何工作的_sbrk-与-4kb-堆空间)
   - [5.3 物理内存拓扑与地址布局（Graphviz 全景图）](#53-物理内存拓扑与地址布局graphviz-全景图)
   - [5.4 标准 C 库与硬件 MMIO 字符输出链路](#54-标准-c-库与硬件-mmio-字符输出链路)
 - [六、第五阶段：异常处理、现场取证与安全停机](#六第五阶段异常处理现场取证与安全停机)
-  - [6.1 `ET_trapVector`：全寄存器现场封存](#61-et_trapvector全寄存器现场封存)
+  - [6.1 `BM_trapVector`：全寄存器现场封存](#61-bm_trapvector全寄存器现场封存)
   - [6.2 切换独立 Trap 栈：防范第二次灾难](#62-切换独立-trap-栈防范第二次灾难)
   - [6.3 防嵌套崩溃机制与 `wfi` 终极休眠](#63-防嵌套崩溃机制与-wfi-终极休眠)
 - [七、深度扩展：指令集双剑合璧——RVC 压缩指令与 Andes 扩展](#七深度扩展指令集双剑合璧rvc-压缩指令与-andes-扩展)
@@ -78,7 +78,7 @@ description: 深度解析 RISC-V 64 位控制核裸机（Bare-metal）固件反�
 
 ## 一、宏观全景：这个 ELF 在验证什么契约？
 
-我们面对的目标是一份 64 位 RISC-V ELF 文件：`test_bringup_smoke_ctrl.elf`。它来自神经网络处理器（NPU）中的**控制核（Ctrl Core）**，采用 Andes 扩展架构。
+我们面对的目标是一份 64 位 RISC-V ELF 文件：`riscv_bringup_smoke.elf`。它来自神经网络处理器（NPU）中的**控制核（Control Core）**，采用 Andes 扩展架构。
 
 ### 1.1 冒烟测试（Smoke Test）的五大天问
 
@@ -90,7 +90,7 @@ digraph verification_5_questions {
     node [shape=box, style="rounded,filled", fillcolor="#f8fafc", fontname="sans-serif", color="#64748b"];
     edge [fontname="sans-serif", fontsize=10, color="#475569"];
 
-    Q1 [label="1. 复位与入口\nCPU 能否从 0x500000\n入口执行 _start？"];
+    Q1 [label="1. 复位与入口\nCPU 能否从 0x80000000\n入口执行 _start？"];
     Q2 [label="2. C/C++ 环境\nsp/gp 寄存器、.data/.bss、\n全局构造函数是否就位？"];
     Q3 [label="3. 状态机推进\nRuntime 平台 11 个阶段\n能否顺畅流转？"];
     Q4 [label="4. 基础 C 库功能\nmalloc/free 堆操作与\nstdio 输出能否正常工作？"];
@@ -107,40 +107,40 @@ digraph verification_5_questions {
 ```mermaid
 flowchart TD
     subgraph S1["第一阶段: 硬件与 CPU 准备 (startup/start.S)"]
-        Reset["Power-on Reset (PC=0x500000)"] --> Start["_start 入口"]
+        Reset["Power-on Reset (PC=0x80000000)"] --> Start["_start 入口"]
         Start --> DisableInt["关闭中断: csrw mie, 0 / csrw mip, 0"]
         DisableInt --> SetRegs["建立基准寄存器: gp, tp, sp"]
         SetRegs --> SetMstatus["配置特权状态: mstatus=0x3800"]
         SetRegs --> ClearCSR["清零 menvcfg (0x30a)"]
         ClearCSR --> SetupPMP["配置开放 PMP0 (RWX NAPOT)"]
-        SetupPMP --> SetupTrap["安装异常向量: mtvec = ET_trapVector\nmscratch = TrapRecord"]
-        SetupTrap --> SaveBootArg["保存 boot_arg (a0) -> EB_bootIf"]
-        SaveBootArg --> JumpEntry["跳转 jalr EB_entry"]
+        SetupPMP --> SetupTrap["安装异常向量: mtvec = BM_trapVector\nmscratch = TrapRecord"]
+        SetupTrap --> SaveBootArg["保存 boot_arg (a0) -> BM_bootIf"]
+        SaveBootArg --> JumpEntry["跳转 jalr BM_entry"]
     end
 
-    subgraph S2["第二阶段: C/C++ 运行时初始化 (EG_runtimeInit)"]
-        JumpEntry --> RuntimeInit["EG_runtimeInit"]
+    subgraph S2["第二阶段: C/C++ 运行时初始化 (BM_runtimeInit)"]
+        JumpEntry --> RuntimeInit["BM_runtimeInit"]
         RuntimeInit --> RegAtexit["注册 atexit(__libc_fini_array)"]
         RegAtexit --> InitArray["调用 __libc_init_array\n(遍历 .init_array 执行全局构造函数)"]
         InitArray --> UnbufferedStdio["配置 stdio 无缓冲 (setvbuf _IONBF)"]
     end
 
-    subgraph S3["第三阶段: 平台逐步初始化 (EB_bringup)"]
-        UnbufferedStdio --> Bringup["EB_bringup (状态机 State: 0 -> 10)"]
+    subgraph S3["第三阶段: 平台逐步初始化 (BM_bringup)"]
+        UnbufferedStdio --> Bringup["BM_bringup (状态机 State: 0 -> 10)"]
         Bringup --> PlatformStages["Reset -> Map -> BootIf -> PLIC -> Mailbox -> ... -> Scheduler"]
     end
 
-    subgraph S4["第四阶段: 应用程序冒烟测试 (EB_main)"]
-        PlatformStages --> Main["EB_main (State = 11)"]
+    subgraph S4["第四阶段: 应用程序冒烟测试 (BM_main)"]
+        PlatformStages --> Main["BM_main (State = 11)"]
         Main --> CheckState["校验 .data 魔数 (SMOKEDAT) / 构造计数器 / 参数"]
         CheckState --> MallocTest["堆测试: malloc(64) -> 异或校验 -> free"]
         MallocTest --> StdioTest["I/O 测试: fputs / fflush -> UART MMIO"]
-        StdioTest --> Success["输出成功码: 0x52540301\nEG_platformExit(0)"]
+        StdioTest --> Success["输出成功码: 0xB0070301\nBM_platformExit(0)"]
     end
 
     subgraph S5["第五阶段: 安全停机与异常捕获"]
-        Success --> Halt["ET_failStop / ET_nestedHalt\nfence -> wfi 死循环"]
-        Start -.->|"发生非法指令 / 访问错误"| Trap["ET_trapVector (mscratch 交换 -> 存现场 -> ET_trapReport)"]
+        Success --> Halt["BM_failStop / BM_nestedHalt\nfence -> wfi 死循环"]
+        Start -.->|"发生非法指令 / 访问错误"| Trap["BM_trapVector (mscratch 交换 -> 存现场 -> BM_trapReport)"]
         Trap --> Halt
     end
 
@@ -153,19 +153,19 @@ flowchart TD
 在反汇编审计中，我们发现了一个至关重要的事实：
 
 ```asm
-00000000005003fa <EB_platformEctrl>:
-  5003fa: 1141          c.addi sp,-16
-  5003fc: e022          c.sdsp s0,0(sp)
-  5003fe: e406          c.sdsp ra,8(sp)
-  500400: 0800          c.addi4spn s0,sp,16
-  500402: 6402          c.ldsp s0,0(sp)
-  500404: 60a2          c.ldsp ra,8(sp)
-  500406: 4501          c.li   a0,0            # 关键：直接将返回值 a0 置 0！
-  500408: 0141          c.addi sp,16
-  50040a: 8082          c.jr   ra              # 直接返回
+00000000800003fa <BM_platformCtrl>:
+  800003fa: 1141          c.addi sp,-16
+  800003fc: e022          c.sdsp s0,0(sp)
+  800003fe: e406          c.sdsp ra,8(sp)
+  80000400: 0800          c.addi4spn s0,sp,16
+  80000402: 6402          c.ldsp s0,0(sp)
+  80000404: 60a2          c.ldsp ra,8(sp)
+  80000406: 4501          c.li   a0,0            # 关键：直接将返回值 a0 置 0！
+  80000408: 0141          c.addi sp,16
+  8000040a: 8082          c.jr   ra              # 直接返回
 ```
 
-包括 `EB_platformPlic`、`EB_platformMailbox`、`EB_platformCmdRing`、`EB_platformEngine` 在内的大部分底层接口，反汇编后**除了调整栈帧与返回 0 外，没有做任何真实的硬件寄存器配置**。
+包括 `BM_platformPlic`、`BM_platformMailbox`、`BM_platformCmdRing`、`BM_platformEngine` 在内的大部分底层接口，反汇编后**除了调整栈帧与返回 0 外，没有做任何真实的硬件寄存器配置**。
 
 > [!NOTE] 结论
 > 这个测试固件的核心目的是验证**软件调用链、状态机推进逻辑、C 运行时支撑库与异常体系的连通性**，而不是验证 NPU 真实硬件单元（如卷积引擎、中断控制器）的硬件功能。这是 Bring-up 早期标准的软件工程解耦策略。
@@ -174,39 +174,39 @@ flowchart TD
 
 ## 二、第一阶段：`_start` 复位入口——构筑 CPU 物理世界观
 
-指令从复位地址 `0x500000` 开始。此时硬件刚脱离 Reset 状态，处理器内的大多数通用寄存器处于未定义或随机状态，内存没有栈，也没有页表。
+指令从复位地址 `0x80000000` 开始。此时硬件刚脱离 Reset 状态，处理器内的大多数通用寄存器处于未定义或随机状态，内存没有栈，也没有页表。
 
 ```asm
-0000000000500000 <_start>:
-  500000: 30401073          csrw    mie,zero
-  500004: 34401073          csrw    mip,zero
-  500008: 000f0197          auipc   gp,0xf0
-  50000c: 7f818193          addi    gp,gp,2040    # 0x5f0800 <__global_pointer$>
-  500010: 00003217          auipc   tp,0x3
-  500014: 02820213          addi    tp,tp,40      # 0x503038 <__tp_init>
-  500018: 000fd117          auipc   sp,0xfd
-  50001c: 76810113          addi    sp,sp,1896    # 0x5fd780 <__stack_top>
-  500020: 6291              c.lui   t0,0x4
-  500022: 8002829b          addiw   t0,t0,-2048   # t0 = 0x3800
-  500026: 30029073          csrw    mstatus,t0
-  50002a: 4281              c.li    t0,0
-  50002c: 30a29073          csrw    0x30a,t0      # menvcfg
-  500030: 7a00128b          nds.addigp t0,1952    # t0 = 0x5f0fa0 <__et_record_base>
-  500034: 34029073          csrw    mscratch,t0
-  500038: 00000297          auipc   t0,0x0
-  50003c: 4b028293          addi    t0,t0,1200    # 0x5004e8 <ET_trapVector>
-  500040: 30529073          csrw    mtvec,t0
-  500044: 52fd              c.li    t0,-1
-  500046: 0012d293          srli    t0,t0,0x1     # t0 = 0x7fffffffffffffff
-  50004a: 3b029073          csrw    pmpaddr0,t0
-  50004e: 42fd              c.li    t0,31         # 0x1f
-  500050: 3a029073          csrw    pmpcfg0,t0
-  500054: 7380128b          nds.addigp t0,1848    # t0 = 0x5f0f38 <EB_bootIf>
-  500058: 00a2b023          sd      a0,0(t0)      # 保存 boot arg
-  50005c: 00000097          auipc   ra,0x0
-  500060: 2dc080e7          jalr    732(ra)       # 跳转 EB_entry (0x500338)
-  500064: 10500073          wfi                   # 若返回则休眠
-  500068: bff5              c.j     0x500064
+0000000080000000 <_start>:
+  80000000: 30401073          csrw    mie,zero
+  80000004: 34401073          csrw    mip,zero
+  80000008: 000f0197          auipc   gp,0xf0
+  8000000c: 7f818193          addi    gp,gp,2040    # 0x800f0800 <__global_pointer$>
+  80000010: 00003217          auipc   tp,0x3
+  80000014: 02820213          addi    tp,tp,40      # 0x80003038 <__tp_init>
+  80000018: 000fd117          auipc   sp,0xfd
+  8000001c: 76810113          addi    sp,sp,1896    # 0x800fd780 <__stack_top>
+  80000020: 6291              c.lui   t0,0x4
+  80000022: 8002829b          addiw   t0,t0,-2048   # t0 = 0x3800
+  80000026: 30029073          csrw    mstatus,t0
+  8000002a: 4281              c.li    t0,0
+  8000002c: 30a29073          csrw    0x30a,t0      # menvcfg
+  80000030: 7a00128b          nds.addigp t0,1952    # t0 = 0x800f0fa0 <__trap_record_base>
+  80000034: 34029073          csrw    mscratch,t0
+  80000038: 00000297          auipc   t0,0x0
+  8000003c: 4b028293          addi    t0,t0,1200    # 0x800004e8 <BM_trapVector>
+  80000040: 30529073          csrw    mtvec,t0
+  80000044: 52fd              c.li    t0,-1
+  80000046: 0012d293          srli    t0,t0,0x1     # t0 = 0x7fffffffffffffff
+  8000004a: 3b029073          csrw    pmpaddr0,t0
+  8000004e: 42fd              c.li    t0,31         # 0x1f
+  80000050: 3a029073          csrw    pmpcfg0,t0
+  80000054: 7380128b          nds.addigp t0,1848    # t0 = 0x800f0f38 <BM_bootIf>
+  80000058: 00a2b023          sd      a0,0(t0)      # 保存 boot arg
+  8000005c: 00000097          auipc   ra,0x0
+  80000060: 2dc080e7          jalr    732(ra)       # 跳转 BM_entry (0x80000338)
+  80000064: 10500073          wfi                   # 若返回则休眠
+  80000068: bff5              c.j     0x80000064
 ```
 
 ### 2.1 关闭中断与清理挂起：为什么关了 `mie` 还要清 `mip`？
@@ -264,34 +264,34 @@ addi  rd, rd, imm12 --> rd = rd + sign_extend(imm12)
 ```
 
 以初始化全局指针 `gp` 为例：
-- `500008: auipc gp, 0xf0`：当前 PC 为 `0x500008`，立即数 `0xf0 << 12 = 0xf0000`。
-  `gp = 0x500008 + 0xf0000 = 0x5f0008`。
-- `50000c: addi gp, gp, 2040`：`2040 = 0x7f8`。
-  `gp = 0x5f0008 + 0x7f8 = 0x5f0800`（精确指向链接脚本定义的符号 `__global_pointer$`）。
+- `80000008: auipc gp, 0xf0`：当前 PC 为 `0x80000008`，立即数 `0xf0 << 12 = 0xf0000`。
+  `gp = 0x80000008 + 0xf0000 = 0x800f0008`。
+- `8000000c: addi gp, gp, 2040`：`2040 = 0x7f8`。
+  `gp = 0x800f0008 + 0x7f8 = 0x800f0800`（精确指向链接脚本定义的符号 `__global_pointer$`）。
 
 ```graphviz
 digraph register_trio {
     rankdir=TB;
     node [shape=record, fontname="sans-serif", style=filled, fillcolor="#f8fafc"];
 
-    gp_box [label="{ <name> 全局指针 gp (0x5f0800) | 锚定小全局变量区 (.sdata/.sbss)\n让 CPU 能用单条 ±2KB 偏移指令高速访问变量 }", fillcolor="#e0f2fe"];
-    tp_box [label="{ <name> 线程指针 tp (0x503038) | 锚定线程局部存储基地址 (TLS)\n裸机环境下预留 ABI 规范标准契约 }", fillcolor="#fef3c7"];
-    sp_box [label="{ <name> 栈顶指针 sp (0x5fd780) | 锚定函数调用栈起始顶峰\n向低地址方向倒悬生长，要求 16 字节对齐 }", fillcolor="#fee2e2"];
+    gp_box [label="{ <name> 全局指针 gp (0x800f0800) | 锚定小全局变量区 (.sdata/.sbss)\n让 CPU 能用单条 ±2KB 偏移指令高速访问变量 }", fillcolor="#e0f2fe"];
+    tp_box [label="{ <name> 线程指针 tp (0x80003038) | 锚定线程局部存储基地址 (TLS)\n裸机环境下预留 ABI 规范标准契约 }", fillcolor="#fef3c7"];
+    sp_box [label="{ <name> 栈顶指针 sp (0x800fd780) | 锚定函数调用栈起始顶峰\n向低地址方向倒悬生长，要求 16 字节对齐 }", fillcolor="#fee2e2"];
 
     gp_box -> tp_box -> sp_box [style=invis];
 }
 ```
 
-只有当 `sp = 0x5fd780` 执行完毕后，CPU 才真正具备了调用 C/C++ 函数的物理条件！
+只有当 `sp = 0x800fd780` 执行完毕后，CPU 才真正具备了调用 C/C++ 函数的物理条件！
 
 ---
 
 ### 2.3 机器模式特权配置与 PMP 内存防火墙
 
 ```asm
-500020: 6291        c.lui   t0,0x4        # t0 = 0x4000
-500022: 8002829b    addiw   t0,t0,-2048   # t0 = 0x4000 - 0x800 = 0x3800
-500026: 30029073    csrw    mstatus,t0
+80000020: 6291        c.lui   t0,0x4        # t0 = 0x4000
+80000022: 8002829b    addiw   t0,t0,-2048   # t0 = 0x4000 - 0x800 = 0x3800
+80000026: 30029073    csrw    mstatus,t0
 ```
 
 `mstatus`（Machine Status）被写入 `0x3800`：
@@ -301,11 +301,11 @@ digraph register_trio {
 
 随后配置 PMP（Physical Memory Protection）：
 ```asm
-500044: c.li t0,-1
-500046: srli t0,t0,0x1      # t0 = 0x7fffffffffffffff
-50004a: csrw pmpaddr0,t0
-50004e: c.li t0,31          # 0x1f
-500050: csrw pmpcfg0,t0
+80000044: c.li t0,-1
+80000046: srli t0,t0,0x1      # t0 = 0x7fffffffffffffff
+8000004a: csrw pmpaddr0,t0
+8000004e: c.li t0,31          # 0x1f
+80000050: csrw pmpcfg0,t0
 ```
 - `0x1f = 0001 1111b`：低 3 位 `R/W/X = 111b`（允许读、写、执行），匹配模式 `A = 11b`（NAPOT，自然对齐的 2 的幂次方区域）。
 - 这是在启动初期为物理内存设置的一张**全开放通行证**，确保后续取指和读写数据不会触发 PMP 权限故障。
@@ -314,14 +314,14 @@ digraph register_trio {
 
 ### 2.4 实战惊魂：`0x30a`（`menvcfg`）非法指令异常（Trap）的复盘与防范
 
-在启动代码第 50002c 处，有一条极易引发血案的指令：
+在启动代码第 0x8000002c 处，有一条极易引发血案的指令：
 ```asm
-50002a: c.li t0,0
-50002c: 30a29073    csrw 0x30a,t0
+8000002a: c.li t0,0
+8000002c: 30a29073    csrw 0x30a,t0
 ```
 
 > [!WARNING] 真实踩坑案例
-> 曾经有工程师在将固件迁移到某款老版本 Andes 核或通用 QEMU 模拟器运行时，CPU 刚跑两行就在 `0x50002c` 突然触发 **非法指令异常（Illegal Instruction Exception, mcause = 2）**，直接猝死。
+> 曾经有工程师在将固件迁移到某款老版本 Andes 核或通用 QEMU 模拟器运行时，CPU 刚跑两行就在 `0x8000002c` 突然触发 **非法指令异常（Illegal Instruction Exception, mcause = 2）**，直接猝死。
 > 
 > 初学者常犯的误区是：“我只是往寄存器写了个 0，0 怎么会有毒？”
 
@@ -334,7 +334,7 @@ digraph register_trio {
 ```mermaid
 flowchart LR
     A["RISC-V 特权规范 v1.11 (或更早)\nSpike/旧版 QEMU/早期核"] -->|未定义 0x30a| C["硬件判定: 未实现寄存器!\n触发 mcause = 2 (Illegal Instruction)"]
-    B["RISC-V 特权规范 v1.12 (Sm1p12)\n新核 / caisa 控制核"] -->|标准支持 0x30a| D["正常清零 menvcfg\n恢复最保守基础环境"]
+    B["RISC-V 特权规范 v1.12 (Sm1p12)\n新型 AI 加速核 / RISC-V 控制核"] -->|标准支持 0x30a| D["正常清零 menvcfg\n恢复最保守基础环境"]
 
     style C fill:#fecaca,stroke:#dc2626,stroke-width:2px;
     style D fill:#bbf7d0,stroke:#16a34a,stroke-width:2px;
@@ -355,20 +355,20 @@ flowchart LR
 
 在 `_start` 中：
 ```asm
-500030: nds.addigp t0,1952   # t0 = 0x5f0fa0 = __et_record_base (TrapRecord 区域)
-500034: csrw mscratch,t0     # mscratch 提前存好这个备份区指针
+80000030: nds.addigp t0,1952   # t0 = 0x800f0fa0 = __trap_record_base (TrapRecord 区域)
+80000034: csrw mscratch,t0     # mscratch 提前存好这个备份区指针
 ```
 
-一旦发生 Trap，CPU 硬件将 PC 强行指向 `mtvec`（即 `ET_trapVector`）：
+一旦发生 Trap，CPU 硬件将 PC 强行指向 `mtvec`（即 `BM_trapVector`）：
 ```asm
-00000000005004e8 <ET_trapVector>:
-  5004e8: csrrw t0,mscratch,t0  # 【灵魂指令】瞬间互换 t0 与 mscratch !
-  5004ec: sd    zero,0(t0)      # 保存 x0
-  5004f0: sd    ra,8(t0)        # 保存 ra
-  5004f4: sd    sp,16(t0)       # 保存 sp
+00000000800004e8 <BM_trapVector>:
+  800004e8: csrrw t0,mscratch,t0  # 【灵魂指令】瞬间互换 t0 与 mscratch !
+  800004ec: sd    zero,0(t0)      # 保存 x0
+  800004f0: sd    ra,8(t0)        # 保存 ra
+  800004f4: sd    sp,16(t0)       # 保存 sp
   ...
-  500568: csrr  t1,mscratch     # 取出暂存在 mscratch 里的被打断前的原始 t0
-  50056c: sd    t1,40(t0)       # 完美补存原始 t0 !
+  80000568: csrr  t1,mscratch     # 取出暂存在 mscratch 里的被打断前的原始 t0
+  8000056c: sd    t1,40(t0)       # 完美补存原始 t0 !
 ```
 
 我们用时序图还原这个“魔术”：
@@ -378,12 +378,12 @@ sequenceDiagram
     autonumber
     participant CPU as CPU 通用寄存器 (t0)
     participant CSR as 机器暂存 CSR (mscratch)
-    participant RAM as 内存 TrapRecord 区 (0x5f0fa0)
+    participant RAM as 内存 TrapRecord 区 (0x800f0fa0)
 
-    Note over CPU,CSR: 启动就绪时：mscratch 存储着 0x5f0fa0，t0 运行用户业务数据
-    Note over CPU: 突发硬件 Trap / 非法指令！PC 强跳 ET_trapVector
+    Note over CPU,CSR: 启动就绪时：mscratch 存储着 0x800f0fa0，t0 运行用户业务数据
+    Note over CPU: 突发硬件 Trap / 非法指令！PC 强跳 BM_trapVector
     CPU->>CSR: 执行 csrrw t0, mscratch, t0
-    Note over CPU,CSR: 原子交换！t0 获得内存区指针 0x5f0fa0；mscratch 暂存原 t0 数值
+    Note over CPU,CSR: 原子交换！t0 获得内存区指针 0x800f0fa0；mscratch 暂存原 t0 数值
     CPU->>RAM: 用 t0 作为基址，开始 sd 保存 ra, sp, gp, s0..s11, a0..a7 等所有寄存器
     CSR->>CPU: csrr t1, mscratch (读取被暂存的原 t0)
     CPU->>RAM: sd t1, 40(t0) (将原 t0 存入备份槽 offset 40)
@@ -394,21 +394,21 @@ sequenceDiagram
 
 ---
 
-### 2.6 引导参数交接：从 `a0` 到 `EB_bootIf`
+### 2.6 引导参数交接：从 `a0` 到 `BM_bootIf`
 
 ```asm
-500054: nds.addigp t0,1848   # t0 = &EB_bootIf
-500058: sd a0,0(t0)          # 将外部固件/加载器传入的 a0 存入内存
-50005c: auipc ra,0x0
-500060: jalr 732(ra)         # 进入 EB_entry (0x500338)
+80000054: nds.addigp t0,1848   # t0 = &BM_bootIf
+80000058: sd a0,0(t0)          # 将外部固件/加载器传入的 a0 存入内存
+8000005c: auipc ra,0x0
+80000060: jalr 732(ra)         # 进入 BM_entry (0x80000338)
 ```
-在 RISC-V 调用约定中，外部环境（如仿真器 testbench、上一级 bootloader）在唤醒 CPU 时，通常会在 `a0` 寄存器里放入一个指向硬件接口结构体的指针。启动代码必须在 `a0` 被后续函数破坏之前，将其固化到全局变量 `EB_bootIf` 中。
+在 RISC-V 调用约定中，外部环境（如仿真器 testbench、上一级 bootloader）在唤醒 CPU 时，通常会在 `a0` 寄存器里放入一个指向硬件接口结构体的指针。启动代码必须在 `a0` 被后续函数破坏之前，将其固化到全局变量 `BM_bootIf` 中。
 
 ---
 
-## 三、第二阶段：`EG_runtimeInit`——唤醒 C/C++ 运行时
+## 三、第二阶段：`BM_runtimeInit`——唤醒 C/C++ 运行时
 
-CPU 从汇编世界跳入了 C 语言函数 `EB_entry`，进而调用 `EG_runtimeInit`（0x500454）。
+CPU 从汇编世界跳入了 C 语言函数 `BM_entry`，进而调用 `BM_runtimeInit`（0x80000454）。
 
 很多人误以为“既然有 C 编译器，写出来的 C++ 程序就能直接跑”。这是完全错误的。**C++ 代码中各种全局对象、标准输入输出流，必须由运行时代码主动催熟唤醒。**
 
@@ -429,9 +429,9 @@ CPU 的硬件取指译码电路根本不认识什么是构造函数。编译器�
 
 ```mermaid
 flowchart TD
-    Src["C++ 源码定义全局静态对象\nSmokeInitializer globalInstance"] --> Comp["编译器将其构造函数编译为独立函数\n0x5001b0 <_GLOBAL__sub_I_smokeEntryCount>"]
+    Src["C++ 源码定义全局静态对象\nSmokeInitializer globalInstance"] --> Comp["编译器将其构造函数编译为独立函数\n0x800001b0 <_GLOBAL__sub_I_smokeEntryCount>"]
     Comp --> Link["链接器收集所有类似函数指针\n集中排布在 ELF 的 .init_array 段中"]
-    Link --> Run["EG_runtimeInit 调用\n__libc_init_array() (0x501fec)"]
+    Link --> Run["BM_runtimeInit 调用\n__libc_init_array() (0x80001fec)"]
     Run --> Loop["遍历 .init_array 函数指针数组并逐个执行"]
     Loop --> Done["globalInstance 构造函数被调用\nsmokeConstructorCount 累加为 1"]
 
@@ -441,26 +441,26 @@ flowchart TD
 
 在反汇编中，我们清晰地看到了由编译器生成的构造包装器：
 ```asm
-00000000005001b0 <_GLOBAL__sub_I_smokeEntryCount>:
-  5001b8: 7200170b    nds.addigp a4,1824   # smokeConstructorCount 的地址
-  5001bc: 631c        c.ld a5,0(a4)        # 读出原值
-  5001c0: 0785        c.addi a5,1          # 累加 1
-  5001c2: e31c        c.sd a5,0(a4)        # 写回
-  5001c8: 8082        c.jr ra
+00000000800001b0 <_GLOBAL__sub_I_smokeEntryCount>:
+  800001b8: 7200170b    nds.addigp a4,1824   # smokeConstructorCount 的地址
+  800001bc: 631c        c.ld a5,0(a4)        # 读出原值
+  800001c0: 0785        c.addi a5,1          # 累加 1
+  800001c2: e31c        c.sd a5,0(a4)        # 写回
+  800001c8: 8082        c.jr ra
 ```
-这就是为什么后续冒烟测试 `EB_main` 会检查 `smokeConstructorCount == 1`：**它在肉身验证编译器的 `.init_array` 链路有没有真正通电运转！**
+这就是为什么后续冒烟测试 `BM_main` 会检查 `smokeConstructorCount == 1`：**它在肉身验证编译器的 `.init_array` 链路有没有真正通电运转！**
 
 ---
 
 ### 3.2 析构处理：`atexit(__libc_fini_array)` 及其在裸机中的现实约束
 
-`EG_runtimeInit` 还会将析构函数数组注册进 libc：
+`BM_runtimeInit` 还会将析构函数数组注册进 libc：
 ```asm
-500488: auipc a0,0x2
-50048c: addi  a0,a0,-1072    # __libc_fini_array
-500492: jal   0x5009f4 <atexit>
+80000488: auipc a0,0x2
+8000048c: addi  a0,a0,-1072    # __libc_fini_array
+80000492: jal   0x800009f4 <atexit>
 ```
-然而在裸机开发中必须清醒认知：**注册了析构函数，并不代表最后一定会被执行**。当前系统的 `EG_platformExit` 最终直接跳往 `ET_failStop` 死循环停机，而非标准的 OS 进程正常退出流程，因此很多资源清理代码在裸机下其实是“终身不调用”的。
+然而在裸机开发中必须清醒认知：**注册了析构函数，并不代表最后一定会被执行**。当前系统的 `BM_platformExit` 最终直接跳往 `BM_failStop` 死循环停机，而非标准的 OS 进程正常退出流程，因此很多资源清理代码在裸机下其实是“终身不调用”的。
 
 ---
 
@@ -468,9 +468,9 @@ flowchart TD
 
 反汇编中有一组关键调用：
 ```asm
-5004aa: c.li  a2,2           # _IONBF (无缓冲模式编码)
-5004ac: c.li  a1,0           # buf = NULL
-5004ae: jal   0x5019f8 <setvbuf>
+800004aa: c.li  a2,2           # _IONBF (无缓冲模式编码)
+800004ac: c.li  a1,0           # buf = NULL
+800004ae: jal   0x800019f8 <setvbuf>
 ```
 它连续对两个标准流执行了 `setvbuf(stream, NULL, _IONBF, 0)`。
 
@@ -483,27 +483,27 @@ flowchart TD
 
 ---
 
-## 四、第三阶段：`EB_bringup`——分阶段有限状态机（FSM）
+## 四、第三阶段：`BM_bringup`——分阶段有限状态机（FSM）
 
-在进入用户测试代码前，系统调用了 `EB_bringup`（0x500264）。它设计了一个严密的状态机流水线：
+在进入用户测试代码前，系统调用了 `BM_bringup`（0x80000264）。它设计了一个严密的状态机流水线：
 
 ### 4.1 硬件初始化的 11 个依赖阶段
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Stage0: 0x52540101 (Bring-up Begin)
+    [*] --> Stage0: 0xB0070101 (Bring-up Begin)
     Stage0: Stage 0 Reset (复位平台)
     Stage1: Stage 1 Map (地址空间映射)
     Stage2: Stage 2 BootIf (接口就绪)
     Stage3: Stage 3 PLIC (中断控制器)
     Stage4: Stage 4 Mailbox (核间通信信箱)
     Stage5: Stage 5 Telemetry (遥测与监控)
-    Stage6: Stage 6 Ectrl (执行控制)
+    Stage6: Stage 6 Ctrl (执行控制)
     Stage7: Stage 7 CmdRing (命令环形队列)
     Stage8: Stage 8 Loader (程序加载器)
     Stage9: Stage 9 Engine (计算加速引擎)
     Stage10: Stage 10 Scheduler (硬件调度器)
-    Ready: State 11 Ready (进入 EB_main)
+    Ready: State 11 Ready (进入 BM_main)
 
     Stage0 --> Stage1
     Stage1 --> Stage2
@@ -515,49 +515,49 @@ stateDiagram-v2
     Stage7 --> Stage8
     Stage8 --> Stage9
     Stage9 --> Stage10
-    Stage10 --> Ready: 0x52540103 (Bring-up Complete)
+    Stage10 --> Ready: 0xB0070103 (Bring-up Complete)
 
     Stage0 --> Error: 返回非零
     Stage5 --> Error: 返回非零
     Stage10 --> Error: 返回非零
-    Error: Stop & Halt (0x52548102)
+    Error: Stop & Halt (0xB0078102)
 ```
 
 每个阶段的代码遵循标准模式：
 ```c
-result = EB_platformModule();
+result = BM_platformModule();
 if (result != 0) {
-    stop(currentState, 0x52548102, result); // 失败立即阻断并上报错误码
+    stop(currentState, 0xB0078102, result); // 失败立即阻断并上报错误码
 }
 currentState = currentStage;
-EL_writeCode(0x52540102);                  // 向调试口通知进度码
+BM_writeCode(0xB0070102);                  // 向调试口通知进度码
 ```
 
 ---
 
-## 五、第四阶段：`EB_main`——真正的冒烟验证实战
+## 五、第四阶段：`BM_main`——真正的冒烟验证实战
 
-进入 `EB_main`（0x500070），真正的硬件与软件协同大考正式拉开帷幕。
+进入 `BM_main`（0x80000070），真正的硬件与软件协同大考正式拉开帷幕。
 
 ### 5.1 内存段真伪自检：`.data`、`.bss` 与魔数校验
 
 测试代码首先读取并核验了一批关键变量：
 ```asm
-5000d8: lui  a5,0x534d5
-5000e0: addi a5,a5,-181     # a5 = 0x534d4f4b ("SMOK")
-5000dc: lui  a4,0x45444
-5000e4: addi a4,a4,340      # a4 = 0x45444154 ("EDAT")
-5000e8: c.slli a5,32
-5000ea: c.add a5,a4         # 拼接得到 64 位魔数: 0x534d4f4b45444154 ("SMOKEDAT")
-5000ec: nds.ldgp a3,384     # 从 .data 段加载 smokeData 的值
-5000f0: bne  a3,a5, fail    # 若不相等，直接判死刑！
+800000d8: lui  a5,0x534d5
+800000e0: addi a5,a5,-181     # a5 = 0x534d4f4b ("SMOK")
+800000dc: lui  a4,0x45444
+800000e4: addi a4,a4,340      # a4 = 0x45444154 ("EDAT")
+800000e8: c.slli a5,32
+800000ea: c.add a5,a4         # 拼接得到 64 位魔数: 0x534d4f4b45444154 ("SMOKEDAT")
+800000ec: nds.ldgp a3,384     # 从 .data 段加载 smokeData 的值
+800000f0: bne  a3,a5, fail    # 若不相等，直接判死刑！
 ```
 
 这一连串检查的意图极为深奥：
 1. **`.bss` 校验**：`smokeEntryCount == 0` 和 `smokeResult == 0`，确认未显式初始化的全局变量确实被正确清零；
 2. **`.data` 校验**：`smokeData == "SMOKEDAT"`，确认有初值的全局变量其镜像是否被完整加载到了 RAM 中；
 3. **构造器校验**：`smokeConstructorCount == 1`；
-4. **状态校验**：`EB_state() == 11`（系统处于 Ready 态）；
+4. **状态校验**：`BM_state() == 11`（系统处于 Ready 态）；
 5. **参数校验**：`smokeObservedArg != nullptr`。
 
 ---
@@ -566,7 +566,7 @@ EL_writeCode(0x52540102);                  // 向调试口通知进度码
 
 在 Linux 下，`malloc` 最终通过 `brk` 或 `mmap` 系统调用向内核索取虚拟内存页。**在裸机下，根本没有内核，`malloc` 到底是如何申请内存的？**
 
-答案就在 newlib 提供的底层桥梁：`_sbrk`（0x50099a）。
+答案就在 newlib 提供的底层桥梁：`_sbrk`（0x8000099a）。
 
 ```mermaid
 flowchart TD
@@ -575,11 +575,11 @@ flowchart TD
     HasFree --"有"--> ReturnPtr["从空闲链表摘出 Chunk，返回指针 p"]
     HasFree --"空间不足"--> CallSbrk["调用平台底层桩: _sbrk(increment)"]
     
-    subgraph SbrkDetail["_sbrk 底层边界防护 (0x50099a)"]
+    subgraph SbrkDetail["_sbrk 底层边界防护 (0x8000099a)"]
         CallSbrk --> CheckInit{"heapBreak 是否初次调用？"}
-        CheckInit --"是"--> SetBase["heapBreak = __et_trap_stack_top\n(堆下界: 0x5f1920)"]
+        CheckInit --"是"--> SetBase["heapBreak = __trap_stack_top\n(堆下界: 0x800f1920)"]
         CheckInit --"否"--> KeepBase["保持当前 heapBreak"]
-        SetBase --> BoundaryCheck{"(heapBreak + incr) 是否 <= __heap_end (0x5f2920)？"}
+        SetBase --> BoundaryCheck{"(heapBreak + incr) 是否 <= __heap_end (0x800f2920)？"}
         KeepBase --> BoundaryCheck
         BoundaryCheck --"未超限"--> Expand["更新 heapBreak += incr\n返回增长前的旧 heapBreak 指针"]
         BoundaryCheck --"超限 OOM!"--> Fail["设置 errno=ENOMEM (12)\n返回 (void*)-1"]
@@ -590,9 +590,9 @@ flowchart TD
 ```
 
 在反汇编中，我们清晰地抓到了固件为动态堆划定的生命红线：
-- 堆底起始指针（Heap Minimum）：`0x5f1920`（紧贴着 Trap 栈顶）；
-- 堆顶最大上限（Heap Maximum）：`0x5f2920`（符号 `__heap_end`）；
-- **总可用堆空间**：`0x5f2920 - 0x5f1920 = 0x1000`，即**精确的 4 KiB（4096 字节）**。
+- 堆底起始指针（Heap Minimum）：`0x800f1920`（紧贴着 Trap 栈顶）；
+- 堆顶最大上限（Heap Maximum）：`0x800f2920`（符号 `__heap_end`）；
+- **总可用堆空间**：`0x800f2920 - 0x800f1920 = 0x1000`，即**精确的 4 KiB（4096 字节）**。
 
 冒烟测试随后执行了严苛的读写自检：
 ```cpp
@@ -621,19 +621,19 @@ digraph memory_map {
     node [shape=record, fontname="sans-serif", fontsize=10];
 
     ram [label="{
-        <high> 【高地址空间 0x600000】 |
-        { 0x5fd780 ── __stack_top (用户调用栈顶) | 用户应用栈区 (User Stack, 向下增长 ↓) } |
-        { 0x5fc780 | 栈保护下界预警线 } |
-        { 0x5f2920 ── __heap_end (堆空间上限) | 动态堆空间 (Heap, 4 KiB, 向上增长 ↑) } |
-        { 0x5f1920 ── __et_trap_stack_top | 异常专用独立栈区 (Trap Stack, 向下增长 ↓) } |
-        { 0x5f0fa0 ── __et_record_base | 异常寄存器现场保存区 (TrapRecord, 约 400 字节) } |
-        { 0x5f0800 ── __global_pointer$ | 小全局数据基准锚点 (gp) } |
-        { 0x5f0000 ── .data / .bss | 静态与全局变量数据段 } |
-        { 0x503038 ── __tp_init | 线程指针初始化基地址 (tp) } |
-        { 0x500454 ── EG_runtimeInit | C/C++ 运行时入口 } |
-        { 0x500070 ── EB_main | 冒烟测试主程序 } |
-        { 0x500000 ── _start (.text.reset) | 复位物理起始入口 } |
-        <low> 【低地址空间 0x000000】
+        <high> 【高地址空间 0x80100000】 |
+        { 0x800fd780 ── __stack_top (用户调用栈顶) | 用户应用栈区 (User Stack, 向下增长 ↓) } |
+        { 0x800fc780 | 栈保护下界预警线 } |
+        { 0x800f2920 ── __heap_end (堆空间上限) | 动态堆空间 (Heap, 4 KiB, 向上增长 ↑) } |
+        { 0x800f1920 ── __trap_stack_top | 异常专用独立栈区 (Trap Stack, 向下增长 ↓) } |
+        { 0x800f0fa0 ── __trap_record_base | 异常寄存器现场保存区 (TrapRecord, 约 400 字节) } |
+        { 0x800f0800 ── __global_pointer$ | 小全局数据基准锚点 (gp) } |
+        { 0x800f0000 ── .data / .bss | 静态与全局变量数据段 } |
+        { 0x80003038 ── __tp_init | 线程指针初始化基地址 (tp) } |
+        { 0x80000454 ── BM_runtimeInit | C/C++ 运行时入口 } |
+        { 0x80000070 ── BM_main | 冒烟测试主程序 } |
+        { 0x80000000 ── _start (.text.reset) | 复位物理起始入口 } |
+        <low> 【低地址空间 0x80000000】
     }", fillcolor="#f8fafc", style=filled];
 }
 ```
@@ -649,10 +649,10 @@ digraph memory_map {
 ```mermaid
 flowchart LR
     fputs["fputs() / fflush()"] --> newlib_write["newlib 系统调用桩: _write(fd, buf, len)"]
-    newlib_write --> check_fd{"检查 fd 是否为\n标准输出 (0..3 或 221)"}
-    check_fd --"合法"--> el_putc["平台字符输出: EL_putc(char c)"]
-    el_putc --> mmio_calc["计算 MMIO 寄存器物理地址:\n(0x28000345 << 2) = 0xA0000D14"]
-    mmio_calc --> hardware_write["执行汇编指令:\nc.sw a4, 0(0xA0000D14)"]
+    newlib_write --> check_fd{"检查 fd 是否为\n标准输出 (如 stdout/stderr)"}
+    check_fd --"合法"--> el_putc["平台字符输出: BM_putc(char c)"]
+    el_putc --> mmio_calc["计算 MMIO 寄存器物理地址:\nUART0_BASE (如 0x10000000)"]
+    mmio_calc --> hardware_write["执行汇编指令:\nsw a4, 0(t0)  # 写入串口发送数据寄存器"]
     hardware_write --> UART["UART 硬件串口 / 仿真器终端捕捉打印"]
 
     style UART fill:#fed7aa,stroke:#ea580c,stroke-width:2px;
@@ -662,9 +662,9 @@ flowchart LR
 
 ## 六、第五阶段：异常处理、现场取证与安全停机
 
-### 6.1 `ET_trapVector`：全寄存器现场封存
+### 6.1 `BM_trapVector`：全寄存器现场封存
 
-当不可预知的异常发生时，`ET_trapVector`（0x5004e8）依次封存系统全景：
+当不可预知的异常发生时，`BM_trapVector`（0x800004e8）依次封存系统全景：
 1. 32 个通用寄存器（`x0` 至 `x31`）；
 2. 4 大核心机器状态 CSR：
    - `mepc`（偏移 +256）：故障发生时光标指向的那条**受害者指令地址**；
@@ -679,22 +679,22 @@ flowchart LR
 
 如果继续用脏污的 `sp` 压栈，会立即引发双重错误（Double Fault）死锁。
 
-`ET_trapVector` 展现了教科书级的防御性编程：
+`BM_trapVector` 展现了教科书级的防御性编程：
 ```asm
-5005e0: auipc sp,0
-5005e4: ld    sp,168(sp)    # sp 强行重置为 0x5f1920 (__et_trap_stack_top)
+800005e0: auipc sp,0
+800005e4: ld    sp,168(sp)    # sp 强行重置为 0x800f1920 (__trap_stack_top)
 ```
 **彻底抛弃可能已粉身碎骨的用户栈，立即强切到专用的独立 Trap 栈空间！**
 
 ### 6.3 防嵌套崩溃机制与 `wfi` 终极休眠
 
-在调用 C 语言报告函数 `ET_trapReport` 之前，汇编代码还做了一道精巧的防线：
+在调用 C 语言报告函数 `BM_trapReport` 之前，汇编代码还做了一道精巧的防线：
 ```asm
-5005bc: auipc t1,0
-5005c0: addi  t1,t1,56      # t1 = ET_nestedHalt
-5005c4: csrw  mtvec,t1      # 将 mtvec 临时重定向到紧急停止桩！
+800005bc: auipc t1,0
+800005c0: addi  t1,t1,56      # t1 = BM_nestedHalt
+800005c4: csrw  mtvec,t1      # 将 mtvec 临时重定向到紧急停止桩！
 ```
-如果 `ET_trapReport` 自身的打印逻辑存在 Bug 再次引发异常，CPU 将不再递归回到复杂的处理流，而是直接坠入 `ET_nestedHalt` 执行 `fence`、关中断，并进入 `wfi`（Wait For Interrupt）永久等待。
+如果 `BM_trapReport` 自身的打印逻辑存在 Bug 再次引发异常，CPU 将不再递归回到复杂的处理流，而是直接坠入 `BM_nestedHalt` 执行 `fence`、关中断，并进入 `wfi`（Wait For Interrupt）永久等待。
 
 ---
 
@@ -767,9 +767,9 @@ digraph contract_pyramid {
     rankdir=BT;
     node [shape=record, fontname="sans-serif", style="filled,rounded", fillcolor="#f8fafc"];
 
-    L4 [label="{ 第四层: 用户应用与测试 | test_bringup_smoke/main.cc | 负责业务算法执行与冒烟结果自检 }", fillcolor="#dcfce7"];
-    L3 [label="{ 第三层: 平台硬件拉起 (Bring-up) | EB_bringup.c / EB_platform.c | 组织外设依赖，驱动有限状态机逐级通电 }", fillcolor="#fef3c7"];
-    L2 [label="{ 第二层: C/C++ 基础设施 (Runtime) | EG_runtimeInit / newlib / _sbrk | 铺设全局构造函数、标准流、堆内存与系统调用桩 }", fillcolor="#e0f2fe"];
+    L4 [label="{ 第四层: 用户应用与测试 | bringup_smoke/main.cc | 负责业务算法执行与冒烟结果自检 }", fillcolor="#dcfce7"];
+    L3 [label="{ 第三层: 平台硬件拉起 (Bring-up) | bm_bringup.c / bm_platform.c | 组织外设依赖，驱动有限状态机逐级通电 }", fillcolor="#fef3c7"];
+    L2 [label="{ 第二层: C/C++ 基础设施 (Runtime) | bm_runtime_init / newlib / _sbrk | 铺设全局构造函数、标准流、堆内存与系统调用桩 }", fillcolor="#e0f2fe"];
     L1 [label="{ 第一层: CPU 物理基石 (Startup) | startup/start.S | 确立 sp/gp/tp，配置 mstatus/PMP/Trap 入口，确立特权世界观 }", fillcolor="#f1f5f9"];
 
     L1 -> L2 -> L3 -> L4 [style=bold, color="#0284c7"];
