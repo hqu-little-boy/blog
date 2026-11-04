@@ -57,22 +57,28 @@ if (breadcrumbList[0] === "tags" && !isNaN(Number(breadcrumbList[2]))) {
 }
 ---
 
-<nav class="app-layout mt-8 mb-1" aria-label="breadcrumb">
+<nav class="app-layout mt-6 mb-2" aria-label="breadcrumb">
   <ul
-    class="flex flex-wrap items-center gap-x-1 font-light [&>li:not(:last-child)>a]:hover:opacity-100"
+    class="text-on-surface-variant/80 flex flex-wrap items-center gap-x-1.5 text-xs font-medium sm:text-sm"
   >
-    <li class="flex items-center gap-x-1">
-      <a href={getRelativeLocaleUrl(locale, "")} class="opacity-80">
+    <li class="flex items-center gap-x-1.5">
+      <a
+        href={getRelativeLocaleUrl(locale, "")}
+        class="hover:text-primary transition-colors"
+      >
         {t.nav.home}
       </a>
-      <span aria-hidden="true" class="opacity-80">&raquo;</span>
+      <span aria-hidden="true" class="opacity-40">/</span>
     </li>
     {
       breadcrumbList.map((breadcrumb, index) =>
         index + 1 === breadcrumbList.length ? (
           <li>
             <span
-              class:list={["capitalize opacity-75", { lowercase: index > 0 }]}
+              class:list={[
+                "text-on-surface font-semibold capitalize",
+                { lowercase: index > 0 },
+              ]}
               aria-current="page"
             >
               {/* make the last part lowercase in Home > Tags > some-tag */}
@@ -80,15 +86,15 @@ if (breadcrumbList[0] === "tags" && !isNaN(Number(breadcrumbList[2]))) {
             </span>
           </li>
         ) : (
-          <li class="flex items-center gap-x-1">
+          <li class="flex items-center gap-x-1.5">
             <a
               href={getRelativeLocaleUrl(locale, breadcrumb)}
-              class="capitalize opacity-70"
+              class="hover:text-primary capitalize transition-colors"
             >
               {navLabels[breadcrumb] ?? decodeSegment(breadcrumb)}
             </a>
-            <span aria-hidden="true" class="opacity-70">
-              &raquo;
+            <span aria-hidden="true" class="opacity-40">
+              /
             </span>
           </li>
         )

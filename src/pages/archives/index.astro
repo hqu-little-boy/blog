@@ -41,9 +41,13 @@ const monthFormatter = new Intl.DateTimeFormat(locale, { month: "long" });
       )
         .sort(([yearA], [yearB]) => Number(yearB) - Number(yearA))
         .map(([year, yearGroup]) => (
-          <div>
-            <span class="text-2xl font-bold">{year}</span>
-            <sup class="text-muted-foreground text-sm">{yearGroup.length}</sup>
+          <div class="my-6">
+            <div class="mb-2 flex items-center gap-2">
+              <span class="text-on-surface text-2xl font-bold">{year}</span>
+              <span class="bg-surface-container-high text-on-surface-variant rounded-full px-2.5 py-0.5 text-xs font-semibold">
+                {yearGroup.length}
+              </span>
+            </div>
             {Object.entries(
               getPostsByGroupCondition(
                 yearGroup,
@@ -52,18 +56,18 @@ const monthFormatter = new Intl.DateTimeFormat(locale, { month: "long" });
             )
               .sort(([monthA], [monthB]) => Number(monthB) - Number(monthA))
               .map(([month, monthGroup]) => (
-                <div class="flex flex-col sm:flex-row">
-                  <div class="mt-6 min-w-36 text-lg sm:my-6">
-                    <span class="font-bold">
+                <div class="my-4 flex flex-col sm:flex-row sm:gap-6">
+                  <div class="text-on-surface-variant min-w-32 py-2 text-base font-semibold">
+                    <span>
                       {monthFormatter.format(
                         new Date(2000, Number(month) - 1, 1)
                       )}
                     </span>
-                    <sup class="text-muted-foreground text-xs">
-                      {monthGroup.length}
-                    </sup>
+                    <span class="ms-1.5 font-mono text-xs opacity-60">
+                      ({monthGroup.length})
+                    </span>
                   </div>
-                  <ul>
+                  <ul class="flex-1">
                     {monthGroup
                       .sort(
                         (a, b) =>

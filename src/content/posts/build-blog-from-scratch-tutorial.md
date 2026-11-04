@@ -29,6 +29,7 @@ description: 记录本博客从零选型、GitOps 自动化流程设计、Materi
 ### 1. 为什么选择 Astro？
 
 对比常见静态博客框架：
+
 - **Hugo**：速度极快，但 Go 模板语法晦涩，想按自己的现代审美（如 Tailwind CSS、微动效）深度调整样式极其痛苦。
 - **Hexo / Jekyll**：架构相对老旧，生态包袱重。
 - **VitePress / Docusaurus**：偏向软件文档与 Wiki，较难打造出高质感的个人杂志/随笔排版。
@@ -73,13 +74,15 @@ AstroPaper 原版是黑白极简风格，对比度极高，但偏严肃刻板。
 ### 3. 物理缓动与交互动效（Motion）
 
 在 `src/styles/global.css` 中注入了 Google M3 官方的 Emphasized 缓动曲线：
+
 ```css
 :root {
-  --m3-easing-emphasized: cubic-bezier(0.2, 0.0, 0, 1.0);
+  --m3-easing-emphasized: cubic-bezier(0.2, 0, 0, 1);
   --m3-duration-short: 150ms;
   --m3-duration-medium: 300ms;
 }
 ```
+
 结合 Astro 内置的 `ClientRouter`（View Transitions），跨页面跳转时页面平滑淡入淡出，带来如原生 App 般的丝滑触感。
 
 ---
@@ -92,7 +95,7 @@ AstroPaper 原版是黑白极简风格，对比度极高，但偏严肃刻板。
 
 - **痛点**：Mermaid 库体积较大，若全站打包会导致纯文本页面变慢；且很多实现无法跟随暗黑模式切换。
 - **解法**：
-  1. 编写 Remark 插件（`src/utils/plugins/remark-diagrams.ts`），在编译期拦截 ```` ```mermaid ```` 代码块，转为 `<div class="mermaid">` 容器。
+  1. 编写 Remark 插件（`src/utils/plugins/remark-diagrams.ts`），在编译期拦截 ` ```mermaid ` 代码块，转为 `<div class="mermaid">` 容器。
   2. 客户端脚本（`src/scripts/mermaid.ts`）通过 `querySelectorAll(".mermaid")` 判断，**仅当页面出现图表时才动态 `import("mermaid")`**。
   3. 通过 `MutationObserver` 监听 `data-theme`，当读者在日间/夜间模式切换时，Mermaid 图表自动以对应配色实时重绘。
 
@@ -142,8 +145,8 @@ digraph Demo {
     "compatibility_date": "2024-09-23",
     "assets": {
       "directory": "./dist",
-      "not_found_handling": "404-page"
-    }
+      "not_found_handling": "404-page",
+    },
   }
   ```
   安装 `wrangler` 开发依赖。此时无论是纯 Pages 还是 Wrangler 命令，都会直接识别 `./dist` 为静态资产包，不会去乱碰 Astro 配置文件。
@@ -166,7 +169,7 @@ author: hqu-little-boy
 pubDatetime: 2026-10-26T21:00:00Z
 title: 你的文章标题
 featured: false # 是否首页推荐 (true/false)
-draft: false    # 是否草稿 (true 不上线)
+draft: false # 是否草稿 (true 不上线)
 tags:
   - 随笔
   - 技术

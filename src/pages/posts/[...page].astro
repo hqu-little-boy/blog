@@ -38,18 +38,18 @@ const { years, jumpTargets } = getTimelineHierarchy(
     <!-- 极简快速跳转 (当存在多个时间节点时展示，支持点击平滑直达各节点) -->
     {
       jumpTargets.length > 1 && (
-        <div class="-mt-2 mb-8 flex items-center gap-2 overflow-x-auto pb-2 text-xs scrollbar-none">
-          <span class="text-muted-foreground shrink-0 font-medium text-[11px] uppercase tracking-wider">
+        <div class="-mt-2 mb-8 flex scrollbar-none items-center gap-2 overflow-x-auto pb-2 text-xs">
+          <span class="text-on-surface-variant/80 shrink-0 text-[11px] font-medium tracking-wider uppercase">
             时间索引:
           </span>
           {jumpTargets.map(target => (
             <a
               href={`#${target.id}`}
-              class="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-surface/80 hover:bg-accent/10 px-3 py-1 text-muted-foreground hover:border-accent hover:text-accent transition-all duration-200"
+              class="bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container inline-flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 transition-all duration-200 active:scale-95"
             >
               <span
                 class:list={[
-                  "rounded-full bg-accent",
+                  "bg-primary rounded-full",
                   {
                     "size-2": target.type === "year",
                     "size-1.5": target.type === "month",
@@ -58,7 +58,7 @@ const { years, jumpTargets } = getTimelineHierarchy(
                 ]}
               />
               <span class="font-medium">{target.label}</span>
-              <span class="text-[10px] font-mono opacity-60">
+              <span class="font-mono text-[10px] opacity-60">
                 ({target.count})
               </span>
             </a>
@@ -72,8 +72,9 @@ const { years, jumpTargets } = getTimelineHierarchy(
       <!-- 贯穿始终的垂直竖线 (中心线位于 left: 16px) -->
       <div
         aria-hidden="true"
-        class="absolute top-2.5 bottom-6 left-[15px] w-[2px] bg-border/80 dark:bg-border/60 rounded-full"
-      />
+        class="bg-surface-container-highest dark:bg-surface-container-highest absolute top-2.5 bottom-6 left-[15px] w-[2px] rounded-full"
+      >
+      </div>
 
       <!-- 年、月、日层级列表 -->
       <div class="space-y-12">
@@ -83,94 +84,94 @@ const { years, jumpTargets } = getTimelineHierarchy(
               id={`year-${year.year}`}
               class="timeline-year relative scroll-mt-28"
             >
-              <!-- 大圆点：年 (size-5 = 20px) -->
+              {/* 大圆点：年 (size-5 = 20px) */}
               <a
                 href={`#year-${year.year}`}
                 title={`定位到 ${year.yearLabel}`}
-                class="absolute left-[16px] -translate-x-1/2 top-1 flex items-center justify-center outline-none group"
+                class="group absolute top-1 left-[16px] flex -translate-x-1/2 items-center justify-center outline-none"
               >
-                <span class="flex size-5 items-center justify-center rounded-full border-2 border-accent bg-background dark:bg-background ring-4 ring-background transition-transform duration-200 group-hover:scale-125">
-                  <span class="size-2 rounded-full bg-accent" />
+                <span class="border-accent bg-background dark:bg-background ring-background flex size-5 items-center justify-center rounded-full border-2 ring-4 transition-transform duration-200 group-hover:scale-125">
+                  <span class="bg-accent size-2 rounded-full" />
                 </span>
               </a>
 
-              <!-- 年份标题展示 -->
-              <div class="ps-9 sm:ps-11 flex items-center gap-2.5 mb-6">
+              {/* 年份标题展示 */}
+              <div class="mb-6 flex items-center gap-2.5 ps-9 sm:ps-11">
                 <a
                   href={`#year-${year.year}`}
-                  class="text-2xl sm:text-3xl font-extrabold tracking-tight font-mono text-foreground hover:text-accent transition-colors"
+                  class="text-foreground hover:text-accent font-mono text-2xl font-extrabold tracking-tight transition-colors sm:text-3xl"
                 >
                   {year.yearLabel}
                 </a>
-                <span class="rounded-full bg-accent/15 px-2.5 py-0.5 text-xs font-mono font-medium text-accent">
+                <span class="bg-accent/15 text-accent rounded-full px-2.5 py-0.5 font-mono text-xs font-medium">
                   {year.totalPosts} 篇
                 </span>
               </div>
 
-              <!-- 月份层级 -->
+              {/* 月份层级 */}
               <div class="space-y-10">
                 {year.months.map(month => (
                   <div
                     id={`month-${year.year}-${month.month}`}
                     class="timeline-month relative scroll-mt-28"
                   >
-                    <!-- 中圆点：月 (size-3.5 = 14px) -->
+                    {/* 中圆点：月 (size-3.5 = 14px) */}
                     <a
                       href={`#month-${year.year}-${month.month}`}
                       title={`定位到 ${month.monthLabel}`}
-                      class="absolute left-[16px] -translate-x-1/2 top-1 flex items-center justify-center outline-none group"
+                      class="group absolute top-1 left-[16px] flex -translate-x-1/2 items-center justify-center outline-none"
                     >
-                      <span class="flex size-3.5 items-center justify-center rounded-full border-2 border-accent/80 bg-background dark:bg-background ring-4 ring-background transition-transform duration-200 group-hover:scale-125">
-                        <span class="size-1.5 rounded-full bg-accent/90" />
+                      <span class="border-accent/80 bg-background dark:bg-background ring-background flex size-3.5 items-center justify-center rounded-full border-2 ring-4 transition-transform duration-200 group-hover:scale-125">
+                        <span class="bg-accent/90 size-1.5 rounded-full" />
                       </span>
                     </a>
 
-                    <!-- 月份标题展示 -->
-                    <div class="ps-9 sm:ps-11 flex items-center gap-2 mb-5">
+                    {/* 月份标题展示 */}
+                    <div class="mb-5 flex items-center gap-2 ps-9 sm:ps-11">
                       <a
                         href={`#month-${year.year}-${month.month}`}
-                        class="text-base sm:text-lg font-bold tracking-tight text-foreground/90 font-mono hover:text-accent transition-colors"
+                        class="text-foreground/90 hover:text-accent font-mono text-base font-bold tracking-tight transition-colors sm:text-lg"
                       >
                         {month.monthLabel}
                       </a>
-                      <span class="text-xs font-mono text-muted-foreground/75 font-normal">
+                      <span class="text-muted-foreground/75 font-mono text-xs font-normal">
                         ({month.totalPosts} 篇)
                       </span>
                     </div>
 
-                    <!-- 日期层级 -->
+                    {/* 日期层级 */}
                     <div class="space-y-8">
                       {month.days.map(day => (
                         <div
                           id={`date-${day.dateKey}`}
                           class="timeline-day relative scroll-mt-28"
                         >
-                          <!-- 小圆点：日 (size-2.5 = 10px) -->
+                          {/* 小圆点：日 (size-2.5 = 10px) */}
                           <a
                             href={`#date-${day.dateKey}`}
                             title={`定位到 ${day.dateLabel}`}
-                            class="absolute left-[16px] -translate-x-1/2 top-1 flex items-center justify-center outline-none group"
+                            class="group absolute top-1 left-[16px] flex -translate-x-1/2 items-center justify-center outline-none"
                           >
-                            <span class="size-2.5 rounded-full border-2 border-accent bg-accent ring-4 ring-background transition-transform duration-200 group-hover:scale-150" />
+                            <span class="border-accent bg-accent ring-background size-2.5 rounded-full border-2 ring-4 transition-transform duration-200 group-hover:scale-150" />
                           </a>
 
-                          <!-- 日期标签展示 -->
-                          <div class="ps-9 sm:ps-11 flex items-center gap-2 mb-3">
+                          {/* 日期标签展示 */}
+                          <div class="mb-3 flex items-center gap-2 ps-9 sm:ps-11">
                             <a
                               href={`#date-${day.dateKey}`}
-                              class="text-xs sm:text-sm font-semibold tracking-wide font-mono text-muted-foreground hover:text-accent transition-colors"
+                              class="text-muted-foreground hover:text-accent font-mono text-xs font-semibold tracking-wide transition-colors sm:text-sm"
                             >
                               {day.dateLabel}
                             </a>
                             {day.posts.length > 1 && (
-                              <span class="text-[11px] font-mono text-muted-foreground/60 font-normal">
+                              <span class="text-muted-foreground/60 font-mono text-[11px] font-normal">
                                 ({day.posts.length} 篇)
                               </span>
                             )}
                           </div>
 
-                          <!-- 属于该日期的文章卡片列表 -->
-                          <ul class="ps-9 sm:ps-11 space-y-4">
+                          {/* 属于该日期的文章卡片列表 */}
+                          <ul class="space-y-4 ps-9 sm:ps-11">
                             {day.posts.map(post => (
                               <Card {...post} />
                             ))}

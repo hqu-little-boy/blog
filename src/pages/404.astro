@@ -19,12 +19,16 @@ const t = useTranslations(locale);
     class="app-layout my-1 flex flex-1 items-center justify-center"
   >
     <div class="mb-14 flex flex-col items-center justify-center">
-      <h1 class="text-accent text-9xl font-bold">404</h1>
-      <span aria-hidden="true"> ¯\_(ツ)_/¯ </span>
-      <p class="mt-4 text-2xl sm:text-3xl">{t.notFound.message}</p>
+      <h1 class="text-primary text-9xl font-bold tracking-tighter">404</h1>
+      <span class="text-on-surface-variant mt-2 font-mono" aria-hidden="true">
+        ¯\_(ツ)_/¯
+      </span>
+      <p class="text-on-surface mt-4 text-2xl font-semibold sm:text-3xl">
+        {t.notFound.message}
+      </p>
       <LinkButton
         href={getRelativeLocaleUrl(locale, "")}
-        class="my-6 text-lg underline decoration-dashed underline-offset-8"
+        class="bg-secondary-container text-on-secondary-container hover:bg-primary hover:text-on-primary my-6 inline-flex items-center rounded-full px-6 py-2.5 text-sm font-semibold transition-all active:scale-95"
       >
         {t.notFound.goHome}
       </LinkButton>

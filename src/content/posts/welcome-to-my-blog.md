@@ -44,7 +44,7 @@ flowchart LR
 
 ### 1. Mermaid 图表
 
-只需使用 ```` ```mermaid ```` 代码块即可：
+只需使用 ` ```mermaid ` 代码块即可：
 
 ```mermaid
 sequenceDiagram
@@ -59,13 +59,13 @@ sequenceDiagram
 
 ### 2. Graphviz (DOT 语言) 图表
 
-使用 ```` ```graphviz ```` 或 ```` ```dot ```` 代码块，编译时直接转为高质量 SVG：
+使用 ` ```graphviz ` 或 ` ```dot ` 代码块，编译时直接转为高质量 SVG：
 
 ```graphviz
 digraph Architecture {
     rankdir=LR;
     node [shape=box, style=rounded];
-    
+
     Markdown -> Astro [label="解析 & 渲染"];
     Astro -> HTML [label="静态输出"];
     Astro -> Pagefind [label="生成全文检索"];

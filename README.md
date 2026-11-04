@@ -36,6 +36,7 @@
 你可以在本地编写后 `git push`，也可以直接在 GitHub 网页端操作：
 
 ### 1. 新增文章
+
 在 `src/content/posts/` 目录下创建一个新的 `.md` 文件（如 `my-new-post.md`），头部加入元数据（Frontmatter）：
 
 ```markdown
@@ -44,7 +45,7 @@ author: hqu-little-boy
 pubDatetime: 2026-10-26T12:00:00Z
 title: 文章标题
 featured: false # 是否置顶/精选展示在首页
-draft: false    # 是否为草稿（若为 true 则不会发布）
+draft: false # 是否为草稿（若为 true 则不会发布）
 tags:
   - 随笔
   - 技术
@@ -55,6 +56,7 @@ description: 这里是文章摘要，展示在列表卡片上。
 ```
 
 ### 2. 增减与删除
+
 - **修改文章**：直接编辑对应 `.md` 文件并提交。
 - **删除文章**：在仓库中删除对应的 `.md` 文件并提交，线上博客的文章页面与首页列表条目将自动下架。
 

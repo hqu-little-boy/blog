@@ -35,8 +35,12 @@ description: 记录博客从基础搭建迈向沉浸式阅读体验的演进历�
 我们将其升级为支持物理模糊的常驻悬浮顶栏：
 
 ```html
-<header class="sticky top-0 z-40 w-full border-b border-border/60 bg-background/90 backdrop-blur-md transition-colors">
-  <div class="app-layout flex flex-col items-center justify-between py-3 sm:flex-row sm:items-center sm:py-3.5">
+<header
+  class="border-border/60 bg-background/90 sticky top-0 z-40 w-full border-b backdrop-blur-md transition-colors"
+>
+  <div
+    class="app-layout flex flex-col items-center justify-between py-3 sm:flex-row sm:items-center sm:py-3.5"
+  >
     <!-- 站点 Logo、返回按钮与导航链接 -->
   </div>
 </header>
@@ -53,7 +57,7 @@ description: 记录博客从基础搭建迈向沉浸式阅读体验的演进历�
 <a
   id="header-back-button"
   href="/"
-  class="group inline-flex items-center gap-1 rounded-full border border-border/80 bg-surface/90 dark:bg-surface/50 px-2.5 py-1 text-xs sm:text-sm font-medium text-foreground shadow-xs hover:border-accent/40 hover:bg-accent/15 hover:text-accent transition-all duration-200"
+  class="group border-border/80 bg-surface/90 dark:bg-surface/50 text-foreground hover:border-accent/40 hover:bg-accent/15 hover:text-accent inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium shadow-xs transition-all duration-200 sm:text-sm"
   title="返回上一页"
 >
   <svg class="size-4 rtl:rotate-180" viewBox="0 0 24 24">
@@ -67,9 +71,12 @@ description: 记录博客从基础搭建迈向沉浸式阅读体验的演进历�
 配合客户端路由的无感返回逻辑：
 
 ```javascript
-document.getElementById("header-back-button")?.addEventListener("click", (e) => {
+document.getElementById("header-back-button")?.addEventListener("click", e => {
   // 如果浏览器历史有上一页且来源属于本站，执行平滑回退
-  if (window.history.length > 1 && document.referrer.includes(window.location.host)) {
+  if (
+    window.history.length > 1 &&
+    document.referrer.includes(window.location.host)
+  ) {
     e.preventDefault();
     window.history.back();
   }
@@ -100,10 +107,12 @@ flowchart TD
 为了解决大屏「显得空旷」的问题，我们曾尝试方案 A：把整页容器扩大到 `max-w-6xl`，拆分成左目录、右正文的双栏网格。
 
 但实际效果非常糟糕：
+
 - **丧失视觉中心**：正文被强行向右挤压，读者视线偏离屏幕中轴线，违背人类阅读中心聚焦的习惯。
 - **排版失去纸质质感**：AstroPaper 最大的魅力在于单列、克制、像翻阅实体书一般的神圣感。一旦做成类似后台管理系统或开发文档的双栏网格，这种克制感荡然无存。
 
 **决策定调**：
+
 > 「解决“过于空旷”的整体版式优化感觉不如之前好看，还是回到之前的吧。目录仍然贴在左侧而且浮动跟随，但不要影响 AstroPaper 最舒适、最纯粹的居中纸质阅读体验。」
 
 正文容器必须始终严格锁定为 `max-w-3xl mx-auto`（居中黄金阅读宽度 768px）。目录只能作为轻盈的辅助图层，坐落在正文外侧的自然留白中。
@@ -117,10 +126,11 @@ flowchart TD
 ### 1. 故障还原：看似合理的嵌套
 
 正文容器具有相对定位：
+
 ```html
-<main id="main-content" class="app-layout pt-8 pb-12 relative">
+<main id="main-content" class="app-layout relative pt-8 pb-12">
   <!-- 目录放置在 main 的左侧外边距 -->
-  <aside class="absolute right-[calc(100%+2rem)] top-8 w-60">
+  <aside class="absolute top-8 right-[calc(100%+2rem)] w-60">
     <div class="sticky top-20">
       <TableOfContents />
     </div>
@@ -137,6 +147,7 @@ flowchart TD
 为什么 `sticky` 在这里完全没有起作用？
 
 根据 **W3C CSS Positioned Layout** 规范：
+
 1. **Containing Block（包含块限制）**：
    - 一个声明了 `position: sticky` 的元素，其滑动粘滞范围**完全受制于其直接包含块（即直接父元素）**。
    - 它只能在其父容器的边界矩形内部“滑动”。
@@ -158,6 +169,7 @@ flowchart TD
 文章容器 `app-layout` 采用 `max-w-3xl`（宽 48rem = 768px）且居中对齐（`mx-auto`）。
 
 我们以此推导屏幕坐标系：
+
 - 屏幕宽度为 $100\%$，屏幕中央水平垂线位于 $50\%$。
 - 居中文章的主体跨度为：从左边界 $50\% - 24\text{rem}$ 到右边界 $50\% + 24\text{rem}$。
 - 如果我们希望左侧目录右边缘距离文章左边缘保持 $1.25\text{rem}$（20px）的呼吸空隙：
@@ -197,19 +209,27 @@ flowchart TD
 <!-- 移动端可折叠目录 -->
 <details
   data-pagefind-ignore
-  class="xl:hidden my-6 rounded-2xl border border-border/70 bg-surface/60 dark:bg-surface/30 p-4 transition-all duration-200"
+  class="border-border/70 bg-surface/60 dark:bg-surface/30 my-6 rounded-2xl border p-4 transition-all duration-200 xl:hidden"
 >
-  <summary class="cursor-pointer font-medium text-sm text-foreground flex items-center justify-between select-none">
+  <summary
+    class="text-foreground flex cursor-pointer items-center justify-between text-sm font-medium select-none"
+  >
     <span class="inline-flex items-center gap-2">
-      <svg class="size-4 text-accent" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <svg
+        class="text-accent size-4"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+      >
         <path d="M4 6h16M4 12h10M4 18h14" />
       </svg>
       <span>本文目录 ({tocHeadings.length})</span>
     </span>
-    <span class="text-xs text-muted-foreground">展开 / 收起</span>
+    <span class="text-muted-foreground text-xs">展开 / 收起</span>
   </summary>
-  <div class="mt-3 pt-3 border-t border-border/50">
-    <TableOfContents headings={tocHeadings} isMobile={true} />
+  <div class="border-border/50 mt-3 border-t pt-3">
+    <TableOfContents headings="{tocHeadings}" isMobile="{true}" />
   </div>
 </details>
 ```
@@ -274,10 +294,20 @@ function updateActiveHeading() {
     const isActive = link.dataset.slug === currentSlug;
     if (isActive) {
       activeLink = link;
-      link.classList.add("bg-accent/15", "text-accent", "font-semibold", "border-accent");
+      link.classList.add(
+        "bg-accent/15",
+        "text-accent",
+        "font-semibold",
+        "border-accent"
+      );
       link.classList.remove("border-transparent");
     } else {
-      link.classList.remove("bg-accent/15", "text-accent", "font-semibold", "border-accent");
+      link.classList.remove(
+        "bg-accent/15",
+        "text-accent",
+        "font-semibold",
+        "border-accent"
+      );
       link.classList.add("border-transparent");
     }
   });
@@ -300,13 +330,13 @@ function updateActiveHeading() {
 
 在这一次的交互升级中，我们探索并落地了一套极简技术博客的最佳实践：
 
-| 体验维度 | 调整前 | 调整后 |
-| :--- | :--- | :--- |
-| **顶部导航** | 随页面滚走，深读时长文返回成本高 | **常驻玻璃拟态顶栏**，随时一键「返回上一页」 |
-| **阅读版式** | 曾尝试双栏网格，正文偏移且失去纸质感 | **坚守居中纸质美学**（768px 单列沉浸布局） |
-| **目录定位** | 绝对定位下 Sticky 塌陷，滚动脱靶 | **几何投影 Fixed 定位**，大屏上拉下滑始终保持在左侧 |
-| **移动端适配** | 侧栏截断或遮挡正文 | 自动隐去侧栏，降级为 **M3 可折叠药丸手风琴** |
-| **阅读进度感知** | 无高亮或位置计算偏差 | **高精度 `getBoundingClientRect()` 视口侦听** + 目录自适应平滑内滚 |
+| 体验维度         | 调整前                               | 调整后                                                             |
+| :--------------- | :----------------------------------- | :----------------------------------------------------------------- |
+| **顶部导航**     | 随页面滚走，深读时长文返回成本高     | **常驻玻璃拟态顶栏**，随时一键「返回上一页」                       |
+| **阅读版式**     | 曾尝试双栏网格，正文偏移且失去纸质感 | **坚守居中纸质美学**（768px 单列沉浸布局）                         |
+| **目录定位**     | 绝对定位下 Sticky 塌陷，滚动脱靶     | **几何投影 Fixed 定位**，大屏上拉下滑始终保持在左侧                |
+| **移动端适配**   | 侧栏截断或遮挡正文                   | 自动隐去侧栏，降级为 **M3 可折叠药丸手风琴**                       |
+| **阅读进度感知** | 无高亮或位置计算偏差                 | **高精度 `getBoundingClientRect()` 视口侦听** + 目录自适应平滑内滚 |
 
 **做设计时，最大的诱惑往往是「做加法」**——觉得屏幕空就加栏，觉得功能多就拼命塞进视图。然而，真正经得起时间考验的阅读体验，永远建立在**克制**之上。
 

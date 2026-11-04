@@ -16,9 +16,9 @@ const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
   toc.length > 0 && (
     <nav class:list={["toc-nav select-none", { "py-1": isMobile }]}>
       {!isMobile && (
-        <div class="mb-3.5 flex items-center gap-2 pb-2.5 border-b border-border/70 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <div class="border-border/70 text-muted-foreground mb-3.5 flex items-center gap-2 border-b pb-2.5 text-xs font-semibold tracking-wider uppercase">
           <svg
-            class="size-4 text-accent"
+            class="text-accent size-4"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
@@ -29,13 +29,13 @@ const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
             <path d="M4 6h16M4 12h10M4 18h14" />
           </svg>
           <span>本文目录</span>
-          <span class="ms-auto rounded-full bg-muted/70 px-2 py-0.5 text-[11px] font-mono text-muted-foreground">
+          <span class="bg-muted/70 text-muted-foreground ms-auto rounded-full px-2 py-0.5 font-mono text-[11px]">
             {toc.length}
           </span>
         </div>
       )}
 
-      <ul class="space-y-1 text-sm max-h-[calc(100vh-10rem)] overflow-y-auto pr-1">
+      <ul class="max-h-[calc(100vh-10rem)] space-y-1 overflow-y-auto pr-1 text-sm">
         {toc.map(heading => {
           const depth = heading.depth;
 
@@ -45,12 +45,14 @@ const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
                 href={`#${heading.slug}`}
                 data-slug={heading.slug}
                 class:list={[
-                  "toc-link block rounded-lg px-2.5 py-1.5 transition-all duration-200 line-clamp-1 border-s-2 border-transparent",
+                  "toc-link line-clamp-1 block rounded-lg border-s-2 border-transparent px-2.5 py-1.5 transition-all duration-200",
                   "hover:bg-accent/15 hover:text-accent hover:border-accent/40",
                   {
-                    "font-medium text-foreground/90 text-sm": depth === 2,
-                    "ps-5 text-xs text-muted-foreground font-normal": depth === 3,
-                    "ps-8 text-xs text-muted-foreground/80 font-normal": depth === 4,
+                    "text-foreground/90 text-sm font-medium": depth === 2,
+                    "text-muted-foreground ps-5 text-xs font-normal":
+                      depth === 3,
+                    "text-muted-foreground/80 ps-8 text-xs font-normal":
+                      depth === 4,
                   },
                 ]}
                 title={heading.text}
@@ -74,7 +76,9 @@ const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
       removePrevScrollListener = null;
     }
 
-    const links = Array.from(document.querySelectorAll<HTMLAnchorElement>(".toc-link"));
+    const links = Array.from(
+      document.querySelectorAll<HTMLAnchorElement>(".toc-link")
+    );
     if (!links.length) return;
 
     const headings = Array.from(

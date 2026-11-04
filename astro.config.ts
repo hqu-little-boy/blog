@@ -65,6 +65,24 @@ export default defineConfig({
   },
   fonts: [
     {
+      name: "Plus Jakarta Sans",
+      cssVariable: "--font-plus-jakarta-sans",
+      provider: fontProviders.google(),
+      fallbacks: [
+        "Google Sans",
+        "Google Sans Text",
+        "system-ui",
+        "-apple-system",
+        "BlinkMacSystemFont",
+        "Segoe UI",
+        "Roboto",
+        "sans-serif",
+      ],
+      weights: [400, 500, 600, 700],
+      styles: ["normal"],
+      formats: ["woff2", "woff"],
+    },
+    {
       name: "Google Sans Code",
       cssVariable: "--font-google-sans-code",
       provider: fontProviders.google(),

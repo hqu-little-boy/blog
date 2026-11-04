@@ -19,10 +19,10 @@ const locale = Astro.currentLocale ?? config.site.lang;
     href={getRelativeLocaleUrl(locale, `tags/${tag}/`)}
     transition:name={tag}
     class:list={[
-      "group inline-flex items-center rounded-full border border-border/80 bg-muted/70 text-muted-foreground hover:border-accent/40 hover:bg-accent/15 hover:text-accent transition-all duration-200 shadow-xs active:scale-95",
+      "group bg-surface-container-high/80 dark:bg-surface-container-highest/60 text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container inline-flex items-center rounded-xl transition-all duration-200 active:scale-95",
       {
-        "px-2.5 py-0.5 text-xs font-medium gap-1": size === "sm",
-        "px-3.5 py-1 text-sm font-medium gap-1.5": size === "lg",
+        "gap-1 px-2.5 py-1 text-xs font-medium": size === "sm",
+        "gap-1.5 px-3.5 py-1.5 text-sm font-medium": size === "lg",
       },
     ]}
   >
@@ -36,4 +36,3 @@ const locale = Astro.currentLocale ?? config.site.lang;
     <span>{tagName}</span>
   </a>
 </li>
-

@@ -95,7 +95,9 @@ export function getTimelineHierarchy(
 
     const yearLabel = isZh ? `${y} 年` : y;
     const monthLabel = isZh ? `${Number(m)} 月` : monthFormatterEn.format(d);
-    const dateLabel = isZh ? `${Number(day)} 日` : `${monthLabel} ${Number(day)}`;
+    const dateLabel = isZh
+      ? `${Number(day)} 日`
+      : `${monthLabel} ${Number(day)}`;
     const dateKey = `${y}-${m}-${day}`;
 
     if (!yearMap.has(y)) {

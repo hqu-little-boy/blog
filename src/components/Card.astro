@@ -15,42 +15,46 @@ const postUrl = getPostUrl(id, filePath, Astro.currentLocale);
 ---
 
 <li
-  class="group relative my-4 rounded-2xl border border-border/70 bg-surface/60 dark:bg-surface/30 p-5 sm:p-6 transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] hover:-translate-y-1 hover:border-accent/40 hover:bg-surface-container/60 dark:hover:bg-surface-container/50 hover:shadow-lg dark:hover:shadow-black/25"
+  class="group bg-surface-container-low dark:bg-surface-container hover:bg-surface-container dark:hover:bg-surface-container-high relative my-3.5 rounded-[24px] p-5 transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] hover:scale-[1.01] active:scale-[0.99] sm:my-4 sm:rounded-[28px] sm:p-6.5"
 >
   <a
     href={postUrl}
-    class="absolute inset-0 z-10 rounded-2xl focus-visible:outline-accent focus-visible:outline-2 focus-visible:ring-2 focus-visible:ring-accent/40"
-    aria-label={title}
-  ></a>
+    class="focus-visible:outline-primary focus-visible:ring-primary/40 absolute inset-0 z-10 rounded-[24px] focus-visible:ring-2 focus-visible:outline-2 sm:rounded-[28px]"
+    aria-label={title}></a>
 
   <div class="relative z-0">
+    <div
+      class="text-on-surface-variant/80 mb-2 flex items-center gap-2 text-xs sm:text-sm"
+    >
+      <Datetime {...props} />
+    </div>
+
     <a
       href={postUrl}
-      class="text-foreground transition-colors duration-200 group-hover:text-accent"
+      class="text-on-surface group-hover:text-primary transition-colors duration-200"
       tabindex="-1"
     >
       <Heading
         transition:name={toTransitionName(id)}
-        class="text-lg font-semibold tracking-tight sm:text-xl"
+        class="text-lg leading-snug font-semibold tracking-tight sm:text-xl"
       >
         {title}
       </Heading>
     </a>
 
-    <div class="mt-2 mb-2 flex items-center gap-2 text-xs sm:text-sm text-muted-foreground">
-      <Datetime {...props} />
-    </div>
-
-    <p class="text-muted-foreground text-sm leading-relaxed sm:text-base line-clamp-2">
+    <p
+      class="text-on-surface-variant mt-2 line-clamp-2 text-sm leading-relaxed sm:text-base"
+    >
       {description}
     </p>
 
     {
       tags && tags.length > 0 && (
-        <div class="mt-4 flex flex-wrap gap-1.5">
+        <div class="mt-4 flex flex-wrap gap-2">
           {tags.map(tag => (
-            <span class="rounded-full border border-border/50 bg-muted/60 px-2.5 py-0.5 text-xs font-medium text-muted-foreground transition-colors group-hover:border-accent/25 group-hover:bg-accent/10 group-hover:text-accent">
-              #{tag}
+            <span class="bg-surface-container-high/90 dark:bg-surface-container-highest/50 text-on-surface-variant group-hover:bg-secondary-container group-hover:text-on-secondary-container inline-flex items-center gap-1 rounded-xl px-2.5 py-1 text-xs font-medium transition-colors">
+              <span class="text-[11px] opacity-60">#</span>
+              <span>{tag}</span>
             </span>
           ))}
         </div>
@@ -58,4 +62,3 @@ const postUrl = getPostUrl(id, filePath, Astro.currentLocale);
     }
   </div>
 </li>
-

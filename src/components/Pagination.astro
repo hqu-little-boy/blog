@@ -18,28 +18,38 @@ const t = useTranslations(Astro.currentLocale);
 {
   page.lastPage > 1 && (
     <nav
-      class="mt-auto mb-8 flex justify-center gap-4"
+      class="mt-auto mb-8 flex items-center justify-center gap-3 text-sm font-medium"
       role="navigation"
       aria-label="Pagination Navigation"
     >
       <LinkButton
         disabled={!page.url.prev}
         href={page.url.prev as string}
-        class:list={["select-none", { "opacity-50": !page.url.prev }]}
+        class:list={[
+          "bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container inline-flex items-center gap-1.5 rounded-full px-4 py-2 transition-all select-none active:scale-95",
+          { "pointer-events-none opacity-40": !page.url.prev },
+        ]}
         aria-label={t.a11y.goToPreviousPage}
       >
-        <IconArrowLeft class="inline-block rtl:rotate-180" />
-        {t.pagination.prev}
+        <IconArrowLeft class="inline-block size-4 rtl:rotate-180" />
+        <span>{t.pagination.prev}</span>
       </LinkButton>
-      {page.currentPage} / {page.lastPage}
+
+      <span class="bg-surface-container text-on-surface-variant rounded-full px-3.5 py-1.5 text-xs font-semibold">
+        {page.currentPage} / {page.lastPage}
+      </span>
+
       <LinkButton
         disabled={!page.url.next}
         href={page.url.next as string}
-        class:list={["select-none", { "opacity-50": !page.url.next }]}
+        class:list={[
+          "bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container inline-flex items-center gap-1.5 rounded-full px-4 py-2 transition-all select-none active:scale-95",
+          { "pointer-events-none opacity-40": !page.url.next },
+        ]}
         aria-label={t.a11y.goToNextPage}
       >
-        {t.pagination.next}
-        <IconArrowRight class="inline-block rtl:rotate-180" />
+        <span>{t.pagination.next}</span>
+        <IconArrowRight class="inline-block size-4 rtl:rotate-180" />
       </LinkButton>
     </nav>
   )

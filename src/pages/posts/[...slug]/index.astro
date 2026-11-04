@@ -109,18 +109,20 @@ const ogImage = ogImageUrl
 
   <main
     id="main-content"
-    class="app-layout pt-8 pb-12 relative"
+    class="app-layout relative pt-8 pb-12"
     data-pagefind-body
   >
-    {/* Floating Left Sidebar TOC on desktop (xl+) - pinned to left margin, stays fixed during scroll up/down */}
+    {
+      /* Floating Left Sidebar TOC on desktop (xl+) - pinned to left margin, stays fixed during scroll up/down */
+    }
     {
       tocHeadings.length > 0 && (
         <aside
           aria-label="文章目录"
           data-pagefind-ignore
-          class="hidden xl:block toc-desktop-sidebar"
+          class="toc-desktop-sidebar hidden xl:block"
         >
-          <div class="rounded-2xl border border-border/70 bg-surface/85 dark:bg-surface/30 p-4 backdrop-blur-md shadow-xs">
+          <div class="bg-surface-container-low/90 dark:bg-surface-container/90 rounded-[24px] p-4.5 shadow-xs backdrop-blur-md">
             <TableOfContents headings={tocHeadings} />
           </div>
         </aside>
@@ -129,17 +131,17 @@ const ogImage = ogImageUrl
 
     <h1
       style={{ viewTransitionName: toTransitionName(post.id) }}
-      class="text-accent inline-block text-2xl font-bold sm:text-3xl"
+      class="text-on-surface sm:text-3.5xl inline-block text-2xl font-bold tracking-tight sm:leading-tight"
     >
       {title}
     </h1>
 
-    <div class="my-2 flex items-center gap-2">
+    <div class="my-3 flex items-center gap-2">
       <Datetime {pubDatetime} {modDatetime} {timezone} size="lg" />
       <span
         aria-hidden="true"
         class:list={[
-          "text-muted-foreground max-sm:hidden",
+          "text-on-surface-variant/60 max-sm:hidden",
           { hidden: !config.features.editPost?.enabled || hideEditPost },
         ]}
       >
@@ -153,12 +155,12 @@ const ogImage = ogImageUrl
       tocHeadings.length > 0 && (
         <details
           data-pagefind-ignore
-          class="xl:hidden my-6 rounded-2xl border border-border/70 bg-surface/60 dark:bg-surface/30 p-4 transition-all duration-200"
+          class="bg-surface-container-low dark:bg-surface-container my-6 rounded-[22px] p-4.5 transition-all duration-200 xl:hidden"
         >
-          <summary class="cursor-pointer font-medium text-sm text-foreground flex items-center justify-between select-none">
+          <summary class="text-on-surface flex cursor-pointer items-center justify-between text-sm font-medium select-none">
             <span class="inline-flex items-center gap-2">
               <svg
-                class="size-4 text-accent"
+                class="text-primary size-4"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -170,9 +172,9 @@ const ogImage = ogImageUrl
               </svg>
               <span>本文目录 ({tocHeadings.length})</span>
             </span>
-            <span class="text-xs text-muted-foreground">展开 / 收起</span>
+            <span class="text-on-surface-variant text-xs">展开 / 收起</span>
           </summary>
-          <div class="mt-3 pt-3 border-t border-border/50">
+          <div class="border-outline-variant/30 mt-3 border-t pt-3">
             <TableOfContents headings={tocHeadings} isMobile={true} />
           </div>
         </details>
@@ -190,19 +192,19 @@ const ogImage = ogImageUrl
       <Content />
     </article>
 
-    <hr class="my-8 border-dashed" />
+    <hr class="border-outline-variant/30 my-8" />
 
     <EditPost class="sm:hidden" {hideEditPost} {post} />
 
     <BackToTopButton />
 
-    <ul class="mt-4 mb-8 flex flex-wrap gap-4 sm:my-8">
+    <ul class="mt-4 mb-8 flex flex-wrap gap-2.5 sm:my-8">
       {tags.map(tag => <Tag tag={slugifyStr(tag)} tagName={tag} size="sm" />)}
     </ul>
 
     <ShareLinks />
 
-    <hr class="my-8 border-dashed" />
+    <hr class="border-outline-variant/30 my-8" />
 
     <AdjacentPostNav {prevPost} {nextPost} />
   </main>
@@ -213,10 +215,10 @@ const ogImage = ogImageUrl
   function createProgressBar() {
     const progressContainer = document.createElement("div");
     progressContainer.className =
-      "progress-container fixed top-0 z-10 h-1 w-full bg-background";
+      "progress-container fixed top-0 z-50 h-1 w-full bg-transparent";
 
     const progressBar = document.createElement("div");
-    progressBar.className = "progress-bar h-1 w-0 bg-accent";
+    progressBar.className = "progress-bar h-1 w-0 bg-primary rounded-full";
     progressBar.id = "myBar";
 
     progressContainer.appendChild(progressBar);

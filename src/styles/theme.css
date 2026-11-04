@@ -1,43 +1,138 @@
 /* Register design tokens for Tailwind v4 */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-surface: var(--surface);
-  --color-surface-container: var(--surface-container);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-border: var(--border);
+  --color-background: var(--md-surface);
+  --color-foreground: var(--md-on-surface);
+  --color-surface: var(--md-surface);
+  --color-surface-dim: var(--md-surface-dim);
+  --color-surface-bright: var(--md-surface-bright);
+  --color-surface-container-lowest: var(--md-surface-container-lowest);
+  --color-surface-container-low: var(--md-surface-container-low);
+  --color-surface-container: var(--md-surface-container);
+  --color-surface-container-high: var(--md-surface-container-high);
+  --color-surface-container-highest: var(--md-surface-container-highest);
+  --color-on-surface: var(--md-on-surface);
+  --color-on-surface-variant: var(--md-on-surface-variant);
+
+  --color-primary: var(--md-primary);
+  --color-on-primary: var(--md-on-primary);
+  --color-primary-container: var(--md-primary-container);
+  --color-on-primary-container: var(--md-on-primary-container);
+
+  --color-secondary: var(--md-secondary);
+  --color-on-secondary: var(--md-on-secondary);
+  --color-secondary-container: var(--md-secondary-container);
+  --color-on-secondary-container: var(--md-on-secondary-container);
+
+  --color-tertiary: var(--md-tertiary);
+  --color-on-tertiary: var(--md-on-tertiary);
+  --color-tertiary-container: var(--md-tertiary-container);
+  --color-on-tertiary-container: var(--md-on-tertiary-container);
+
+  --color-outline: var(--md-outline);
+  --color-outline-variant: var(--md-outline-variant);
+
+  /* Legacy mappings to preserve compatibility */
+  --color-accent: var(--md-primary);
+  --color-accent-foreground: var(--md-on-primary);
+  --color-muted: var(--md-surface-container-high);
+  --color-muted-foreground: var(--md-on-surface-variant);
+  --color-border: var(--md-outline-variant);
   --font-app: var(--font-app-sans);
 }
 
-/* Light theme values - Material Design 3 Expressive Minimal */
+/* Light theme values - Material Design 3 (Pixel Botanical Teal Monet Palette) */
 :root,
 [data-theme="light"] {
-  --background: #faf8f5;
-  --foreground: #1c1b1f;
-  --surface: #ffffff;
-  --surface-container: #f1ede6;
-  --accent: #006878;
-  --accent-foreground: #ffffff;
-  --muted: #eae5dc;
-  --muted-foreground: #504c47;
-  --border: #e2dcd3;
-  --font-app-sans: "Google Sans Text", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --md-surface: #f7faf9;
+  --md-surface-dim: #d8dad9;
+  --md-surface-bright: #f7faf9;
+  --md-surface-container-lowest: #ffffff;
+  --md-surface-container-low: #f1f5f3;
+  --md-surface-container: #ebeeed;
+  --md-surface-container-high: #e5e9e7;
+  --md-surface-container-highest: #dfe3e1;
+  --md-on-surface: #181d1c;
+  --md-on-surface-variant: #404948;
+
+  --md-primary: #006877;
+  --md-on-primary: #ffffff;
+  --md-primary-container: #a1effe;
+  --md-on-primary-container: #001f25;
+
+  --md-secondary: #4a6267;
+  --md-on-secondary: #ffffff;
+  --md-secondary-container: #cde7ed;
+  --md-on-secondary-container: #051f24;
+
+  --md-tertiary: #525d7e;
+  --md-on-tertiary: #ffffff;
+  --md-tertiary-container: #d9e1ff;
+  --md-on-tertiary-container: #0d1938;
+
+  --md-outline: #707978;
+  --md-outline-variant: rgba(112, 121, 120, 0.18);
+
+  /* Deprecated fallback variables */
+  --background: var(--md-surface);
+  --foreground: var(--md-on-surface);
+  --surface: var(--md-surface);
+  --surface-container: var(--md-surface-container);
+  --accent: var(--md-primary);
+  --accent-foreground: var(--md-on-primary);
+  --muted: var(--md-surface-container-high);
+  --muted-foreground: var(--md-on-surface-variant);
+  --border: var(--md-outline-variant);
+
+  --font-app-sans:
+    var(--font-plus-jakarta-sans), "Google Sans", "Google Sans Text", system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+    "Noto Sans SC", "Microsoft YaHei", sans-serif;
 }
 
-/* Dark theme values - Material Design 3 Dark Tone */
+/* Dark theme values - Material Design 3 (Pixel OLED Tinted Dark Palette) */
 [data-theme="dark"] {
-  --background: #131314;
-  --foreground: #e3e2e6;
-  --surface: #1c1e21;
-  --surface-container: #24272b;
-  --accent: #55d6ec;
-  --accent-foreground: #00363f;
-  --muted: #272a2e;
-  --muted-foreground: #a3a6aa;
-  --border: #33363b;
-  --font-app-sans: "Google Sans Text", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
-}
+  --md-surface: #0e1515;
+  --md-surface-dim: #0e1515;
+  --md-surface-bright: #343a3a;
+  --md-surface-container-lowest: #090f0f;
+  --md-surface-container-low: #161d1d;
+  --md-surface-container: #1a2121;
+  --md-surface-container-high: #242c2c;
+  --md-surface-container-highest: #2f3636;
+  --md-on-surface: #deeaeb;
+  --md-on-surface-variant: #bfc8c9;
 
+  --md-primary: #52d7ee;
+  --md-on-primary: #00363e;
+  --md-primary-container: #004e5a;
+  --md-on-primary-container: #a1effe;
+
+  --md-secondary: #b1cbd1;
+  --md-on-secondary: #1b3439;
+  --md-secondary-container: #334a4f;
+  --md-on-secondary-container: #cde7ed;
+
+  --md-tertiary: #bcc5ec;
+  --md-on-tertiary: #242f4e;
+  --md-tertiary-container: #3b4666;
+  --md-on-tertiary-container: #d9e1ff;
+
+  --md-outline: #899393;
+  --md-outline-variant: rgba(137, 147, 147, 0.16);
+
+  /* Deprecated fallback variables */
+  --background: var(--md-surface);
+  --foreground: var(--md-on-surface);
+  --surface: var(--md-surface);
+  --surface-container: var(--md-surface-container);
+  --accent: var(--md-primary);
+  --accent-foreground: var(--md-on-primary);
+  --muted: var(--md-surface-container-high);
+  --muted-foreground: var(--md-on-surface-variant);
+  --border: var(--md-outline-variant);
+
+  --font-app-sans:
+    var(--font-plus-jakarta-sans), "Google Sans", "Google Sans Text", system-ui,
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC",
+    "Noto Sans SC", "Microsoft YaHei", sans-serif;
+}
