@@ -3,6 +3,7 @@
  * Supports mouse drag, wheel zoom, touch pinch-to-zoom, and fullscreen modal inspection.
  * Works seamlessly with Astro View Transitions.
  */
+import { fixDiagramContrast, fixAllDiagramsContrast } from "./diagram-contrast";
 
 interface DiagramState {
   scale: number;
@@ -61,8 +62,12 @@ function resetTransform(canvas: HTMLElement, state: DiagramState) {
  * Initializes pan and zoom on an in-page diagram wrapper.
  */
 function initDiagramWrapper(wrapper: HTMLElement) {
-  if (wrapper.dataset.panZoomInit === "true") return;
+  if (wrapper.dataset.panZoomInit === "true") {
+    fixDiagramContrast(wrapper);
+    return;
+  }
   wrapper.dataset.panZoomInit = "true";
+  fixDiagramContrast(wrapper);
 
   let viewport = wrapper.querySelector<HTMLElement>(".diagram-viewport");
   let canvas = wrapper.querySelector<HTMLElement>(".diagram-canvas");
@@ -422,6 +427,7 @@ function openFullscreenDiagram(wrapper: HTMLElement) {
   clonedSvg.style.maxHeight = "none";
   clonedSvg.style.display = "block";
   clonedSvg.style.overflow = "visible";
+  fixDiagramContrast(clonedSvg);
 
   // Create modal backdrop
   const modal = document.createElement("div");
@@ -829,6 +835,7 @@ export function setupDiagramPanZoom() {
     "[data-diagram-wrapper], .mermaid-wrapper, .graphviz-wrapper"
   );
   wrappers.forEach(initDiagramWrapper);
+  fixAllDiagramsContrast();
 }
 
 // Lifecycle listeners
@@ -838,6 +845,26 @@ if (document.readyState === "loading") {
   setupDiagramPanZoom();
 }
 document.addEventListener("astro:page-load", setupDiagramPanZoom);
+
+// Re-adjust diagram contrast on theme changes
+if (typeof document !== "undefined" && document.documentElement) {
+  const themeObserver = new MutationObserver(mutations => {
+    for (const m of mutations) {
+      if (m.type === "attributes" && m.attributeName === "data-theme") {
+        fixAllDiagramsContrast();
+        if (activeModal) {
+          fixDiagramContrast(activeModal);
+        }
+        break;
+      }
+    }
+  });
+  themeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
+}
+
 document.addEventListener("astro:before-swap", () => {
   if (closeModalHandler) {
     closeModalHandler();

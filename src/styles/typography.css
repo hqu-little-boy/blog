@@ -158,27 +158,70 @@
     @apply h-auto max-w-full;
   }
 
-  .graphviz-wrapper svg text {
-    fill: var(--color-foreground) !important;
+  /* Diagram typography & default font */
+  .graphviz-wrapper svg text,
+  .mermaid-wrapper svg text {
     font-family: var(--font-app-sans) !important;
   }
 
-  .graphviz-wrapper svg .node ellipse,
-  .graphviz-wrapper svg .node polygon,
-  .graphviz-wrapper svg .node path {
-    stroke: var(--color-accent) !important;
-    fill: var(--color-surface-container) !important;
-    stroke-width: 1.5px !important;
+  /* Default text color for Graphviz diagrams */
+  .graphviz-wrapper svg text {
+    fill: var(--color-foreground);
   }
 
+  /* High contrast text overrides for elements with light or dark backgrounds */
+  .graphviz-wrapper svg text.diagram-text-dark,
+  .graphviz-wrapper svg [data-bg-tone="light"] text,
+  .graphviz-wrapper svg [data-bg-tone="light"] > text {
+    fill: #181d1c !important;
+    font-weight: 500;
+  }
+
+  .graphviz-wrapper svg text.diagram-text-light,
+  .graphviz-wrapper svg [data-bg-tone="dark"] text,
+  .graphviz-wrapper svg [data-bg-tone="dark"] > text {
+    fill: #f7faf9 !important;
+  }
+
+  /* Default (unshaded) nodes adopt theme surface and accent border */
+  .graphviz-wrapper svg .node.node-unshaded ellipse,
+  .graphviz-wrapper svg .node.node-unshaded polygon,
+  .graphviz-wrapper svg .node.node-unshaded path,
+  .graphviz-wrapper svg .node:not([data-bg-tone]) ellipse[fill="none"],
+  .graphviz-wrapper svg .node:not([data-bg-tone]) polygon[fill="none"],
+  .graphviz-wrapper svg .node:not([data-bg-tone]) path[fill="none"] {
+    stroke: var(--color-accent);
+    fill: var(--color-surface-container);
+    stroke-width: 1.5px;
+  }
+
+  /* In dark mode, ensure black unshaded borders become accent */
+  html[data-theme="dark"] .graphviz-wrapper svg .node:not([data-bg-tone]) ellipse[stroke="black"],
+  html[data-theme="dark"] .graphviz-wrapper svg .node:not([data-bg-tone]) polygon[stroke="black"],
+  html[data-theme="dark"] .graphviz-wrapper svg .node:not([data-bg-tone]) path[stroke="black"] {
+    stroke: var(--color-accent);
+  }
+
+  /* Record shape internal divider lines */
+  .graphviz-wrapper svg .node polyline {
+    stroke: var(--color-outline);
+    stroke-width: 1px;
+    opacity: 0.8;
+  }
+
+  /* Graphviz edge lines and arrows */
   .graphviz-wrapper svg .edge path {
-    stroke: var(--color-muted-foreground) !important;
-    stroke-width: 1.5px !important;
+    stroke: var(--color-muted-foreground);
+    stroke-width: 1.5px;
   }
 
   .graphviz-wrapper svg .edge polygon {
-    stroke: var(--color-muted-foreground) !important;
-    fill: var(--color-muted-foreground) !important;
+    stroke: var(--color-muted-foreground);
+    fill: var(--color-muted-foreground);
+  }
+
+  .graphviz-wrapper svg .edge text {
+    fill: var(--color-foreground);
   }
 
   /* ===== Diagram Source Code Panel ===== */

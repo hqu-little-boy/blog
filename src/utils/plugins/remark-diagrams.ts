@@ -77,6 +77,120 @@ function renderDiagramHint(): string {
   </div>`;
 }
 
+function parseColorToRgb(
+  colorStr: string
+): { r: number; g: number; b: number } | null {
+  if (!colorStr || colorStr === "none" || colorStr === "transparent") return null;
+  colorStr = colorStr.trim().toLowerCase();
+  if (colorStr.startsWith("#")) {
+    const hex = colorStr.slice(1);
+    if (hex.length === 3) {
+      return {
+        r: parseInt(hex[0] + hex[0], 16),
+        g: parseInt(hex[1] + hex[1], 16),
+        b: parseInt(hex[2] + hex[2], 16),
+      };
+    }
+    if (hex.length === 6) {
+      return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16),
+      };
+    }
+  }
+  const namedColors: Record<string, [number, number, number]> = {
+    white: [255, 255, 255],
+    lightgrey: [211, 211, 211],
+    lightgray: [211, 211, 211],
+    black: [0, 0, 0],
+    yellow: [255, 255, 0],
+  };
+  if (namedColors[colorStr]) {
+    const [r, g, b] = namedColors[colorStr];
+    return { r, g, b };
+  }
+  return null;
+}
+
+function getRelativeLuminance(r: number, g: number, b: number): number {
+  const [rs, gs, bs] = [r, g, b].map(v => {
+    const val = v / 255;
+    return val <= 0.03928 ? val / 12.92 : Math.pow((val + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * rs + 0.7152 * gs + 0.0722 * bs;
+}
+
+function enhanceGraphvizSvg(svg: string): string {
+  // 1. Remove graph-level opaque white background polygon if present
+  svg = svg.replace(/<polygon[^>]*fill="white"[^>]*stroke="none"[^>]*\/>/i, "");
+
+  // 2. Process clusters
+  svg = svg.replace(
+    /<g id="([^"]+)" class="cluster">([\s\S]*?)<\/g>/g,
+    (fullMatch, id, inner) => {
+      const fillMatch = inner.match(/<(?:polygon|path)[^>]*fill="([^"]+)"/);
+      if (fillMatch && fillMatch[1] !== "none" && fillMatch[1] !== "transparent") {
+        const rgb = parseColorToRgb(fillMatch[1]);
+        if (rgb) {
+          const lum = getRelativeLuminance(rgb.r, rgb.g, rgb.b);
+          const isLight = lum > 0.42;
+          const tone = isLight ? "light" : "dark";
+          const textColor = isLight ? "#181d1c" : "#f7faf9";
+
+          const updatedInner = inner.replace(
+            /<text([^>]*)>([\s\S]*?)<\/text>/g,
+            (_tMatch: string, attrs: string, content: string) => {
+              const cleanAttrs = attrs.replace(/\s*fill="[^"]*"/g, "");
+              return `<text${cleanAttrs} fill="${textColor}" class="diagram-text-${tone}">${content}</text>`;
+            }
+          );
+          return `<g id="${id}" class="cluster" data-bg-tone="${tone}">${updatedInner}</g>`;
+        }
+      }
+      return fullMatch;
+    }
+  );
+
+  // 3. Process nodes
+  svg = svg.replace(
+    /<g id="([^"]+)" class="node">([\s\S]*?)<\/g>/g,
+    (fullMatch, id, inner) => {
+      const fillMatch = inner.match(
+        /<(?:polygon|path|ellipse|circle)[^>]*fill="([^"]+)"/
+      );
+      if (fillMatch && fillMatch[1] !== "none" && fillMatch[1] !== "transparent") {
+        const rgb = parseColorToRgb(fillMatch[1]);
+        if (rgb) {
+          const lum = getRelativeLuminance(rgb.r, rgb.g, rgb.b);
+          const isLight = lum > 0.42;
+          const tone = isLight ? "light" : "dark";
+          const textColor = isLight ? "#181d1c" : "#f7faf9";
+
+          const updatedInner = inner.replace(
+            /<text([^>]*)>([\s\S]*?)<\/text>/g,
+            (_tMatch: string, attrs: string, content: string) => {
+              const cleanAttrs = attrs.replace(/\s*fill="[^"]*"/g, "");
+              return `<text${cleanAttrs} fill="${textColor}" class="diagram-text-${tone}">${content}</text>`;
+            }
+          );
+          return `<g id="${id}" class="node" data-bg-tone="${tone}">${updatedInner}</g>`;
+        }
+      } else {
+        return `<g id="${id}" class="node node-unshaded">${inner}</g>`;
+      }
+      return fullMatch;
+    }
+  );
+
+  // 4. Record divider polylines: black divider lines become visible in dark theme
+  svg = svg.replace(/<polyline([^>]*stroke="black"[^>]*)>/g, (_match, p1) => {
+    return `<polyline${p1.replace(/stroke="black"/g, 'stroke="currentColor" class="diagram-divider"')}>`;
+  });
+
+  return svg;
+}
+
 export function remarkDiagrams() {
   return async function (tree: any) {
     const nodesToProcess: Array<{ node: any; index: number; parent: any }> = [];
@@ -113,6 +227,7 @@ export function remarkDiagrams() {
             .replace(/<\?xml[^>]*\?>/i, "")
             .replace(/<!DOCTYPE[^>]*>/i, "")
             .trim();
+          svg = enhanceGraphvizSvg(svg);
 
           const escapedCode = escapeHtml(code);
           const displayLang = lang === "dot" ? "graphviz" : lang;

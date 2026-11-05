@@ -1,4 +1,5 @@
 import { setupDiagramPanZoom } from "./diagram-pan-zoom";
+import { fixDiagramContrast } from "./diagram-contrast";
 
 /**
  * Client-side dynamic loader and renderer for Mermaid diagrams.
@@ -53,6 +54,13 @@ async function renderMermaid() {
             actorTextColor: "#e3e2e6",
             signalColor: "#55d6ec",
             signalTextColor: "#e3e2e6",
+            noteBkgColor: "#24272b",
+            noteTextColor: "#e3e2e6",
+            noteBorderColor: "#55d6ec",
+            titleColor: "#e3e2e6",
+            nodeTextColor: "#e3e2e6",
+            labelTextColor: "#e3e2e6",
+            rectBkgColor: "#1c1e21",
           }
         : {
             darkMode: false,
@@ -75,6 +83,13 @@ async function renderMermaid() {
             actorTextColor: "#1c1b1f",
             signalColor: "#006878",
             signalTextColor: "#1c1b1f",
+            noteBkgColor: "#fef3c7",
+            noteTextColor: "#1c1b1f",
+            noteBorderColor: "#d97706",
+            titleColor: "#1c1b1f",
+            nodeTextColor: "#1c1b1f",
+            labelTextColor: "#1c1b1f",
+            rectBkgColor: "#f1ede6",
           },
     });
 
@@ -88,6 +103,7 @@ async function renderMermaid() {
         const uniqueId = `mermaid-svg-${Date.now()}-${i}`;
         const { svg } = await mermaid.render(uniqueId, source);
         el.innerHTML = svg;
+        fixDiagramContrast(el);
       } catch (renderError) {
         // eslint-disable-next-line no-console
         console.error("[Mermaid] Render error on diagram", i, renderError);
