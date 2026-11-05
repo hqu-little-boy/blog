@@ -256,7 +256,7 @@ sequenceDiagram
     end
     Note over Spy: 匹配 top <= 110px 的最后一个标题
     Spy->>DOM: 激活对应链接 (bg-accent/15 border-accent)
-    Spy->>DOM: activeLink.scrollIntoView({ block: 'nearest' })
+    Spy->>DOM: 仅针对桌面固定侧栏调整 scrollContainer.scrollTop
 ```
 
 核心算法实现（`TableOfContents.astro`）：
@@ -312,15 +312,27 @@ function updateActiveHeading() {
     }
   });
 
-  // 章节较多时，自动让当前激活项在目录窗口中居中呈现
-  if (activeLink) {
-    (activeLink as HTMLElement).scrollIntoView({
-      block: "nearest",
-      inline: "nearest",
-    });
+  // 5. 章节较多时，仅在桌面固定侧边栏内调整内部滚动条，切勿调用 scrollIntoView()
+  if (currentSlug) {
+    const desktopSidebar = document.querySelector<HTMLElement>(".toc-desktop-sidebar");
+    if (desktopSidebar && window.getComputedStyle(desktopSidebar).display !== "none") {
+      const activeLink = desktopSidebar.querySelector<HTMLAnchorElement>(`.toc-link[data-slug="${currentSlug}"]`);
+      if (activeLink) {
+        const container = activeLink.closest<HTMLElement>("ul");
+        if (container) {
+          const cRect = container.getBoundingClientRect();
+          const lRect = activeLink.getBoundingClientRect();
+          if (lRect.top < cRect.top) container.scrollTop += (lRect.top - cRect.top) - 12;
+          else if (lRect.bottom > cRect.bottom) container.scrollTop += (lRect.bottom - cRect.bottom) + 12;
+        }
+      }
+    }
   }
 }
 ```
+
+> [!NOTE]
+> **排坑要点**：千万不可对激活的目录项盲目执行 `activeLink.scrollIntoView()`！因为在移动端或浏览器高倍放大视口下，目录会折叠收录在文章正文顶部的 `<details>` 卡片中。若用户展开目录后向下浏览，每次滚动触发的 `scrollIntoView()` 会将整个浏览器窗口硬生生拉回页面顶部的内嵌目录区，导致页面卡死在顶部无法向下滚动。限制仅在固定侧边栏显示时微调 `container.scrollTop`，可彻底规避全局滚动劫持问题。
 
 同时，我们通过 `removeEventListener` 防范了 Astro 在 `ClientRouter` 页面无刷新跳转时的事件监听泄漏，保证每次切页都如丝般顺滑。
 

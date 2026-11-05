@@ -123,13 +123,11 @@ const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
         }
       }
 
-      let activeLink: HTMLAnchorElement | null = null;
       links.forEach(link => {
         const slug = link.dataset.slug;
         const isActive = slug === currentSlug;
 
         if (isActive) {
-          activeLink = link;
           link.classList.add(
             "bg-accent/15",
             "text-accent",
@@ -148,11 +146,39 @@ const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
         }
       });
 
-      if (activeLink) {
-        (activeLink as HTMLElement).scrollIntoView({
-          block: "nearest",
-          inline: "nearest",
-        });
+      // Keep active heading visible inside the desktop floating sidebar's scroll container ONLY.
+      // Under no circumstances call scrollIntoView() on elements, because that scrolls the entire
+      // window / document and causes the page to snap back to the mobile inline TOC when scrolling down.
+      if (currentSlug) {
+        const desktopSidebar = document.querySelector<HTMLElement>(
+          ".toc-desktop-sidebar"
+        );
+        if (
+          desktopSidebar &&
+          window.getComputedStyle(desktopSidebar).display !== "none"
+        ) {
+          const activeDesktopLink =
+            desktopSidebar.querySelector<HTMLAnchorElement>(
+              `.toc-link[data-slug="${currentSlug}"]`
+            );
+          if (activeDesktopLink) {
+            const scrollContainer =
+              activeDesktopLink.closest<HTMLElement>("ul");
+            if (scrollContainer) {
+              const containerRect = scrollContainer.getBoundingClientRect();
+              const linkRect = activeDesktopLink.getBoundingClientRect();
+
+              const offsetTop = linkRect.top - containerRect.top;
+              const offsetBottom = linkRect.bottom - containerRect.bottom;
+
+              if (offsetTop < 0) {
+                scrollContainer.scrollTop += offsetTop - 12;
+              } else if (offsetBottom > 0) {
+                scrollContainer.scrollTop += offsetBottom + 12;
+              }
+            }
+          }
+        }
       }
     }
 
