@@ -108,9 +108,8 @@ function initDiagramWrapper(wrapper: HTMLElement) {
         </button>
         <span class="w-px h-3.5 bg-border/60 mx-0.5" aria-hidden="true"></span>
       </div>
-      <button type="button" class="diagram-btn-source inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium text-muted-foreground hover:text-accent hover:bg-muted/70 transition-all cursor-pointer" title="查看源码" aria-label="查看源码">
-        <svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-        <span class="diagram-btn-source-label">源码</span>
+      <button type="button" class="diagram-btn-source rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="查看源码" aria-label="查看源码">
+        <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
       </button>
       <button type="button" class="diagram-btn-fullscreen diagram-zoom-controls rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer" title="全屏查看" aria-label="全屏查看">
         <svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>
@@ -167,8 +166,8 @@ function initDiagramWrapper(wrapper: HTMLElement) {
       ".diagram-zoom-controls"
     );
 
-    const codeIconSvg = `<svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`;
-    const chartIconSvg = `<svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>`;
+    const codeIconSvg = `<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`;
+    const chartIconSvg = `<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>`;
 
     const setSourceVisible = (show: boolean) => {
       if (show) {
@@ -177,22 +176,20 @@ function initDiagramWrapper(wrapper: HTMLElement) {
         hint?.classList.add("hidden");
         zoomControls.forEach(el => el.classList.add("hidden"));
 
-        btnSource.classList.add("text-accent", "bg-accent/15", "font-semibold");
+        btnSource.classList.add("text-accent", "bg-accent/15");
         btnSource.title = "返回图表预览";
-        btnSource.innerHTML = `${chartIconSvg}<span class="diagram-btn-source-label">图表</span>`;
+        btnSource.setAttribute("aria-label", "返回图表预览");
+        btnSource.innerHTML = chartIconSvg;
       } else {
         sourcePanel.classList.add("hidden");
         viewport?.classList.remove("hidden");
         hint?.classList.remove("hidden");
         zoomControls.forEach(el => el.classList.remove("hidden"));
 
-        btnSource.classList.remove(
-          "text-accent",
-          "bg-accent/15",
-          "font-semibold"
-        );
+        btnSource.classList.remove("text-accent", "bg-accent/15");
         btnSource.title = "查看源码";
-        btnSource.innerHTML = `${codeIconSvg}<span class="diagram-btn-source-label">源码</span>`;
+        btnSource.setAttribute("aria-label", "查看源码");
+        btnSource.innerHTML = codeIconSvg;
       }
     };
 
