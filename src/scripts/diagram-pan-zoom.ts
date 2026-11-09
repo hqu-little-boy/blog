@@ -117,6 +117,20 @@ function initDiagramWrapper(wrapper: HTMLElement) {
     `;
     wrapper.style.position = "relative";
     wrapper.prepend(toolbar);
+  } else {
+    // Normalize existing toolbar buttons to ensure latest icon specifications
+    // even if served from cached static HTML or CDN edge caches
+    const btnZoomOut = toolbar.querySelector<HTMLButtonElement>(".diagram-btn-zoom-out");
+    if (btnZoomOut) {
+      btnZoomOut.innerHTML = `<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/><line x1="8" y1="11" x2="14" y2="11"/></svg>`;
+    }
+    const btnSourceEl = toolbar.querySelector<HTMLButtonElement>(".diagram-btn-source");
+    if (btnSourceEl) {
+      btnSourceEl.className = "diagram-btn-source rounded-full p-1.5 text-muted-foreground hover:text-accent hover:bg-muted/70 transition-colors cursor-pointer";
+      btnSourceEl.title = "查看源码";
+      btnSourceEl.setAttribute("aria-label", "查看源码");
+      btnSourceEl.innerHTML = `<svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>`;
+    }
   }
 
   let hint = wrapper.querySelector<HTMLElement>(".diagram-hint");

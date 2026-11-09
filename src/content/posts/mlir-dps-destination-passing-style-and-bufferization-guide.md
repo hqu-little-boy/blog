@@ -808,3 +808,4 @@ digraph Master_Summary {
 4. **两套接口**：牢记 `DestinationStyleOpInterface`（结构几何规范）与 `BufferizableOpInterface`（内存行为规范）的职责分离。
 
 希望本篇教程能帮助每一位在 AI 编译器与高性能计算道路上求索的开发者，真正参透 MLIR 架构设计的深邃智慧与工程权衡之美！
+
