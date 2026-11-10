@@ -75,13 +75,16 @@ digraph Architecture {
 
 ---
 
-## 💻 代码高亮与交互体验
+## 💻 浏览器内直接执行代码 (Pyodide & Emscripten)
 
-代码块全面由 **Shiki** 驱动，提供现代语法高亮、右上角语言标签与一键复制代码按钮：
+本博客已全面升级为**可交互技术实验室**！依托 **Pyodide (WebAssembly CPython)** 与 **Emscripten / 现代 C++ 沙箱**，你在阅读技术文章时可以直接在浏览器中执行代码、观察输出，甚至直接在页面中**修改参数重新运行**：
+
+### 1. Python 示例 (基于 Pyodide WebAssembly)
+点击右上角的 **「▶ 运行 (Pyodide)」** 即可在浏览器本地即时执行 Python 代码；点击控制台中的 **「✏️ 编辑代码」** 还可以修改数组内容再次验证输出：
 
 ```python file="quick_sort.py"
 def quick_sort(arr: list[int]) -> list[int]:
-    """快速排序演示"""
+    """快速排序算法演示"""
     if len(arr) <= 1:
         return arr
     pivot = arr[len(arr) // 2]
@@ -91,7 +94,34 @@ def quick_sort(arr: list[int]) -> list[int]:
     return quick_sort(left) + middle + quick_sort(right)
 
 if __name__ == "__main__":
-    print(quick_sort([3, 6, 8, 10, 1, 2, 1]))
+    test_data = [42, 17, 93, 8, 25, 66, 1, 99]
+    print(f"原数组: {test_data}")
+    print(f"排序后: {quick_sort(test_data)}")
+```
+
+### 2. C++ 示例 (基于 Emscripten / C++20 沙箱)
+针对底层系统、硬件体系结构与算法模拟，点击右上角 **「▶ 运行 (C/C++)」** 即可瞬间查看编译与运行输出：
+
+```cpp file="bank_conflict_demo.cpp"
+#include <iostream>
+#include <vector>
+#include <numeric>
+
+// 体系结构 Bank 访存冲突模拟
+int main() {
+    constexpr int NUM_BANKS = 32;
+    int test_strides[] = {1, 2, 4, 8, 16, 32};
+
+    std::cout << "=== 硬件 32-Bank 访存冲突模拟 ===" << std::endl;
+    for (int stride : test_strides) {
+        int conflict_degree = std::gcd(stride, NUM_BANKS);
+        double effective_bandwidth = 100.0 / conflict_degree;
+        std::cout << "步长 (Stride): " << stride 
+                  << " -> 冲突度: " << conflict_degree << "-way"
+                  << " | 有效带宽: " << effective_bandwidth << "%" << std::endl;
+    }
+    return 0;
+}
 ```
 
 ```typescript
