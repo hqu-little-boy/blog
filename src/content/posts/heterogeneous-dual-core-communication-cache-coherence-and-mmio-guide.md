@@ -16,7 +16,7 @@ description: 深度剖析异构多核系统（CTRL主控核与RVV向量计算核
 
 在开发专用加速处理器或多核嵌入式系统时，从事固件、驱动或系统 Runtime 开发的工程师往往会遇到这样一条来自硬件或架构团队的工程提问：
 
-> **“在当前 EDA 仿真环境中，CTRL 核与 RVV 核的通讯邮箱（如 DDR `0x667000`、`0x668000`）是否已配置为无缓存映射（Uncached）？或者系统是否已通过硬件机制保证了两核间的缓存一致性，且总线支持自然对齐的 32 位原子读写？这决定了我们能否启用真实的消息通信；当前 Runtime 代码必须以此为物理前提。”**
+> **“在当前 EDA 仿真环境中，CTRL 核与 RVV 核约定的通讯邮箱（如系统约定的共享内存邮箱基地址 `MAILBOX_BASE`）是否已配置为无缓存映射（Uncached）？或者系统是否已通过硬件机制保证了两核间的缓存一致性，且总线支持自然对齐的 32 位原子读写？这决定了我们能否启用真实的消息通信；当前 Runtime 代码必须以此为物理前提。”**
 
 随后，当大家就此展开讨论时，资深硬件工程师或上游负责人可能会给出一条极其简短的指导建议：
 
@@ -98,7 +98,7 @@ digraph dual_core_role {
 在操作系统中，两个独立进程可以通过共享内存通信；在芯片内部，CTRL 核与 RVV 核两个独立的物理核心，同样依赖共享内存进行信息交互。
 
 > [!NOTE]
-> **邮箱机制（Mailbox / Inbox / Outbox）**：这并不是某种特殊的硬件黑盒子，而是一种经典的**通信软件设计模式**。工程师在双方都能访问的共享存储介质（如板载片外 DDR 内存，或片上 SRAM）中，划出一块固定物理地址的缓冲区（例如 `0x667000`）。发送方将指令封包写入其中，接收方从中拾取指令执行，如同在实体邮筒中投递信件。
+> **邮箱机制（Mailbox / Inbox / Outbox）**：这并不是某种特殊的硬件黑盒子，而是一种经典的**通信软件设计模式**。工程师在双方都能访问的共享存储介质（如板载片外 DDR 内存，或片上 SRAM）中，划出一块固定物理地址的缓冲区（例如 `MAILBOX_BASE`，在通用系统示例中可设为 `0x10000000`）。发送方将指令封包写入其中，接收方从中拾取指令执行，如同在实体邮筒中投递信件。
 
 ```mermaid
 flowchart TD
@@ -114,8 +114,8 @@ flowchart TD
     subgraph MemoryDomain ["共享物理内存空间 (Shared DDR Memory)"]
         direction TB
         subgraph MailboxMem ["通讯专用邮箱地址区"]
-            INBOX_A["0x667000 : Inbox A (CTRL -> RVV 任务命令)"]
-            INBOX_B["0x668000 : Inbox B (RVV -> CTRL 执行结果)"]
+            INBOX_A["MAILBOX_BASE (0x10000000) : Inbox A (CTRL -> RVV 任务命令)"]
+            INBOX_B["MAILBOX_BASE + 0x1000 (0x10001000) : Inbox B (RVV -> CTRL 执行结果)"]
         end
         NORMAL_DDR["0x80000000 : 普通数据区 (张量与特征图数据)"]
     end
@@ -141,7 +141,7 @@ struct MailboxMessage {
 };
 ```
 
-看起来直截了当对不对？CTRL 核把命令写进 `0x667000`，然后把 `state` 改成 `1`；RVV 核在循环里检测 `state`，一旦发现变成 `1` 就开始算，算完把 `state` 改成 `3`。
+看起来直截了当对不对？CTRL 核把命令写进 `MAILBOX_BASE`，然后把 `state` 改成 `1`；RVV 核在循环里检测 `state`，一旦发现变成 `1` 就开始算，算完把 `state` 改成 `3`。
 
 如果你认为这就完成了多核通信，那么真实硬件的微架构陷阱很快就会给你上残酷的一课。
 
@@ -180,7 +180,7 @@ digraph cache_incoherence {
         color = "#0284c7";
         fontcolor = "#0284c7";
         CTRL_CORE [label="CTRL 处理器核心\n(发出写入: state = 1)", fillcolor="#e0f2fe", color="#0284c7"];
-        CTRL_CACHE [label="CTRL 私有 L1 Cache\n[0x667000 副本: state = 1 (脏数据)]", fillcolor="#bae6fd", color="#0284c7"];
+        CTRL_CACHE [label="CTRL 私有 L1 Cache\n[MAILBOX_BASE 副本: state = 1 (脏数据)]", fillcolor="#bae6fd", color="#0284c7"];
         CTRL_CORE -> CTRL_CACHE [label="快速写命中 (L1 Write Hit)", color="#0284c7", penwidth=2];
     }
 
@@ -190,7 +190,7 @@ digraph cache_incoherence {
         color = "#16a34a";
         fontcolor = "#16a34a";
         RVV_CORE [label="RVV 处理器核心\n(死循环轮询: state == ?)", fillcolor="#dcfce7", color="#16a34a"];
-        RVV_CACHE [label="RVV 私有 L1 Cache\n[0x667000 副本: state = 0 (陈旧副本)]", fillcolor="#bbf7d0", color="#16a34a"];
+        RVV_CACHE [label="RVV 私有 L1 Cache\n[MAILBOX_BASE 副本: state = 0 (陈旧副本)]", fillcolor="#bbf7d0", color="#16a34a"];
         RVV_CACHE -> RVV_CORE [label="一直读旧命中 (L1 Read Hit)\n永远返回 0!", color="#dc2626", penwidth=2];
     }
 
@@ -199,7 +199,7 @@ digraph cache_incoherence {
         style = "filled,rounded";
         color = "#94a3b8";
         fillcolor = "#f8fafc";
-        DDR_MEM [label="共享内存物理地址: 0x667000\n[物理存储单元: state = 0 (根本没变!)]", fillcolor="#fee2e2", color="#ef4444", shape=cylinder];
+        DDR_MEM [label="共享内存物理地址: MAILBOX_BASE\n[物理存储单元: state = 0 (根本没变!)]", fillcolor="#fee2e2", color="#ef4444", shape=cylinder];
     }
 
     CTRL_CACHE -> DDR_MEM [style="dotted", color="#dc2626", label="采用写回(Write-back)策略\n新数据滞留在私有Cache，尚未刷入DDR!"];
@@ -207,8 +207,8 @@ digraph cache_incoherence {
 }
 ```
 
-1. **写未穿透**：CTRL 核执行 `*reinterpret_cast<uint32_t*>(0x667000) = 1`。在常见的**写回（Write-Back）**策略下，CPU 发现这行内存在自己的 L1 Cache 里，于是直接修改了私有 Cache 里的数据并标记为“脏（Dirty）”，根本没有第一时间刷写到片外物理 DDR 中！
-2. **读未更新**：RVV 核此前也读取过 `0x667000`，这个地址的一份旧副本（`state = 0`）早就静静躺在 RVV 的私有 Cache 中。
+1. **写未穿透**：CTRL 核执行 `*reinterpret_cast<uint32_t*>(MAILBOX_BASE) = 1`。在常见的**写回（Write-Back）**策略下，CPU 发现这行内存在自己的 L1 Cache 里，于是直接修改了私有 Cache 里的数据并标记为“脏（Dirty）”，根本没有第一时间刷写到片外物理 DDR 中！
+2. **读未更新**：RVV 核此前也读取过 `MAILBOX_BASE`，这个地址的一份旧副本（`state = 0`）早就静静躺在 RVV 的私有 Cache 中。
 3. **死锁诞生**：RVV 执行 `while(*ptr == 0)`，由于其私有 Cache 命中（Hit），RVV 核每次都光速从自己的 Cache 中拿到 `0`，压根不会去总线或 DDR 探出头看一眼。
 4. **结果**：CTRL 以为自己早已发出了命令，RVV 却在原地陷入死循环，跨核通信彻底瘫痪！
 
@@ -224,7 +224,7 @@ flowchart LR
         direction TB
         C1["CTRL 核"] -->|"读写直穿"| BUS1["物理总线 / NoC"]
         R1["RVV 核"] -->|"读写直穿"| BUS1
-        BUS1 --> MEM1["物理共享内存 (0x667000)"]
+        BUS1 --> MEM1["物理共享内存 (MAILBOX_BASE)"]
         note1["特点：彻底绕开两核私有Cache，<br>每次访存必走物理总线，简单绝对可靠"]
     end
 
@@ -239,7 +239,7 @@ flowchart LR
 ```
 
 #### 解法 A：无缓存映射（Uncached / Non-cacheable Mapping）
-在芯片的内存管理单元（MMU）或物理内存属性单元（PMA / PMP）中，将 `0x667000` 所在的整段物理页配置为 **Non-cacheable（不可缓存）** 属性。
+在芯片的内存管理单元（MMU）或物理内存属性单元（PMA / PMP）中，将 `MAILBOX_BASE` 所在的整段物理页配置为 **Non-cacheable（不可缓存）** 属性。
 - 两个核心访问这块区域时，CPU 硬件执行逻辑被强制禁止经过私有 Cache。
 - 任何读操作都必须跨越总线直接取自底层物理存储器；任何写操作都必须直接驱动总线信号落入物理单元。
 - **优点**：逻辑极简、绝对可靠、无需复杂的硬件同步电路。
@@ -247,7 +247,7 @@ flowchart LR
 
 #### 解法 B：硬件缓存一致性（Hardware Cache Coherence）
 如果硬件总线与核心实现了经典的 **MESI / MOESI 缓存一致性协议**：
-- 当 CTRL 核准备写入 `0x667000` 时，一致性硬件控制器会向片上互联总线广播一条“失效请求（Invalidate Broadcast）”。
+- 当 CTRL 核准备写入 `MAILBOX_BASE` 时，一致性硬件控制器会向片上互联总线广播一条“失效请求（Invalidate Broadcast）”。
 - RVV 核内部的 Cache 窥探逻辑（Snoop Logic）捕捉到该广播，会立刻将其自身 Cache 中对应的 Cache Line 标记为无效状态（`I` 态）。
 - 下次 RVV 读取时，发现 Cache Line 无效，被迫重新发起总线事务从总线或由 CTRL 核心拉取最新数据。
 - **优点**：对软件透明，代码读写普通内存即可自动同步。
@@ -329,19 +329,19 @@ digraph alignment_compare {
     node [shape=record, fontname="sans-serif", fontsize=10];
 
     subgraph cluster_aligned {
-        label = "对齐访问: 0x667000 (满足 4 字节自然对齐)";
+        label = "对齐访问: 0x10000000 (满足 4 字节自然对齐)";
         style = "rounded";
         color = "#16a34a";
-        A_DATA [label="<f0> 0x667000 (Byte 0)|<f1> 0x667001 (Byte 1)|<f2> 0x667002 (Byte 2)|<f3> 0x667003 (Byte 3)", fillcolor="#dcfce7", style=filled];
+        A_DATA [label="<f0> 0x10000000 (Byte 0)|<f1> 0x10000001 (Byte 1)|<f2> 0x10000002 (Byte 2)|<f3> 0x10000003 (Byte 3)", fillcolor="#dcfce7", style=filled];
         A_BUS [label="{ 32-bit 单次原子总线事务 (Single Atomic Transaction) }", fillcolor="#86efac", style=filled];
         A_DATA -> A_BUS [label="单周期完整传输", color="#16a34a"];
     }
 
     subgraph cluster_unaligned {
-        label = "非对齐跨界访问: 0x667001 (起始地址跨越了 32-bit 字边界!)";
+        label = "非对齐跨界访问: 0x10000001 (起始地址跨越了 32-bit 字边界!)";
         style = "rounded";
         color = "#dc2626";
-        U_DATA [label="<f0> [Word 0] 0x667001-03 (3字节)|<f1> [Word 1] 0x667004 (1字节)", fillcolor="#fee2e2", style=filled];
+        U_DATA [label="<f0> [Word 0] 0x10000001-03 (3字节)|<f1> [Word 1] 0x10000004 (1字节)", fillcolor="#fee2e2", style=filled];
         U_BUS1 [label="第 1 次总线读取 (Word 0)", fillcolor="#fca5a5", style=filled];
         U_BUS2 [label="第 2 次总线读取 (Word 1)", fillcolor="#fca5a5", style=filled];
         U_DATA -> U_BUS1 [label="拆解分段", color="#dc2626"];
@@ -351,8 +351,8 @@ digraph alignment_compare {
 ```
 
 在绝大多数主流处理器架构（包括 RISC-V）中：
-- 当一个 32 位变量放置在自然对齐的地址（如 `0x667000`）时，CPU 派发的单条 `lw`（Load Word）或 `sw`（Store Word）指令会被总线直接翻译成一个完整的、不可分割的 32 位物理总线事务。
-- 但是，如果你把 32 位变量放在了 `0x667001` 或 `0x667002` 这种跨越字边界的非对齐地址上，硬件总线就必须发起**两次物理传输**并在片内做拼接移位。在跨核并发环境下，**硬件根本无法保证跨边界两次访问的整体原子性**，必然面临撕裂风险！
+- 当一个 32 位变量放置在自然对齐的地址（如以 4 字节对齐的基地址 `0x10000000`）时，CPU 派发的单条 `lw`（Load Word）或 `sw`（Store Word）指令会被总线直接翻译成一个完整的、不可分割的 32 位物理总线事务。
+- 但是，如果你把 32 位变量放在了 `0x10000001` 或 `0x10000002` 这种跨越字边界的非对齐地址上，硬件总线就必须发起**两次物理传输**并在片内做拼接移位。在跨核并发环境下，**硬件根本无法保证跨边界两次访问的整体原子性**，必然面临撕裂风险！
 
 因此，原话中提到的“支持对齐 32 位原子读写”，是向芯片架构确认：**总线协议与内存控制器必须保证，当双方对齐访问 32 位数据时，单次读写是物理原子不可分割的。**
 
@@ -529,7 +529,7 @@ digraph mmio_bus_routing {
         color = "#16a34a";
         MMIO_BUS [label="外设 I/O 专用总线桥 (如 APB/AHB/AXI-Lite)\n【强制：直穿、非缓存、单次定长】", fillcolor="#f0fdf4", color="#16a34a"];
         REG_DMA  [label="DMA 控制器寄存器 (0x40000000)\n写 1: 硬件立刻启动数据搬运", fillcolor="#dcfce7", color="#16a34a"];
-        REG_MBOX [label="硬件邮箱控制器 / 专用 SRAM (0x667000)\n独立硬件收发逻辑，双核共见!", fillcolor="#dcfce7", color="#16a34a"];
+        REG_MBOX [label="硬件邮箱控制器 / 专用 SRAM (MAILBOX_BASE)\n独立硬件收发逻辑，双核共见!", fillcolor="#dcfce7", color="#16a34a"];
 
         MMIO_BUS -> REG_DMA;
         MMIO_BUS -> REG_MBOX;
@@ -561,11 +561,11 @@ digraph mmio_bus_routing {
 请观察以下两行 C 语言代码编译后的汇编输出：
 
 ```c
-// 访问普通内存
+// 访问普通内存（示例地址 0x80001000）
 *(volatile uint32_t*)0x80001000 = 100;
 
-// 访问 MMIO 寄存器
-*(volatile uint32_t*)0x667000 = 100;
+// 访问 MMIO 寄存器（以示例基地址 0x10000000 为例）
+*(volatile uint32_t*)0x10000000 = 100;
 ```
 
 其生成的 RISC-V 汇编指令几乎一模一样：
@@ -577,7 +577,7 @@ lui     a1, 0x80001
 sw      a0, 0(a1)       # sw 是 Store Word 指令
 
 # 写入 MMIO 寄存器
-lui     a2, 0x667
+lui     a2, 0x10000
 sw      a0, 0(a2)       # 同样是 Store Word 指令!
 ```
 
@@ -683,9 +683,10 @@ stateDiagram-v2
 
 // ==========================================
 // 1. 底层硬件 MMIO 与屏障接口封装
+// （具体物理地址通常由芯片 BSP 头文件或设备树提供，此处使用规范的示例对齐地址）
 // ==========================================
-#define INBOX_CTRL_TO_RVV  0x00667000U
-#define INBOX_RVV_TO_CTRL  0x00668000U
+#define INBOX_CTRL_TO_RVV  0x10000000U  // 示例：CTRL -> RVV 邮箱基地址
+#define INBOX_RVV_TO_CTRL  0x10001000U  // 示例：RVV -> CTRL 邮箱基地址
 
 static inline void hw_memory_barrier(void) {
     // 强制执行 RISC-V 内存屏障，确保总线写顺序
@@ -787,7 +788,7 @@ bool rvv_poll_and_execute(void) {
 
 | 校验维度 | 检查项目 | 必须满足的物理要求 |
 | :--- | :--- | :--- |
-| **地址与映射** | 物理地址排他性 | `0x667000` 与 `0x668000` 是否已被系统保留（Reserved），绝未被静态堆栈或动态 malloc 瓜分覆盖。 |
+| **地址与映射** | 物理地址排他性 | 约定的邮箱物理基地址（如 `MAILBOX_BASE`）是否已被系统固件保留（Reserved），绝未被静态堆栈或动态 malloc 瓜分覆盖。 |
 | **缓存属性** | 访问途径属性 | 两核访问该区间时，页表/PMA 必须配置为 **Non-cacheable（不可缓存）**，或通过专用 MMIO 总线直通。 |
 | **对齐与位宽** | 32 位单次原子性 | 结构体中所有成员必须严格满足 4 字节自然对齐；硬件总线仲裁器保证 32 位事务单次原子下发。 |
 | **内存屏障** | 硬件指令支持 | EDA 模型或实际 CPU 核心必须正确实现 RISC-V `fence` 语义，杜绝写缓冲滞后导致的假置位。 |
