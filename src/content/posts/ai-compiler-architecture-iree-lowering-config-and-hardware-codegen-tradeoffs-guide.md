@@ -10,9 +10,12 @@ tags:
   - 编译原理
   - IREE
   - NPU
+  - 华为昇腾
+  - 算能TPU
+  - AMD-ROCm
   - 芯片架构
   - LLVM
-description: 深度剖析自研 NPU 与通用硬件加速器在 AI 编译器设计中的核心架构权衡。从 IREE 的 translation_info 与 lowering_config 策略解耦机制出发，系统推导计算语义、调度参数与物理硬件映射的三层分离原则；深入探讨为何不能简单用原生 scf.for/forall 替代配置属性，透彻对比 TVM、Triton、Tenstorrent 及 Arm Vela 等各厂商因硬件执行模型与工程维护成本所作出的路线抉择；并针对“连续 Pass 只产出 Attribute，最后单 Pass 一次性 Lowering”的 Plan-then-Lower 架构，从 MLIR 基础设施、中间状态验证及 Pass 稳定性等第一性原理展开深度推演与破局。
+description: 深度剖析自研 NPU 与通用硬件加速器在 AI 编译器设计中的核心架构权衡。从 IREE 的 translation_info 与 lowering_config 策略解耦机制出发，系统推导计算语义、调度参数与物理硬件映射的三层分离原则；深入探讨为何不能简单用原生 scf.for/forall 替代配置属性；全景横评华为昇腾 CANN/AKG、算能 TPU-MLIR、AMD rocMLIR 以及 TVM、Triton、Tenstorrent、Arm Vela 等真实工业级开源异构编译器的优劣得失与底层取向；并针对“连续 Pass 只产出 Attribute，最后单 Pass 一次性 Lowering”的 Plan-then-Lower 架构，从 MLIR 基础设施、中间状态验证及 Pass 稳定性等第一性原理展开深度推演与破局。
 ---
 
 > **导读**：在为自定义专用加速器（如 AI NPU、DSP、张量处理器）设计编译器时，许多工程团队都会面临一系列经典的架构拷问：
@@ -20,10 +23,11 @@ description: 深度剖析自研 NPU 与通用硬件加速器在 AI 编译器设�
 > 1. 我们自定义的硬件描述属性（如分块尺寸、网格维度、地址发生器步长）究竟应该作为一个大包揽的属性（Attribute），还是拆解为不同层次？
 > 2. 业界顶尖的工业级开源编译器 IREE（基于 MLIR 孵化）原版是如何组织其代码生成管线的？它的 `translation_info` 与 `lowering_config` 为何要大费周章地分离？
 > 3. 既然 MLIR 官方早已提供了结构化控制流（`scf.for` / `scf.forall`），为什么大家不直接用原生循环操作表达分块与硬件映射，偏偏要在 IR 节点上附加五花八门的编译配置？
-> 4. 为什么 TVM、Triton、Tenstorrent、Arm Vela 等厂商各走各的路，甚至自研多层方言（Dialect）？统一的开源 IR 为什么在底层硬件世界屡屡碰壁？
-> 5. “在前端连续运行多个分析 Pass 仅生成 Attribute，最后由一个统一的大 Pass 一次性生成所有底层指令”，这种直觉上干净好调试的架构，在真实工程落地中到底会踩到哪些致命暗坑？
+> 4. 真实芯片厂商（**华为昇腾 CANN/AKG、算能 TPU-MLIR、AMD rocMLIR/MIGraphX**）在面对其异构硬件时，分别做出了怎样的架构取舍？它们有哪些值得自研编译器借鉴的“绝技”？
+> 5. 为什么 TVM、Triton、Tenstorrent、Arm Vela 等厂商各走各的路，甚至自研多层方言（Dialect）？统一的开源 IR 为什么在底层硬件世界屡屡碰壁？
+> 6. “在前端连续运行多个分析 Pass 仅生成 Attribute，最后由一个统一的大 Pass 一次性生成所有底层指令”，这种直觉上干净好调试的架构，在真实工程落地中到底会踩到哪些致命暗坑？
 >
-> 本文将从**编译第一性原理**与**工程维护生命周期**的双重视角出发，抽丝剥茧拆解上述疑问，并为芯片与 AI 编译器研发团队提供一套兼具理论高度与实战可操作性的架构设计演进指南。
+> 本文将从**编译第一性原理**与**工程维护生命周期**的双重视角出发，抽丝剥茧拆解上述疑问，并结合全球与国产顶尖异构编译器的真实开源实现，为芯片与 AI 编译器研发团队提供一套兼具理论高度与实战可操作性的架构设计演进指南。
 
 ---
 
@@ -52,6 +56,11 @@ description: 深度剖析自研 NPU 与通用硬件加速器在 AI 编译器设�
 | **Affine Map**              | 仿射映射                    | **MLIR 中用于表达多维坐标线性变换的代数形式**。例如 `(i, j, k) -> (i, k)` 表示从 3 维循环空间投影到 2 维张量切片空间。                                                 |
 | **Root Op**                 | 根操作 / 主导操作           | **算子融合或计算分发中处于主导地位的算子**。例如在 `MatMul + Bias + ReLU` 融合块中，计算量最大且决定整体分块方案的 `MatMul` 通常被视为主导操作。                       |
 | **Auto-tuning**             | 自动调优                    | **基于搜索与性能反馈的代码生成优化机制**。在合法的候选参数空间中枚举 Tile 尺寸、管线策略并测量硬件周期，从而挑出最优配置。                                             |
+| **Global vs Local Layer**   | 全局层 vs 片上局部层        | **算能 TPU-MLIR 的核心抽象**。区分算子是在外部 DRAM 全局大张量上执行，还是已被分块切片并常驻在片上 SRAM（L2M）中以流水线模式执行。                                     |
+| **Cube / Vector 异构单元**  | 矩阵乘单元 vs 向量单元      | **华为昇腾 DaVinci 架构的非对称核心**。Cube 专门以硬件脉动阵列进行 $16 \times 16 \times 16$ 矩阵乘累加；Vector 专门负责通用向量、激活、Norm 与归约计算。               |
+| **TPIPE / 硬件队列**        | 管道化流水编程模型          | **华为 Ascend C 暴露的异步流控模型**。通过硬件同步队列（Queues）与事件令牌控制数据搬运、Vector 计算与 Cube 计算的生产者-消费者时序，消除全局同步锁。                   |
+| **rock.transform**          | 坐标仿射变换代数            | **AMD rocMLIR 的核心算子**。通过纯数学坐标映射链记录张量的转置、填充、分块与重排，在真正 Codegen 时一次性折叠进地址计算，实现**零内存开销的虚拟重排**。                |
+| **MFMA**                    | Matrix Fused Multiply-Add   | **AMD CDNA 架构 GPU 的硬件矩阵核心指令**。类似于 NVIDIA Tensor Core，单指令完成微小矩阵块（如 $32 \times 32 \times 8$）的硬件乘加。                                    |
 
 ---
 
@@ -570,6 +579,258 @@ Arm Ethos-U NPU 属于典型的命令流驱动设备。Vela 并不试图构建�
 - 离线全静态内存规划（SRAM Scratchpad Allocation）；
 - 将卷积与激活算子融合为 NPU 硬件可执行的原子 Block 命令；
 - 编译器与底层驱动（Driver）、链接脚本（Linker Script）严格对齐内存基址契约。
+
+### 4.2 工业级异构加速器实战深潜：华为、算能与 AMD 的开源编译器架构抉择
+
+除了前述偏向通用探索或特定细分领域的编译器之外，**华为昇腾（CANN / AKG / Ascend C）、算能（TPU-MLIR）与 AMD（rocMLIR / MIGraphX）** 在其真实生产环境与开源生态中，针对自身异构芯片架构的物理特性，演进出了极其鲜明且极具启发性的技术路线。
+
+深入研读这些“真正量产驱动”的工业级编译器，能为自定义 NPU 团队提供弥足珍贵的反思视角与设计养分。
+
+---
+
+#### 4.2.1 算能 (SOPHON) TPU-MLIR：全局张量与片上 Local Group 的二元切片哲学
+
+算能针对其自研的算丰系列 TPU 处理器（如 BM1684X、BM1688、CV18XX 等，采用多核专用 ASIC 架构，内部配备向量阵列与片上大容量 L2M / Local Memory），推出了完全基于 MLIR 框架构建的开源编译器 **`tpu-mlir`**。
+
+```graphviz
+digraph tpu_mlir_flow {
+    rankdir=TB;
+    node [shape=box, style="rounded,filled", fontname="sans-serif", fontsize=10];
+    edge [fontname="sans-serif", fontsize=9];
+
+    subgraph cluster_top {
+        label = "第一阶段：硬件无关图层表示 (TOP Dialect)";
+        color = "#2563eb";
+        top_op [label="top.MatMul / top.Conv\n(FP32 浮点张量、数学计算定义、图级融合)", fillcolor="#dbeafe"];
+        calib [label="内建 PTQ 动态校准 (Calibration)\n生成对称/非对称 QuantParam (Scale & Zero-point)", fillcolor="#bfdbfe"];
+        top_op -> calib;
+    }
+
+    subgraph cluster_tpu {
+        label = "第二阶段：硬件执行与存储分层 (TPU Dialect)";
+        color = "#0d9488";
+        split [label="Global / Local 算子分层切分\n判定算子是否满足片上 L2M 硬件约束", fillcolor="#ccfbf1"];
+
+        subgraph cluster_branches {
+            style = dashed;
+            color = "#0f766e";
+            g_op [label="TPU Global Layer\n- 运行在片外 DRAM (DDR)\n- 负责全量张量计算\n- 单次搬运开销大", fillcolor="#e0f2fe"];
+            l_op [label="TPU Local Layer Group\n- 切片进片上 L2M (SRAM)\n- 连续算子 Local 融合\n- 配合 DMA 异步双缓冲流水", fillcolor="#d1fae5"];
+        }
+
+        calib -> split;
+        split -> g_op [label="无法切片的大算子"];
+        split -> l_op [label="可切片的连续算子链"];
+    }
+
+    subgraph cluster_backend {
+        label = "第三阶段：底层微码生成 (Codegen)";
+        color = "#d97706";
+        addr [label="L2M 片上动态地址分配器\n与 DDR 绝对物理地址静态规划", fillcolor="#fef3c7"];
+        bmodel [label="生成 BM1684X 硬件指令字节码\n打包为 .bmodel 可执行载荷", fillcolor="#fed7aa"];
+
+        g_op -> addr;
+        l_op -> addr;
+        addr -> bmodel;
+    }
+}
+```
+
+##### 1. 核心设计：Global 与 Local 的显式二元化建模
+
+在 `tpu-mlir` 中，算子被严格划分为两套平行的执行语义：
+
+- **Global Layer（全局层）**：算子的输入与输出均常驻于片外 DRAM 中，处理全量张量。每次计算均涉及巨大的内存搬运开销。
+- **Local Layer（片上局部层）**：通过 `TpuLayerGroup` 分析 Pass，将支持硬件切片的算子切分为微小的 Tile，使其输入、输出与中间结果完全被限制在芯片专有的片上 SRAM（Local Memory / L2M）内部。
+
+连续的多个 Local Layer 可以组合成一个 **Local Layer Group**，在一个硬件工作周期内完成“DMA 搬入 -> 连续 Local 算子计算 -> DMA 搬出”的流水线作业，彻底消除中间张量回写 DDR 的延迟。
+
+##### 2. 全链路量化与校准深度集成
+
+与很多编译器在外部单独做量化不同，`tpu-mlir` 将量化校准（PTQ / Calibration）与张量数据类型转换（`top.Cast`）直接作为 MLIR Pass 流水线的一部分。它可以在同一套 Dialect 树中无缝地将 FP32/FP16 模型逐级降级为混合精度的 INT8 / BF16 / FP16 TPU 指令，使得量化裁剪与分块调度能够协同决策。
+
+##### 3. 优缺点客观分析
+
+- **核心优势**：
+  - **架构边界极其清爽直观**：`TOP`（图层）与 `TPU`（芯片层）职责明确，Global 与 Local 的二元分立精准击中了定制 ASIC 片上存储管理的核心命脉。
+  - **工程闭环度极高**：从 ONNX/PyTorch 解析、模型量化校准、图切分、SRAM 内存规划到最终 `.bmodel` 二进制生成，整套工具链一气呵成，对应用开发者极度友好。
+- **主要代价与局限**：
+  - **硬件耦合度偏高**：Local Layer 的切分规则（如 64 个硬件 Lane 的步长与通道排布）深度硬编码了特定的芯片存储拓扑，若迁移到非 TPU 架构，重构成本极大。
+  - **搜索能力较弱**：切块与融合策略严重依赖手工编写的启发式规则，缺乏基于代价模型（Cost Model）的全局最优解搜索能力。
+
+> **💡 对自研 NPU 编译器的核心借鉴**：
+> 自研芯片如果同样依赖片上 SRAM（Local Memory）来抵御访存墙，**千万不要在底层低级指针处才去猜测一块数据是否在片上**！像 `tpu-mlir` 那样，在 Dialect 中显式建立“全局计算（Global）”与“片上局部切片（Local）”的语义标签，能让中端的分块调度 Pass 与后端的 DMA 插入算法变得格外干净简洁。
+
+---
+
+#### 4.2.2 华为 (Huawei) 昇腾 CANN / MindSpore AKG / Ascend C：Cube-Vector 异构调度与 TPIPE 队列流水线
+
+华为昇腾（Ascend）系列芯片（基于达芬奇 DaVinci AI Core 架构）是业界在异构多核与极端软硬件协同设计上的典型代表。其开源编译生态涵盖了面向图级优化的 **MindSpore AKG（Auto Kernel Generator）** 以及面向 Kernel 级编程的 **Ascend C** 体系。
+
+##### 1. 硬件核心拓扑：非对称单元与私有存储体系
+
+一个昇腾 AI Core 内部并非均质多核，而是由功能截然不同的非对称执行单元高度耦合而成：
+
+- **Cube 单元**：专门负责超高吞吐的矩阵乘累加，具备专用的硬件脉动阵列，原生处理 $16 \times 16 \times 16$ 的微矩阵运算；
+- **Vector 单元**：专门负责高灵活度的通用向量计算、算术激活、Softmax、Norm 与归约；
+- **Scalar 单元**：负责基础标量指令、循环控制与地址指针运算；
+- **MTE 引擎（Memory Transfer Engine）**：独立的片上搬运单元（如 MTE1/MTE2/MTE3），专职处理片外 DDR 与内部私有缓存之间的高速搬运。
+
+在存储层级上，AI Core 配备了极为严苛的物理结构：外部内存（DDR/HBM）到 Cube 之间隔着 **L1 Buffer** 与专有 **L0 矩阵缓存（L0A/L0B/L0C）**，而 Vector 与 Cube 之间的交互则必须经过物理受限的统一缓冲区 **UB（Unified Buffer）**。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Driver as 控制核心 (Scalar)
+    participant MTE as 搬运引擎 (MTE2/MTE3)
+    participant Queue as 硬件同步队列 (TBufPool)
+    participant Vec as Vector 计算单元
+    participant Cube as Cube 矩阵计算单元
+
+    Note over Driver,Cube: 昇腾 Ascend C / TPIPE 生产者-消费者流水作业
+    Driver->>MTE: 发起异步搬运指令 (DDR -> L1/UB)
+    MTE->>MTE: 数据高速加载中...
+    MTE->>Queue: EnQue(VECIN, TensorTile_0)
+    Note over Queue: 硬件队列挂起令牌，通知下游就绪
+
+    par 异步并发阶段：计算与预取重叠 (Overlap)
+        Queue->>Vec: DeQue(VECIN) -> 触发 Vector 计算 (Tile_0)
+        Driver->>MTE: 发起下一轮数据预取 (Tile_1)
+        MTE->>MTE: 数据搬运中...
+    end
+
+    Vec->>Queue: EnQue(CubeIn, Intermediate_0)
+    Queue->>Cube: DeQue(CubeIn) -> 启动 16x16x16 Cube 矩阵计算
+    Cube->>Driver: 产生硬件完成事件 (Event)，释放内存池
+```
+
+##### 2. CANN / Ascend C 的核心王牌：TPIPE 异步流水线模型
+
+在昇腾的软件体系中，最引人入胜的创新是其 **TPIPE（Pipelining）并发模型**：
+
+- **放弃全局同步锁**：因为 Cube、Vector 与 MTE 在物理上可以同时奔跑，若采用常规的阻塞等待（Barrier），性能将瞬间折损过半。
+- **硬件队列驱动的生产者-消费者模型**：开发者通过 `Queue<TPosition>`（例如 `TPosition::VECIN`、`TPosition::VECOUT`、`TPosition::A1`）建立数据通信管道。MTE 生产完数据执行 `EnQue`，计算单元消费数据执行 `DeQue`，硬件自动负责空满状态的阻塞与唤醒。
+- **多阶段 Ping-Pong 深度交织**：在 Vector 正在处理前一个 Tile 时，MTE 早已将后一个 Tile 搬入另一个物理 Buffer，形成完美的延迟隐藏。
+
+##### 3. MindSpore AKG：基于多面体模型（Polyhedral）的深水区优化
+
+在自动算子生成器 AKG 中，华为引入了编译领域学术皇冠上的明珠——**多面体模型（Polyhedral Model）**。
+针对具有复杂循环依赖的融合算子，AKG 将循环嵌套映射为高维仿射多面体，利用整数线性规划（ISL）自动求解：
+
+- 循环的合法倾斜（Skewing）、交换（Interchange）与分块（Tiling）；
+- 自动分析将张量提升到片上 UB 统一缓冲区的生命周期（Memory Promotion）；
+- 自动生成跨越 Cube 与 Vector 异构边界的代码。
+
+##### 4. 优缺点客观分析
+
+- **核心优势**：
+  - **极致榨干硬件算力**：TPIPE 队列模型将异构单元（Cube/Vector/DMA）的并发利用率推到了极致，几乎消除了指令发射的空泡。
+  - **形式化多面体调度极具深度**：在非规则仿射循环中，AKG 展现了惊人的自动化融合分块求解能力。
+- **主要代价与局限**：
+  - **认知与维护成本极其高昂**：硬件约束过于严苛（Cube 严格要求 16 字节对齐、UB 容量紧张不可越界）。在编译器生成 Ascend C 或底层指令时，只要硬件队列的 `EnQue`/`DeQue` 计数器漏写一次，就会引发芯片级的**硬件死锁（Hang）**，且几乎无法利用常规断点工具调试。
+  - **多面体编译时间极长**：多面体整数规划算法在处理大规模网络结构时编译耗时巨大，对动态 Shape 的支持尤为吃力。
+
+> **💡 对自研 NPU 编译器的核心借鉴**：
+> 如果你的自研芯片内部同样拆分了“矩阵乘大核”、“标量/向量小核”以及“独立 DMA”，**绝对不要使用简单的全局串行控制流！** 昇腾的 TPIPE 模型证明了：**利用硬件队列（Queues）与事件令牌（Events: V-to-Cube, Cube-to-V）在 IR 层面显式建模生产者-消费者依赖**，是实现高效异构并发、隐藏访存延迟的最稳健范式。
+
+---
+
+#### 4.2.3 AMD ROCm / rocMLIR：rock.transform 坐标仿射代数与分层 GEMM 映射
+
+AMD 在其 ROCm 开放异构计算生态中，为了抗衡 NVIDIA 在矩阵乘法与深度学习算子上的垄断，在 MLIR 社区深度孵化了用于 CDNA / RDNA 架构 GPU 的开源矩阵与卷积编译器 **`rocMLIR`**（配合高层图优化器 `MIGraphX`）。
+
+`rocMLIR` 最具工程美感与颠覆性的创新，当属其自定义的 **`rock` 方言（原 `miir`）及其核心原语 `rock.transform`**。
+
+```graphviz
+digraph rock_transform_chain {
+    rankdir=LR;
+    node [shape=box, style="rounded,filled", fontname="sans-serif", fontsize=10];
+    edge [fontname="sans-serif", fontsize=9];
+
+    subgraph cluster_phys {
+        label = "真实物理张量 (Physical)";
+        color = "#64748b";
+        t_raw [label="原始物理内存 Buffer\n(Non-contiguous, 带有 Padding)", fillcolor="#f1f5f9"];
+    }
+
+    subgraph cluster_transforms {
+        label = "零拷贝坐标映射链 (rock.transform Chain)";
+        color = "#7c3aed";
+        tf1 [label="rock.transform\n[Pad]: 虚拟扩展边缘边界", fillcolor="#ede9fe"];
+        tf2 [label="rock.transform\n[Embed]: 展开卷积窗口坐标", fillcolor="#ede9fe"];
+        tf3 [label="rock.transform\n[Unfold / Permute]:\n维度扁平化与转置", fillcolor="#ede9fe"];
+
+        t_raw -> tf1;
+        tf1 -> tf2;
+        tf2 -> tf3;
+    }
+
+    subgraph cluster_virt {
+        label = "虚拟逻辑矩阵 (Virtual MatMul)";
+        color = "#0d9488";
+        t_virt [label="标准的 2D 逻辑张量\nMatrix A [M, K] & Matrix B [K, N]\n(逻辑上连续且无填充)", fillcolor="#ccfbf1"];
+        tf3 -> t_virt;
+    }
+
+    subgraph cluster_codegen {
+        label = "代码生成时的仿射折叠 (Affine Folding)";
+        color = "#d97706";
+        fold [label="将三级 Transform 复合为一个代数公式\nIndex_phys = f3(f2(f1(Index_virt)))", fillcolor="#fef3c7"];
+        vec_load [label="最终物化为单条 GPU 向量加载指令\n直接携带计算后的复杂 Offset 访存！", fillcolor="#fed7aa"];
+
+        t_virt -> fold;
+        fold -> vec_load;
+    }
+}
+```
+
+##### 1. 核心绝技：`rock.transform` 坐标仿射代数体系
+
+在卷积与复杂矩阵计算中，我们经常需要对张量执行转置（Transpose）、边界填充（Pad）、维度展开（Unfold）与通道切片（Slice）。传统编译器通常不得不插入临时的内存拷贝（Copy Op），在物理显存中重新排布出一块新的张量。
+
+AMD `rocMLIR` 彻底颠覆了这一做法：
+
+- **引入纯数学坐标映射链**：`rock.transform` 不分配任何物理内存，它仅仅记录一段从“上一级坐标”到“下一级坐标”的映射规则（例如通过 `Embed` 表达多维解开，通过 `Pad` 表达虚假填充，通过 `PassThrough` 表达直通）；
+- **虚拟张量无限串联**：一个复杂的 4D 卷积可以经过连续五六次 `rock.transform`，在数学上变换为一个极其工整的 2D 矩阵乘；
+- **Codegen 时的代数折叠**：在最终生成底层 GPU 指令时，编译器利用仿射代数复合规则（Composition），将所有的映射函数压缩合并为**一个最终的坐标计算公式**！GPU 线程在执行 `vector.load` 时，直接计算出带偏置的物理地址进行单步加载，**实现了真正零内存开销的虚拟重排**。
+
+##### 2. 分层阶梯式 GEMM 降级模型
+
+针对 AMD CDNA 架构的硬件特性，`rocMLIR` 建立了层层递进的 GEMM 方言抽象：
+
+- **`GridwiseGemm`**：站在整个 GPU Grid 视角，将巨型张量切分并分配给各个 Workgroup（线程块）；
+- **`BlockwiseGemm`**：在单个 Workgroup 内部，规划共享内存（LDS - Local Data Share）的暂存与 Wavefront（子群）之间的分块；
+- **`ThreadwiseGemm`**：在单个硬件线程内部，管理私有寄存器与向量寄存器切片；
+- **底层硬件指令直连**：直接降级为 AMD 硬件的专用矩阵乘加汇编内建——**`amdgpu.mfma`**（Matrix Fused Multiply-Add，对应于 CDNA 的硬件脉动矩阵阵列）。
+
+##### 3. 优缺点客观分析
+
+- **核心优势**：
+  - **坐标代数极度惊艳**：`rock.transform` 完美消除了卷积展开（Im2Col）与数据转置带来的额外内存带宽消耗与内存碎片，理论优雅且收益显著。
+  - **算子内核性能极高**：生成的 GEMM/Conv 内核在 MI200/MI300 上能够直接叫板乃至超越官方手写汇编算子库（MIOpen / rocBLAS）。
+- **主要代价与局限**：
+  - **强力绑定 SIMT/GPU 体系**：整套模型建立在 GPU 的 Grid/Block/Wave 线程模型与 LDS 缓存模型之上，无法直接平移到非 GPU 类型的 NPU。
+  - **学习曲线陡峭**：坐标映射链一旦长达数级，中间 IR 的人类可读性显著下降，调试地址越界需要极高深的仿射代数推导功底。
+
+> **💡 对自研 NPU 编译器的核心借鉴**：
+> 自研 NPU 在处理卷积或张量重排时，往往受困于 DMA 搬运次数过多。**AMD `rock.transform` 的坐标代数是解决重排内存开销的最佳教科书！** 如果你们拥有硬件地址发生器（AG），完全可以借鉴这种思路：**高层只记录虚拟坐标变换，最后在生成 AG 配置时，将转置与 Padding 的数学公式一次性折叠进 AG 的 Step 步长与 Base 偏置寄存器中**，从而彻底省去物理搬运！
+
+---
+
+#### 4.2.4 工业级异构编译器天梯横评：八大体系全景对比矩阵
+
+为了给自研芯片与编译器团队提供全维度的选型与架构决策参考，下表将全球及国内最具代表性的八套开源 AI 编译器架构置于同一透镜下进行全面横评：
+
+| 编译器体系                 | 核心服务硬件形态                | 核心方言 / IR 载体                              | 分块调度表示机制                                  | 片上暂存 (SRAM/LDS/UB) 管理机制               | 并发与事件同步模型                              | 最大核心工程优势                                              | 最大工程维护代价                                     | 对自研 NPU 的核心借鉴启示                             |
+| :------------------------- | :------------------------------ | :---------------------------------------------- | :------------------------------------------------ | :-------------------------------------------- | :---------------------------------------------- | :------------------------------------------------------------ | :--------------------------------------------------- | :---------------------------------------------------- |
+| **IREE** (Google)          | 通用多目标 (CPU/GPU/NPU)        | Linalg + 专用 Codegen 方言                      | 属性解耦 (`translation_info` + `lowering_config`) | 依赖 Pipeline Promotion 抽象                  | 基于 HAL 的 Buffer 显式提交与栅栏 (Fences)      | 多后端通用性强，策略与算子解耦，天然适配 Auto-tuning          | 多层配置同步复杂，易出现属性丢失与透传失效           | **策略解耦三剑客**与自适应调优注入机制                |
+| **TVM** (Apache)           | 通用多目标 (CPU/GPU/DSP)        | Relax + TensorIR (TIR)                          | 可重放动作流 (Schedule API: split, reorder)       | 显式 `cache_read` / `cache_write` 申请        | 线程绑定 (`bind("threadIdx.x")`) 与运行时调度   | 将优化显式建模为重放轨迹，MetaSchedule 搜索生态强大           | Schedule 语法与规则库沉重，真实测例搜索开销巨大      | **将优化建模为动作流**，便于记录与探索候选解          |
+| **Triton** (OpenAI)        | GPU (NVIDIA/AMD)                | Triton IR + GPU 扩展                            | 块级张量操作 + GPU Layout 属性                    | 隐式通过 Shared Layout 降级管理               | 隐式 SIMT 多线程与编译器自动插入 Barrier        | Layout 提升为一等公民，极致聚焦张量-寄存器物理映射            | 跨 Warp Layout 转换开销高昂，体系专属于 GPU          | **显式物理 Layout 抽象**，统一分析硬件 Bank 冲突      |
+| **Tenstorrent** (TT-MLIR)  | 专用多核 NPU (Tensix)           | TTIR $\to$ TTNN $\to$ TTKernel $\to$ TTMetal    | 环形缓冲区 (CB) 与数据流图分发                    | 显式 L1 内存空间 (`#ttcore.memory_space<l1>`) | NoC 异步搬运指令 (`noc_async_read`) 与硬件握手  | 紧扣硬件 NoC 架构，多层 Dialect 职责边界极其严密              | 新增算子改动面巨大（涉及 Schema/Runtime/Driver）     | **多层专用 Dialect 分工**与 NoC 事务语义显式建模      |
+| **Arm Vela** (Arm)         | 嵌入式端侧 NPU (Ethos-U)        | TFLite / TOSA $\to$ Command Stream              | 离线图级 Striping 与 Cascading                    | 全静态离线规划 (SRAM 缓冲区空间复用分析)      | 严格依赖单发射 NPU 命令流与中断应答             | 极端轻量，生成即执行，内存占用极小                            | 策略高度硬编码在编译器内部，缺乏灵活性               | **离线全静态内存规划算法**与精简命令流直出            |
+| **TPU-MLIR** (算能 SOPHON) | 专用 ASIC TPU (算丰系列)        | TOP (图层) $\to$ TPU (片上层) $\to$ BModel      | **Global Layer vs Local Layer Group**             | 显式切分片上 L2M，配合专用动态地址分配器      | 依赖硬件多 Lane 自动分发与同步状态机            | 架构极其清爽，Global/Local 划分直击片上内存痛点，量化深度内建 | 切块规则强绑定自研 TPU 硬件，缺乏自动搜索            | **Global / Local 的二元分立抽象**，极简构建 SRAM 切片 |
+| **CANN / AKG** (华为昇腾)  | 异构非对称 NPU (达芬奇 AI Core) | MindSpore IR / CCEC / Ascend C                  | 多面体仿射空间变换 (ISL) 或 Ascend C 手工切片     | 显式划分 UB (统一缓冲) 与 L1/L0 私有缓存      | **TPIPE 硬件队列 (`EnQue`/`DeQue`) 与事件令牌** | 异构多单元（Cube/Vector/MTE）并发性能榨取到极致               | 硬件约束苛刻，极易引发队列死锁，多面体编译极慢       | **基于硬件队列与事件标记的异步流控模型**，消除阻塞    |
+| **rocMLIR** (AMD ROCm)     | GPU (CDNA / RDNA 架构)          | `rock` Dialect $\to$ Vector $\to$ `amdgpu.mfma` | 分层 GEMM 展开 (Grid $\to$ Block $\to$ Thread)    | 显式管理 GPU LDS 共享内存与数据加载           | GPU Wavefront 协作与向量指令级同步              | **`rock.transform` 坐标仿射代数**，实现零拷贝虚拟重排         | 方言栈极深，强依赖 SIMT 硬件，代码可读性与调试门槛高 | **坐标代数折叠技术**，将转置与 Padding 折叠进 AG 寻址 |
 
 ---
 
