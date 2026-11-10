@@ -121,8 +121,8 @@ export function setupInteractiveCodeBlocks() {
         <div class="flex items-center gap-2">
           <span class="status-indicator size-2.5 rounded-full bg-emerald-500 inline-block transition-colors"></span>
           <span class="status-text font-medium text-foreground/90">控制台就绪</span>
-          <span class="engine-badge rounded-md px-1.5 py-0.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-muted-foreground bg-muted/60">
-            ${lang === "python" ? "Pyodide WASM" : "Emscripten / C++"}
+          <span class="engine-badge rounded-md px-1.5 py-0.5 text-[10px] font-mono font-semibold tracking-wider text-muted-foreground bg-muted/60">
+            ${lang === "python" ? "Pyodide WASM (客户端算力)" : "WebAssembly / 本地算力"}
           </span>
         </div>
         <div class="flex items-center gap-1.5 text-xs">
