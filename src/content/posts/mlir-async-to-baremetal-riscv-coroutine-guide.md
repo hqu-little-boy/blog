@@ -634,13 +634,12 @@ digraph ManualVsCompiler {
 #### 视角一：编译器降级后的底层展开视角（完全对应 `coro_bare.ll`）
 
 ```cpp
+#include <cstdio>
 #include <cstdint>
 
 // 模拟裸机 MMIO 串口输出 (对应汇编中向 0x10000000 写入)
 void print(int32_t x) {
-    volatile uint8_t* const uart = reinterpret_cast<volatile uint8_t*>(0x10000000);
-    // 算法：将 x 转为 ASCII 并逐字节写入 *uart
-    // ...
+    std::printf("[MMIO UART 串口] 协程挂起点前输出: %d\n", x);
 }
 
 // 编译器自动生成的协程帧结构体 (Coroutine Frame)
@@ -692,11 +691,14 @@ void app_main() {
     frame.state = 2;
 }
 
-// 裸机入口
+// 裸机入口 (与宿主/浏览器通用入口)
 extern "C" void _start() {
-    // 内联汇编初始化栈指针: asm("la sp, __stack_top");
     app_main();
-    // 停机死循环: while(1) { asm("wfi"); }
+}
+
+int main() {
+    app_main();
+    return 0;
 }
 ```
 

@@ -453,7 +453,36 @@ __shared__ float smem[16][17];
 // 由于 gcd(17, 16) = 1，按列访问冲突度瞬间降为 1，性能提升数倍！
 ```
 
-通过引入少于 $6\%$ 的内存空间浪费，强行将步长中的奇数项 $n$ 重新组合，将素因子 2 的幂次降为 $d=0$，实现空间换时间的飞跃。
+通过引入少于 $6\%$ 的内存空间浪费，强行将步长中的奇数项 $n$ 重新组合，将素因子 2 的幂次降为 $d=0$，实现空间换时间的飞跃。读者可点击下方代码右上角直接在浏览器中执行仿真验证：
+
+```c file="bank_padding_sim.c"
+// 💡 浏览器端可直接执行：Padding 前后有效带宽仿真
+#include <stdio.h>
+
+int gcd(int a, int b) {
+    while (b != 0) {
+        int t = b;
+        b = a % b;
+        a = t;
+    }
+    return a;
+}
+
+int main() {
+    int banks = 16;
+    int strides[] = {16, 17};
+
+    printf("=== 16-Bank 存储架构 Padding 优化效果 ===\n");
+    for (int i = 0; i < 2; i++) {
+        int u = strides[i];
+        int conflict = gcd(u, banks);
+        double bw = 100.0 / conflict;
+        printf("列访问跨步 u=%d -> 冲突度=%d-way | 吞吐带宽=%.1f%%\n",
+               u, conflict, bw);
+    }
+    return 0;
+}
+```
 
 ### 2. 软件策略：异或混淆寻址（XOR-based Bank Swizzling）
 

@@ -162,8 +162,24 @@ export async function runPythonCode(
     };
   } catch (error: any) {
     const durationMs = Math.round(performance.now() - startTime);
-    const errorMsg = error?.message || String(error);
-    handleStderr(errorMsg + "\n");
+    let errorMsg = error?.message || String(error);
+
+    // Friendly explanation for framework proprietary snippets (e.g. torch, tvm, triton)
+    if (
+      code.includes("nn.Conv2d") ||
+      code.includes("tir.Schedule") ||
+      code.includes("BlockedLayout") ||
+      errorMsg.includes("name 'nn' is not defined") ||
+      errorMsg.includes("name 'tir' is not defined") ||
+      errorMsg.includes("name 'gl' is not defined")
+    ) {
+      handleStderr(
+        `[框架配置与架构片段提示]\n本段代码属于特定深度学习框架 (PyTorch/TVM/Triton) 的声明或配置伪代码，依赖宿主机专用深度学习环境。\n提示: 浏览器已内置纯本地 Python 3.12 虚拟机，可在上方点击「✏️ 编辑代码」编写标准库代码进行本地运算！\n`
+      );
+    } else {
+      handleStderr(errorMsg + "\n");
+    }
+
     options.onStatusChange?.("error", `执行出错 (${durationMs}ms)`);
 
     return {
