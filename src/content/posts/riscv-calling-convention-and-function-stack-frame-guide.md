@@ -646,7 +646,6 @@ aabb(3,4) = 25
 
 ```cpp
 #include <cstdint>
-#include <cstdio>
 
 // 1. 静态全局配置 -> 编译器通过 gp (x3) + 偏移量快速寻址访问
 int32_t g_device_id = 0;
@@ -695,8 +694,7 @@ int64_t middle_dispatcher(int64_t base_val) {
 // 【第 1 层：顶层调用者】
 int main() {
     int64_t total = middle_dispatcher(42);
-    std::printf("middle_dispatcher(42) 返回汇总值 = %lld\n", (long long)total);
-    return 0;
+    return total == 0 ? 0 : 1;
 }
 ```
 

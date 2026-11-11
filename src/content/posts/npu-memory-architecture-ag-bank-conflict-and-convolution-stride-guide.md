@@ -368,24 +368,6 @@ nn.Conv2d(in_channels=3, out_channels=32, kernel_size=3)
 
 此时的特征图形状变成了：$H=2,\ W=4,\ C=32$。空间位置 $(h=0, w=1)$ 处包含整整 32 个高维抽象特征值（$C_0 \sim C_{31}$）。
 
-读者可点击下方代码右上角，直接在浏览器端运行以下纯 Python 代码，观察多通道特征在 Bank 中的连续映射分布：
-
-```python file="conv_bank_stride_sim.py"
-# 💡 浏览器端纯本地算力运行：模拟多通道特征在 16-Bank 内存中的并行排布
-banks = 16
-channels = 32
-spatial_points = 4  # 模拟 4 个空间位置点 (h, w)
-
-print(f"=== 模拟 {channels} 通道特征在 {banks}-Bank 内存中的映射排布 ===")
-for point in range(spatial_points):
-    # 模拟 NHWC 连续排布时的 Bank 索引分布
-    hit_banks = [(point * channels + c) % banks for c in range(channels)]
-    unique_banks = len(set(hit_banks))
-    print(f"空间位置点 P{point}: 访问 32 通道数据 -> 均匀覆盖不同 Bank 数: {unique_banks}/{banks} (全负载并发)")
-
-print("\n结论: 在 NHWC 格式下连续并发抓取通道向量，刚好能打满所有物理 Bank，避免单 Bank 冲突堵塞！")
-```
-
 ```graphviz
 digraph TensorDim {
     rankdir=LR;
