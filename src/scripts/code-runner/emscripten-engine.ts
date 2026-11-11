@@ -67,16 +67,38 @@ function executeClientSideCpp(
 ): boolean {
   // Transpile standard C/C++ printing and loops to client-side execution sandbox
   let cleanCode = code
-    // Remove compiler directives
+    // Remove compiler directives, macros and includes
     .replace(/#include\s*<[^>]+>/g, "")
     .replace(/#include\s*"[^"]+"/g, "")
+    .replace(/#define\s+[^\n]+/g, "")
+    .replace(/#pragma\s+[^\n]+/g, "")
+    .replace(/#ifdef\s+[^\n]+/g, "")
+    .replace(/#ifndef\s+[^\n]+/g, "")
+    .replace(/#endif/g, "")
     .replace(/using\s+namespace\s+std\s*;/g, "")
+    .replace(/using\s+[a-zA-Z0-9_:]+\s*=\s*[^;]+;/g, "")
+    .replace(/typedef\s+[^;]+;/g, "")
     .replace(/extern\s*"C"\s*\{?/g, "")
     .replace(/std::/g, "");
 
-  // Remove float literal suffixes: e.g. 10.f -> 10.0, 10.0f -> 10.0, 1e-6f -> 1e-6, 5f -> 5
+  // Strip CUDA / accelerator attributes
+  cleanCode = cleanCode.replace(/__(?:shared|global|device|host)__\s+/g, "");
+
+  // Strip function and storage specifiers that trigger JS strict mode / syntax errors
+  cleanCode = cleanCode.replace(/\b(?:static|inline|volatile|register|extern|explicit|virtual|override|noexcept|thread_local|mutable)\b/g, "");
+
+  // Strip access labels in classes/structs (public:, private:, protected:)
+  cleanCode = cleanCode.replace(/\b(?:public|private|protected)\s*:/g, "");
+
+  // Strip C++ style casts: static_cast<type>(expr) -> (expr)
+  cleanCode = cleanCode.replace(/\b(?:static_cast|reinterpret_cast|const_cast|dynamic_cast)<[^>]+>\s*\(([^)]+)\)/g, "($1)");
+
+  // Strip C-style scalar casts: (float)x -> x, (float)(K * K) -> (K * K)
+  cleanCode = cleanCode.replace(/\((?:float|double|int|long|char|size_t|u?int(?:8|16|32|64)_t|u?intptr_t)\)\s*(\([^)]+\)|[a-zA-Z0-9_]+)/g, "$1");
+
+  // Remove float literal suffixes: e.g. 10.f -> 10.0, 10.0f -> 10.0, 1e-6f -> 1e-6, -1e9f -> -1e9, 5f -> 5
   cleanCode = cleanCode.replace(/(?<=\b\d+)\.f\b/gi, ".0");
-  cleanCode = cleanCode.replace(/(?<=\b\d+(?:\.\d*)?|\.\d+)f\b/gi, "");
+  cleanCode = cleanCode.replace(/(?<=\b\d+(?:\.\d*)?(?:e[+-]?\d+)?|\.\d+(?:e[+-]?\d+)?)f\b/gi, "");
 
   // Transform C++ helper function definitions (excluding main):
   // void foo(...) { ... } -> function foo(...) { ... }
@@ -160,12 +182,12 @@ function executeClientSideCpp(
 
   const transformBlock = (src: string): string => {
     return src
-      // 1. Const/constexpr declarations FIRST to avoid "const let" conflict in strict mode
-      .replace(/\b(?:const|constexpr)\s+(?:int|float|double|char|long|size_t|uint32_t|int32_t|bool)\s+/g, "const ")
+      // 1. Const/constexpr declarations FIRST to avoid "const let" conflict
+      .replace(/\b(?:const|constexpr)\s+(?:int|float|double|char|long|size_t|u?int(?:8|16|32|64)_t|u?intptr_t|bool)\s+/g, "const ")
       .replace(/\bconstexpr\s+/g, "const ")
       .replace(/\bconst\s+(?:auto|vector<[^>]+>)\s+/g, "const ")
       // 2. Mutable types -> let
-      .replace(/\b(?:int|float|double|char|long|size_t|uint32_t|int32_t|bool)\s+/g, "let ")
+      .replace(/\b(?:int|float|double|char|long|size_t|u?int(?:8|16|32|64)_t|u?intptr_t|bool)\s+/g, "let ")
       .replace(/\bauto\s+/g, "let ")
       .replace(/\bvector<[^>]+>\s+/g, "let ")
       // 3. 2D Array declarations with initializers: const A[R][C] = { { ... }, { ... } };
@@ -184,8 +206,13 @@ function executeClientSideCpp(
         "let $1 = Array.from({length: $2}, () => new Array($3).fill(0));"
       )
       // 5. 1D Array declarations with initializers: const arr[] = { ... } => const arr = [ ... ]
-      .replace(/(let|const)\s+([a-zA-Z0-9_]+)\s*\[\s*[^\]]*\s*\]\s*=\s*\{([\s\S]*?)\};/g, (_, kw, name, init) => {
+      // Or float arr[N] = {0.0} => let arr = new Array(N).fill(0.0);
+      .replace(/(let|const)\s+([a-zA-Z0-9_]+)\s*\[\s*([^\]]*)\s*\]\s*=\s*\{([\s\S]*?)\};/g, (_, kw, name, dim, init) => {
         let cleanInit = init.replace(/\/\/[^\n]*/g, "").trim();
+        let trimmedDim = dim.trim();
+        if (trimmedDim && !cleanInit.includes(",")) {
+          return `${kw} ${name} = new Array(${trimmedDim}).fill(${cleanInit});`;
+        }
         return `${kw} ${name} = [${cleanInit}];`;
       })
       // 6. 1D uninitialized arrays: float arr[N]; => let arr = new Array(N).fill(0);
@@ -234,6 +261,7 @@ function executeClientSideCpp(
   const sin = Math.sin;
   const cos = Math.cos;
   const tan = Math.tan;
+  const tanh = Math.tanh;
   const log = Math.log;
 
   try {
@@ -256,9 +284,10 @@ function executeClientSideCpp(
       "sin",
       "cos",
       "tan",
+      "tanh",
       "log",
       "wasmModule",
-      `"use strict";\n${executableJs}\ncout.flush();`
+      `${executableJs}\ncout.flush();`
     );
 
     const wasmModule = getClientWasmModule();
@@ -281,12 +310,17 @@ function executeClientSideCpp(
       sin,
       cos,
       tan,
+      tanh,
       log,
       wasmModule
     );
     return true;
   } catch (err: any) {
-    onStderr(`[浏览器本地解释执行提示] ${err.message || String(err)}\n`);
+    if (/asm\s*volatile|template\s*<|struct\s+[A-Z]|class\s+[A-Z]|coroutine|__riscv_/.test(code)) {
+      onStderr(`[浏览器本地环境提示] 该代码片段属于底层系统/硬件级演示代码（如内联汇编、C++20 协程或硬件寄存器交互）。建议使用原生 GCC/Clang 工具链编译运行；数学算子与算法类原生 C++ 可在浏览器中直接一键交互执行。\n`);
+    } else {
+      onStderr(`[浏览器本地解释执行提示] ${err.message || String(err)}\n`);
+    }
     return false;
   }
 }

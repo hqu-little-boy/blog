@@ -215,6 +215,49 @@ if __name__ == "__main__":
     print(f"手算验证: 期望 0.8990 -> 实际代码更新结果: {weights[0]:.4f}")
 ```
 
+### 4.4 原生 C++ 逐行注释实现 (AdamW 参数更新)
+```cpp
+#include <iostream>
+#include <cmath>
+#include <iomanip>
+
+int main() {
+    // 待优化权重与超参数
+    float param = 1.0f;
+    const float grad = 0.5f;
+
+    const float lr = 0.1f;
+    const float beta1 = 0.9f;
+    const float beta2 = 0.99f;
+    const float wd = 0.01f;
+    const float eps = 1e-8f;
+
+    float m = 0.0f; // 一阶动量
+    float v = 0.0f; // 二阶动量
+    const int t = 1; // 第 1 步更新
+
+    // 1. 更新一阶和二阶动量
+    m = beta1 * m + (1.0f - beta1) * grad;
+    v = beta2 * v + (1.0f - beta2) * (grad * grad);
+
+    // 2. 偏差校正
+    float m_hat = m / (1.0f - std::pow(beta1, (float)t));
+    float v_hat = v / (1.0f - std::pow(beta2, (float)t));
+
+    // 3. 解耦权重衰减 (Decoupled Weight Decay)
+    param -= lr * wd * param;
+
+    // 4. 自适应梯度步进更新
+    param -= (lr * m_hat) / (std::sqrt(v_hat) + eps);
+
+    std::cout << "=== 原生 C++ AdamW 单步参数更新验证 ===" << std::endl;
+    std::cout << "初始权重: 1.0000 | 梯度: " << grad << std::endl;
+    std::cout << "理论手算推导值: 0.8990" << std::endl;
+    std::cout << "C++ 实测更新结果: " << std::fixed << std::setprecision(4) << param << std::endl;
+    return 0;
+}
+```
+
 ---
 
 ## 总结与初学者避坑指南

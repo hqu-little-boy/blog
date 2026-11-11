@@ -137,6 +137,80 @@ if __name__ == "__main__":
         print(" ", [round(v, 2) for v in row])
 ```
 
+### 1.3 原生 C++ 逐行注释实现
+```cpp
+#include <iostream>
+#include <cmath>
+#include <iomanip>
+
+int main() {
+    constexpr int S = 2; // 序列长度
+    constexpr int D = 2; // 特征维度
+
+    const float Q[S][D] = {{1.0f, 0.0f}, {0.0f, 1.0f}};
+    const float K[S][D] = {{1.0f, 0.0f}, {0.0f, 1.0f}};
+    const float V[S][D] = {{10.0f, 20.0f}, {30.0f, 40.0f}};
+
+    const float scale = 1.0f / std::sqrt(2.0f);
+    float scores[S][S];
+
+    // 1. QK^T 点积并乘以缩放因子
+    for (int i = 0; i < S; ++i) {
+        for (int j = 0; j < S; ++j) {
+            float dot = 0.0f;
+            for (int d = 0; d < D; ++d) {
+                dot += Q[i][d] * K[j][d];
+            }
+            // 因果掩码：不能看未来 (j > i)
+            if (j > i) {
+                scores[i][j] = -1e9f;
+            } else {
+                scores[i][j] = dot * scale;
+            }
+        }
+    }
+
+    // 2. Safe-Softmax
+    float weights[S][S];
+    for (int i = 0; i < S; ++i) {
+        float max_val = scores[i][0];
+        for (int j = 1; j < S; ++j) {
+            if (scores[i][j] > max_val) max_val = scores[i][j];
+        }
+        float sum_exp = 0.0f;
+        for (int j = 0; j < S; ++j) {
+            weights[i][j] = std::exp(scores[i][j] - max_val);
+            sum_exp += weights[i][j];
+        }
+        for (int j = 0; j < S; ++j) {
+            weights[i][j] /= sum_exp;
+        }
+    }
+
+    // 3. 加权求和 Weights * V
+    float output[S][D] = {0.0f};
+    for (int i = 0; i < S; ++i) {
+        for (int d = 0; d < D; ++d) {
+            float sum = 0.0f;
+            for (int j = 0; j < S; ++j) {
+                sum += weights[i][j] * V[j][d];
+            }
+            output[i][d] = sum;
+        }
+    }
+
+    std::cout << "=== 原生 C++ SDPA 自注意力验证 ===" << std::endl;
+    for (int i = 0; i < S; ++i) {
+        std::cout << "Token " << i << ": [";
+        for (int d = 0; d < D; ++d) {
+            std::cout << std::fixed << std::setprecision(2) << output[i][d] << (d + 1 < D ? ", " : "");
+        }
+        std::cout << "]" << std::endl;
+    }
+    return 0;
+}
+```
+
 ---
 
 ## 2. MHA vs MQA vs GQA (服务员与厨师的比喻)

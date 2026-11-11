@@ -173,6 +173,46 @@ if __name__ == "__main__":
     print("RoPE pos=1 旋转结果:", [round(x, 4) for x in naive_rope_2d(v, pos=1)])
 ```
 
+### 2.5 原生 C++ 逐行注释实现
+```cpp
+#include <iostream>
+#include <cmath>
+#include <iomanip>
+
+int main() {
+    // 4 维特征向量 (视为两个独立的二维平面复数子空间)
+    const float x[] = {1.0f, 0.0f, 0.5f, 0.5f};
+    const int D = 4;
+    const int pos = 1; // 处于序列位置 1
+    const float base = 10000.0f;
+
+    float rotated[D];
+
+    std::cout << "=== 原生 C++ RoPE 旋转位置编码验证 ===" << std::endl;
+    for (int i = 0; i < D; i += 2) {
+        float theta = 1.0f / std::pow(base, (float)i / (float)D);
+        float m_theta = pos * theta;
+        float cos_val = std::cos(m_theta);
+        float sin_val = std::sin(m_theta);
+
+        float x0 = x[i];
+        float x1 = x[i + 1];
+
+        // 二维平面旋转公式
+        rotated[i]     = x0 * cos_val - x1 * sin_val;
+        rotated[i + 1] = x0 * sin_val + x1 * cos_val;
+    }
+
+    std::cout << "原向量: [1.0, 0.0, 0.5, 0.5]" << std::endl;
+    std::cout << "位置 " << pos << " 旋转后: [";
+    for (int i = 0; i < D; ++i) {
+        std::cout << std::fixed << std::setprecision(4) << rotated[i] << (i + 1 < D ? ", " : "");
+    }
+    std::cout << "]" << std::endl;
+    return 0;
+}
+```
+
 ---
 
 ## 3. ALiBi (线性偏置注意力：零样本长文本外推王者)

@@ -177,6 +177,53 @@ if __name__ == "__main__":
     print("  Rank 1 最终收到的专属包裹:", r1_box)
 ```
 
+### 4.3 原生 C++ 逐行注释实现 (INT8 对称量化与反量化)
+```cpp
+#include <iostream>
+#include <cmath>
+#include <iomanip>
+
+int main() {
+    // 待量化的 FP32 原始浮点权重
+    const float raw_weights[] = {-3.8f, -0.5f, 0.0f, 1.2f, 4.0f};
+    constexpr int N = 5;
+
+    // 1. 寻找绝对值最大值 (用于对称量化)
+    float max_abs = 0.0f;
+    for (int i = 0; i < N; ++i) {
+        float a = std::abs(raw_weights[i]);
+        if (a > max_abs) max_abs = a;
+    }
+
+    // 2. 计算缩放因子 Scale (映射到 INT8 范围 [-127, 127])
+    const float scale = max_abs / 127.0f;
+
+    // 3. 量化 Quantize: q = round(x / scale) 并做 clamp 截断
+    int q_int8[N];
+    for (int i = 0; i < N; ++i) {
+        int q = std::round(raw_weights[i] / scale);
+        if (q > 127) q = 127;
+        if (q < -127) q = -127;
+        q_int8[i] = q;
+    }
+
+    // 4. 反量化 Dequantize: x_approx = q * scale
+    float dequant[N];
+    for (int i = 0; i < N; ++i) {
+        dequant[i] = (float)q_int8[i] * scale;
+    }
+
+    std::cout << "=== 原生 C++ INT8 对称量化与反量化推演 ===" << std::endl;
+    std::cout << "量化 Scale: " << std::fixed << std::setprecision(6) << scale << std::endl;
+    for (int i = 0; i < N; ++i) {
+        std::cout << "原始 FP32: " << std::fixed << std::setprecision(2) << raw_weights[i]
+                  << " -> 量化 INT8: " << q_int8[i]
+                  << " -> 反量化恢复: " << dequant[i] << std::endl;
+    }
+    return 0;
+}
+```
+
 ---
 
 ## 全书大圆满：58 算子知识图谱终极回响

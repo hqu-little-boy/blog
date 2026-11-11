@@ -166,6 +166,55 @@ if __name__ == "__main__":
         print(f"Step {step} | LSTM 输出 h={h_lstm:.4f}, C={c_lstm:.4f} | GRU 输出 h={h_gru:.4f}")
 ```
 
+### 2.3 原生 C++ 逐行注释实现 (LSTM 与 GRU 单步推演)
+```cpp
+#include <iostream>
+#include <cmath>
+#include <iomanip>
+
+float sigmoid_fn(float x) {
+    return 1.0f / (1.0f + std::exp(-x));
+}
+
+int main() {
+    // 模拟时序信号输入
+    const float inputs[] = {1.0f, -0.5f, 2.0f};
+    constexpr int T = 3;
+
+    // LSTM 内部状态
+    float h_lstm = 0.0f;
+    float c_lstm = 0.0f;
+
+    // GRU 内部状态
+    float h_gru = 0.0f;
+
+    std::cout << "=== 原生 C++ LSTM 与 GRU 时序单步推演 ===" << std::endl;
+    for (int t = 0; t < T; ++t) {
+        float x = inputs[t];
+
+        // --- LSTM 前向更新 ---
+        float f = sigmoid_fn(0.5f * x + 0.1f * h_lstm);       // 遗忘门
+        float i = sigmoid_fn(0.6f * x + 0.2f * h_lstm);       // 输入门
+        float c_cand = std::tanh(0.8f * x + 0.3f * h_lstm);   // 候选记忆
+        c_lstm = f * c_lstm + i * c_cand;                     // 加法传送带更新
+        float o = sigmoid_fn(0.7f * x + 0.1f * h_lstm);       // 输出门
+        h_lstm = o * std::tanh(c_lstm);
+
+        // --- GRU 前向更新 ---
+        float r = sigmoid_fn(0.5f * x + 0.2f * h_gru);        // 重置门
+        float h_cand = std::tanh(0.8f * x + 0.3f * (r * h_gru));
+        float z = sigmoid_fn(0.6f * x + 0.1f * h_gru);        // 互补更新门
+        h_gru = (1.0f - z) * h_gru + z * h_cand;              // 凸组合插值
+
+        std::cout << "Step " << t << " (x=" << x << ") | "
+                  << "LSTM h=" << std::fixed << std::setprecision(4) << h_lstm 
+                  << ", C=" << c_lstm << " | "
+                  << "GRU h=" << h_gru << std::endl;
+    }
+    return 0;
+}
+```
+
 ---
 
 ## 总结与初学者避坑指南

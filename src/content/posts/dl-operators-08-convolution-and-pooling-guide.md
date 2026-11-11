@@ -232,6 +232,69 @@ if __name__ == "__main__":
     print("AvgPool 平均池化 (2x2):", naive_pool2d(grid, mode="avg"))
 ```
 
+### 5.3 原生 C++ 逐行注释实现 (MaxPool 与 AvgPool)
+```cpp
+#include <iostream>
+#include <iomanip>
+
+int main() {
+    // 4x4 输入特征图
+    const float input[4][4] = {
+        {10.0f, 2.0f, 4.0f, 6.0f},
+        {4.0f,  8.0f, 1.0f, 3.0f},
+        {5.0f,  3.0f, 9.0f, 7.0f},
+        {2.0f,  6.0f, 8.0f, 4.0f}
+    };
+    constexpr int H = 4;
+    constexpr int W = 4;
+    constexpr int K = 2; // 池化核大小 2x2, 步长 2
+    constexpr int out_h = H / K;
+    constexpr int out_w = W / K;
+
+    float max_out[out_h][out_w];
+    float avg_out[out_h][out_w];
+
+    for (int oh = 0; oh < out_h; ++oh) {
+        for (int ow = 0; ow < out_w; ++ow) {
+            int r_start = oh * K;
+            int c_start = ow * K;
+
+            float max_val = input[r_start][c_start];
+            float sum_val = 0.0f;
+
+            for (int r = 0; r < K; ++r) {
+                for (int c = 0; c < K; ++c) {
+                    float val = input[r_start + r][c_start + c];
+                    if (val > max_val) max_val = val;
+                    sum_val += val;
+                }
+            }
+            max_out[oh][ow] = max_val;
+            avg_out[oh][ow] = sum_val / (float)(K * K);
+        }
+    }
+
+    std::cout << "=== 原生 C++ 2D MaxPool (2x2) 输出 ===" << std::endl;
+    for (int r = 0; r < out_h; ++r) {
+        std::cout << "[";
+        for (int c = 0; c < out_w; ++c) {
+            std::cout << max_out[r][c] << (c + 1 < out_w ? ", " : "");
+        }
+        std::cout << "]" << std::endl;
+    }
+
+    std::cout << "=== 原生 C++ 2D AvgPool (2x2) 输出 ===" << std::endl;
+    for (int r = 0; r < out_h; ++r) {
+        std::cout << "[";
+        for (int c = 0; c < out_w; ++c) {
+            std::cout << std::fixed << std::setprecision(2) << avg_out[r][c] << (c + 1 < out_w ? ", " : "");
+        }
+        std::cout << "]" << std::endl;
+    }
+    return 0;
+}
+```
+
 ---
 
 ## 总结与初学者避坑指南

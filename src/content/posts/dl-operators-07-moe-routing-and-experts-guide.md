@@ -138,6 +138,72 @@ if __name__ == "__main__":
         print(f"  分配给专家 #{exp_id} -> 权重系数: {w:.4f}")
 ```
 
+### 1.4 原生 C++ 逐行注释实现
+```cpp
+#include <iostream>
+#include <cmath>
+#include <iomanip>
+
+int main() {
+    const int D = 3; // 特征维度
+    const int E = 4; // 专家数量
+    const int K = 2; // 选择 Top-2 专家
+
+    const float token[D] = {1.0f, 0.5f, -1.0f};
+    const float W[D][E] = {
+        {0.2f, 1.0f, -0.5f, 2.0f},
+        {0.1f, 0.5f,  0.3f, 0.4f},
+        {0.0f, 0.2f,  0.1f, 0.1f}
+    };
+
+    // 1. 矩阵乘法计算各专家 Logits
+    float logits[E] = {0.0f};
+    for (int e = 0; e < E; ++e) {
+        float sum = 0.0f;
+        for (int d = 0; d < D; ++d) {
+            sum += token[d] * W[d][e];
+        }
+        logits[e] = sum;
+    }
+
+    // 2. 简易 Top-K 提取 (贪心选择)
+    int selected_ids[K];
+    float selected_scores[K];
+    bool used[E] = {false};
+
+    for (int k = 0; k < K; ++k) {
+        float best_score = -1e9f;
+        int best_idx = -1;
+        for (int e = 0; e < E; ++e) {
+            if (!used[e] && logits[e] > best_score) {
+                best_score = logits[e];
+                best_idx = e;
+            }
+        }
+        used[best_idx] = true;
+        selected_ids[k] = best_idx;
+        selected_scores[k] = best_score;
+    }
+
+    // 3. Safe-Softmax 重新归一化 Top-K
+    float max_s = selected_scores[0];
+    float sum_exp = 0.0f;
+    float exp_vals[K];
+    for (int k = 0; k < K; ++k) {
+        exp_vals[k] = std::exp(selected_scores[k] - max_s);
+        sum_exp += exp_vals[k];
+    }
+
+    std::cout << "=== 原生 C++ MoE 专家门控路由验证 ===" << std::endl;
+    for (int k = 0; k < K; ++k) {
+        float weight = exp_vals[k] / sum_exp;
+        std::cout << "派发给专家 #" << selected_ids[k] << " -> 贡献权重: " 
+                  << std::fixed << std::setprecision(4) << weight << std::endl;
+    }
+    return 0;
+}
+```
+
 ---
 
 ## 2. Token Permute 与 Token Unpermute (数据重排与逆向回收)

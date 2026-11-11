@@ -187,6 +187,87 @@ if __name__ == "__main__":
     print(f"经过完整温度与 Top-P 采样选中的下一个 Token ID: {chosen_id}")
 ```
 
+### 2.4 原生 C++ 逐行注释实现 (温度缩放与 Top-P 核采样流水线)
+```cpp
+#include <iostream>
+#include <cmath>
+#include <iomanip>
+
+int main() {
+    // 词表未归一化得分 (Logits)
+    const float logits[] = {3.5f, 2.1f, 0.5f, -1.0f, -3.0f};
+    constexpr int V = 5;
+
+    const float temperature = 0.7f;
+    const float top_p = 0.9f;
+    const float pseudo_rand = 0.5f; // 模拟掷骰子的随机数
+
+    // 1. 温度缩放 (Logits / T) 与 Safe-Softmax
+    float scaled[V];
+    float max_s = logits[0] / temperature;
+    for (int i = 1; i < V; ++i) {
+        float s = logits[i] / temperature;
+        if (s > max_s) max_s = s;
+    }
+
+    float probs[V];
+    float sum_exp = 0.0f;
+    for (int i = 0; i < V; ++i) {
+        probs[i] = std::exp(logits[i] / temperature - max_s);
+        sum_exp += probs[i];
+    }
+    for (int i = 0; i < V; ++i) {
+        probs[i] /= sum_exp;
+    }
+
+    // 2. 简易降序排序 (选择排序)
+    int order[V];
+    for (int i = 0; i < V; ++i) order[i] = i;
+
+    for (int i = 0; i < V - 1; ++i) {
+        for (int j = i + 1; j < V; ++j) {
+            if (probs[order[j]] > probs[order[i]]) {
+                int tmp = order[i];
+                order[i] = order[j];
+                order[j] = tmp;
+            }
+        }
+    }
+
+    // 3. Top-P (Nucleus) 累积截断
+    float cum_p = 0.0f;
+    int nucleus_count = 0;
+    for (int i = 0; i < V; ++i) {
+        int idx = order[i];
+        cum_p += probs[idx];
+        nucleus_count++;
+        if (cum_p >= top_p) break;
+    }
+
+    // 4. 重新归一化并在核词池中轮盘赌抽样
+    int chosen_id = order[0];
+    float acc = 0.0f;
+    for (int i = 0; i < nucleus_count; ++i) {
+        int idx = order[i];
+        float renorm_p = probs[idx] / cum_p;
+        acc += renorm_p;
+        if (pseudo_rand <= acc) {
+            chosen_id = idx;
+            break;
+        }
+    }
+
+    std::cout << "=== 原生 C++ 温度缩放 + Top-P 核采样验证 ===" << std::endl;
+    std::cout << "温度 T=" << temperature << " 缩放后概率分布:" << std::endl;
+    for (int i = 0; i < V; ++i) {
+        std::cout << "  Token " << i << ": " << std::fixed << std::setprecision(4) << probs[i] << std::endl;
+    }
+    std::cout << "Top-P (阈值 " << top_p << ") 纳入候选词数: " << nucleus_count << std::endl;
+    std::cout << "轮盘赌随机投掷选中的 Token ID: " << chosen_id << std::endl;
+    return 0;
+}
+```
+
 ---
 
 ## 总结与初学者避坑指南
