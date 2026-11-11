@@ -13,368 +13,226 @@ tags:
   - 大模型
   - C++
   - Python
-description: 深度学习与现代超大模型底层算子逐算子全景教程第七讲。解构千亿/万亿稀疏大模型（Mixtral、DeepSeek-V2/V3、Grok）实现“百倍参数容量、单卡推理算力”的核心奥秘——混合专家（MoE）体系。深度剖析 Top-K 极值选择、门控路由器（Router/Gating）、负载均衡与专家坍缩灾难，以及底层的物理数据重排流：Token Permute 分发打包与 Token Unpermute 加权还原回收。配有高对比度拓扑图与浏览器可直接执行的原生 Python 与 C++ 朴素代码。
+description: 深度学习与大模型底层算子逐算子全景教程第七讲。专为初学者打造的千亿稀疏大模型（Mixtral / DeepSeek-V2/V3 / Grok）底层架构指南。从第一性原理“医院分诊台与全科专家”通俗比喻出发，深度剖析为什么 MoE 能以几十亿参数的推理算力撬动数千亿参数的知识宝库。手把手推导 Top-K 极值筛选、门控打分与 Softmax 重归一化、专家坍缩与负载均衡辅助损失；透视 GPU 最渴望的连续数据重排机理：Token Permute 打包分发与 Token Unpermute 加权还原回收。配有全套高对比度数据流图与浏览器可直接运行的纯原生 Python 与 C++ 朴素代码。
 ---
 
-> **导读**：在传统的稠密模型（Dense Model）中，每当模型接收一个 Token 输入，网络中**100% 的神经元与参数都必须被激活计算一次**。这意味着模型的参数量越大，推理的计算成本与延迟就呈线性直线上升。
+> **致初学者**：在过去，深度学习模型几乎都是**稠密模型（Dense Model）**：
+> 一个 70B（700 亿）参数的模型，每一个输入进来的词，都要把这 700 亿个参数全盘运算一遍，计算极其昂贵、速度极慢。
 >
-> 怎么才能既拥有几千亿参数的宏大知识库，又保持几十亿参数模型的极快推理速度？
+> 后来，以 **Mixtral 8x7B、DeepSeek-V2/V3、Grok** 为代表的 **MoE（Mixture of Experts，混合专家模型）** 横空出世：
+> 它们的总参数量高达几千亿，但跑起来的速度却跟一个十几亿的小模型一样飞快！
 >
-> **混合专家架构（Mixture of Experts, MoE）** 交出了完美的答卷：
-> 它将庞大的前馈网络（FFN）拆分成数十个甚至数百个小巧的“专家网络（Experts）”。每当一个 Token 到来时，一个精巧的**门控路由器（Router）** 只会挑选与当前词最匹配的少数几个专家（例如 64 个专家中仅激活 2 个）进行针对性计算。
+> 为什么能做到这么神奇？
+> 很多初学者翻开 MoE 代码，被里面的 `TopK`、`Router Gating`、`Token Permute`、`Token Unpermute` 搞得一头雾水。
 >
-> 然而，这种“按需激活”在底层引发了极具挑战的工程难题：**动态数据分发与重排（Token Permute / Unpermute）** 以及**专家负载不均导致的硬件拥堵**。
->
-> 本篇作为系列第七讲，将带你彻底拆解 MoE 底层的三大核心算子。
+> 本篇作为系列第七讲，将用**医院分诊台与专科医生的通俗比喻，配合手工具体数字推演**，带你 10 分钟彻底搞懂 MoE 底层的三大核心算子！
 
 ---
 
-## 零、初学者核心概念速查：稀疏激活、负载失衡与 Token 调度
+## 零、医院分诊台比喻：30 秒搞懂 MoE 核心逻辑
 
-> [!NOTE] 核心概念形象字典
->
-> - **稠密（Dense） vs 稀疏（Sparse）**：Dense 模型所有参数全员上阵；Sparse MoE 模型参数总量虽然极其庞大，但对每个样本只有极少数参数真正参与前向计算（激活参数量远小于总参数量）。
-> - **专家网络（Expert）**：通常是一个标准的 FFN（全连接前馈层）模块。不同的专家可以在海量数据训练中自发学到不同的专业特长（如数学推理、编程代码、诗歌写作、常识事实等）。
-> - **门控路由（Router / Gating Network）**：一个轻量级的线性分类器，根据 Token 的当前特征向量给所有专家打分，决定将这个 Token 派发给谁。
-> - **Top-K 稀疏选择**：从打分列表中挑选出分值最高的 $K$ 个专家（如 Top-2）。
-> - **专家坍缩与负载均衡（Expert Collapse & Load Balancing）**：如果路由器在初期发现某两个“明星专家”表现稍好，就会将所有 Token 都派给它们，导致这两个专家被累死（硬件显存溢出与排队延迟），而其余几十个专家变成无人问津的“僵尸专家”。因此必须引入辅助损失（Auxiliary Loss）强行平衡分配。
-> - **Token Permute（分发重排）**：因为送给同一专家的 Token 零散分布在不同的序列位置，底层必须将它们挑选出来、在内存中连续打包成一个批次，才能调用高效的 GEMM 矩阵乘法。
-> - **Token Unpermute（回收还原）**：各专家处理完毕后，根据之前的索引记录将结果逆向放回原时序位置，并按门控权重加权求和。
+想象一家拥有 64 位专科顶级医生的三甲大医院：
+- **传统的稠密模型（Dense）做法**：
+  每一个来看病的病人（输入的 Token），**必须强行把全院 64 位医生全部看一遍！**
+  每个医生都给病人开一遍检查、写一遍病历。这不仅把医院累瘫痪了，病人也排队排到吐血！
+- **现代的 MoE 混合专家做法**：
+  门口设一个**分诊台护士（MoE Router 门控路由器）**。
+  病人刚走到门口，护士扫一眼病人的特征（Token 向量），在挂号单上打分：
+  - 骨科得分 95 分，神经科得分 80 分，儿科 5 分，妇科 0 分……
+  - 护士挑选得分最高的两位医生（**Top-2 决策**）：请去找“骨科医生（专家 3）”和“神经科医生（专家 17）”！
+  - 其余 62 位医生该干嘛干嘛，不为这位病人消耗任何精力！
+- **为什么强大？**
+  整个医院拥有 64 个学科的浩瀚全科知识储备（模型参数总量巨大），但针对每一个具体问题，**只需要消耗 2 位医生的精力（推理算力极小）！**
 
 ```mermaid
 graph TD
-    subgraph Flow["MoE 稀疏激活全流程"]
-        Input["输入 Token 序列 [B*S, D]"]
-        Router["门控路由器: 打分并选出 Top-K"]
-        Permute["Token Permute: 重新打包分发至各专家"]
-        Experts["并发调用 Expert 0 ~ Expert E-1 (FFN 计算)"]
-        Unpermute["Token Unpermute: 加权求和并还原原始时序"]
-        Output["最终输出张量 [B*S, D]"]
+    subgraph Hospital["MoE 医院分诊协同系统"]
+        Patient["输入 Token 单词 (病人)"]
+        Nurse["分诊台护士 (Router Gating 路由器)"]
+        DoctorA["专家 3: 骨科医生 (激活 60%)"]
+        DoctorB["专家 17: 神经科医生 (激活 40%)"]
+        DoctorIdle["其余 62 位专家医生 (本次睡眠休眠，零算力开销!)"]
+        Combined["汇总诊断报告 (加权输出)"]
 
-        Input --> Router
-        Input --> Permute
-        Router --> Permute
-        Permute --> Experts
-        Experts --> Unpermute
-        Router -->|提供权重系数| Unpermute
-        Unpermute --> Output
+        Patient --> Nurse
+        Nurse -->|Top-2 选拔| DoctorA
+        Nurse -->|Top-2 选拔| DoctorB
+        Nurse -.->|未被唤醒| DoctorIdle
+        DoctorA --> Combined
+        DoctorB --> Combined
     end
 ```
 
 ---
 
-## 1. TopK (Top-K 选择算子)
+## 1. TopK 与 MoEGating / Router (门控路由打分算子)
 
-### 1.1 原理解析
-- **定义**：给定一个长度为 $E$ 的一维分值向量，输出前 $K$ 个最大数值及其对应的原始索引编号：
-  $$ \text{values}, \text{indices} = \text{TopK}(x, K) $$
-- **复杂度权衡**：
-  - **全排序（Sort）**：$O(E \log E)$，当 $E$ 较小时实现最简单；
-  - **最小堆（Min-Heap）**：维护一个大小为 $K$ 的小顶堆，$O(E \log K)$，适合 $K \ll E$ 的场景；
-  - **快速选择（QuickSelect）**：平均时间复杂度为线性 $O(E)$。
+### 1.1 手把手极小数字推演
+假设模型当前只有 4 个专家（编号 0、1、2、3），我们要选出最匹配的 **Top-2 个专家**。
+输入一个 Token 向量 $x$ 后，路由器线性打分输出 Logits 为：
+$$ \text{Logits} = [0.2, 1.8, 0.1, 2.4] $$
 
-### 1.2 原生 Python 实现
+1. **Step 1：执行 TopK 极值排序**：
+   - 最大的是第 3 号专家：得分 $2.4$；
+   - 第二大的是第 1 号专家：得分 $1.8$；
+   - 其余第 0、2 号专家被无情淘汰！
+2. **Step 2：对入选的 Top-2 分数重新做 Safe-Softmax 归一化**：
+   极大值 $M = 2.4$。
+   - 专家 3：$e^{2.4 - 2.4} = e^0 = 1.0$；
+   - 专家 1：$e^{1.8 - 2.4} = e^{-0.6} \approx 0.5488$；
+   - 指数总和：$\text{Sum} = 1.0 + 0.5488 = 1.5488$；
+   - 归一化权重：
+     - 专家 3 权重：$W_3 = 1.0 / 1.5488 \approx 0.6457$（即 64.57%）；
+     - 专家 1 权重：$W_1 = 0.5488 / 1.5488 \approx 0.3543$（即 35.43%）；
+3. **输出路由决策**：
+   把这个 Token 派送给专家 3 和专家 1，最终结果按 $0.6457 \times \text{Expert}_3 + 0.3543 \times \text{Expert}_1$ 加权求和！
+
+### 1.2 初学者必知的灾难：专家坍缩与负载均衡
+如果分诊护士在训练最初几天发现 1 号专家看病稍微准确一点点，之后的几乎所有病人都被送给了 1 号专家！
+- **灾难后果**：
+  1 号医生门前排起了几万人的长龙（那张 GPU 显存爆满、严重堵车延迟）；而其余 63 位医生闲得无聊看报纸，永远学不到新知识（学术界称为 **专家坍缩 Expert Collapse**）。
+- **解法：辅助平衡损失（Auxiliary Load Balancing Loss）**：
+  在总 Loss 中加一个惩罚项，强行要求护士派发的病人必须均匀分散到所有专家头上。
+
+### 1.3 原生 Python 逐行注释实现
 ```python
-def naive_topk(scores: list[float], k: int) -> tuple[list[float], list[int]]:
-    """朴素 Top-K 提取 (返回前 K 个最大值及原始索引)"""
-    # 携带原始索引组成元组列表
-    indexed_scores = [(val, idx) for idx, val in enumerate(scores)]
-    # 按分值从大到小排序
-    indexed_scores.sort(key=lambda x: x[0], reverse=True)
-    
-    topk_vals = [indexed_scores[i][0] for i in range(k)]
-    topk_idxs = [indexed_scores[i][1] for i in range(k)]
-    return topk_vals, topk_idxs
+import math
+
+def naive_moe_router(token_feat: list[float], W_router: list[list[float]], top_k: int = 2) -> list[tuple[int, float]]:
+    """纯 Python 原生 MoE 门控路由器"""
+    num_experts = len(W_router[0])
+    dim = len(token_feat)
+
+    # 1. 线性投影算出所有专家的初选得分 Logits
+    logits = [0.0] * num_experts
+    for e in range(num_experts):
+        logits[e] = sum(token_feat[d] * W_router[d][e] for d in range(dim))
+
+    # 2. 挑选出得分最高的 Top-K 专家
+    indexed_scores = sorted([(score, idx) for idx, score in enumerate(logits)], reverse=True)
+    top_candidates = indexed_scores[:top_k]
+
+    # 3. 对 Top-K 分数重新做 Safe-Softmax 归一化
+    max_val = top_candidates[0][0]
+    exp_vals = [math.exp(item[0] - max_val) for item in top_candidates]
+    sum_exp = sum(exp_vals)
+
+    routing_plan = []
+    for (score, expert_id), exp_v in zip(top_candidates, exp_vals):
+        weight = exp_v / sum_exp
+        routing_plan.append((expert_id, weight))
+
+    return routing_plan
 
 if __name__ == "__main__":
-    expert_scores = [0.12, 0.85, 0.05, 0.92, 0.43, 0.01]
-    vals, idxs = naive_topk(expert_scores, k=2)
-    print("Top-2 选中的专家索引:", idxs)
-    print("Top-2 对应的原始打分:", vals)
-```
-
-### 1.3 原生 C++ 实现
-```cpp
-#include <iostream>
-#include <vector>
-#include <algorithm>
-
-struct ScoreIndex {
-    float val;
-    int idx;
-};
-
-int main() {
-    constexpr int E = 6;
-    constexpr int K = 2;
-    const float scores[E] = {0.12f, 0.85f, 0.05f, 0.92f, 0.43f, 0.01f};
-
-    std::vector<ScoreIndex> list;
-    for (int i = 0; i < E; ++i) {
-        list.push_back({scores[i], i});
-    }
-
-    // 排序挑出 Top-K
-    std::sort(list.begin(), list.end(), [](const ScoreIndex& a, const ScoreIndex& b) {
-        return a.val > b.val;
-    });
-
-    std::cout << "=== 原生 C++ Top-K 选择结果 ===" << std::endl;
-    for (int i = 0; i < K; ++i) {
-        std::cout << "Rank " << i + 1 << " -> 专家 ID #" << list[i].idx 
-                  << " (Score = " << list[i].val << ")" << std::endl;
-    }
-    return 0;
-}
+    t_feat = [1.0, 0.5, -1.0]
+    # 模拟 3 维特征投影到 4 个专家
+    W_g = [
+        [0.2, 1.0, -0.5, 2.0],
+        [0.1, 0.5,  0.3, 0.4],
+        [0.0, 0.2,  0.1, 0.1]
+    ]
+    decisions = naive_moe_router(t_feat, W_g, top_k=2)
+    print("MoE 路由派发决策 (专家编号, 贡献权重):")
+    for exp_id, w in decisions:
+        print(f"  分配给专家 #{exp_id} -> 权重系数: {w:.4f}")
 ```
 
 ---
 
-## 2. MoEGating / Router (专家路由与门控)
+## 2. Token Permute 与 Token Unpermute (数据重排与逆向回收)
 
-### 2.1 原理解析：软路由打分与归一化
-- **前向计算三步曲**：
-  1. **线性投影计算 Logits**：每个 Token 向量 $x \in \mathbb{R}^D$ 乘以路由权重矩阵 $W_g \in \mathbb{R}^{D \times E}$，得到对所有 $E$ 个专家的初选分数：
-     $$ H(x) = x \cdot W_g $$
-  2. **Top-K 截断与过滤**：保留最高的 $K$ 个专家打分，其余非候选专家的分值直接置为 $-\infty$：
-     $$ \text{KeepTopK}(v, K)_i = \begin{cases} v_i, & \text{if } v_i \in \text{TopK}(v) \\ -\infty, & \text{otherwise} \end{cases} $$
-  3. **Softmax 重新归一化**：对选拔出的 $K$ 个分数重新做 Softmax，确保分配给这 $K$ 个专家的权重系数和恒为 1.0：
-     $$ G(x) = \text{Softmax}(\text{KeepTopK}(H(x), K)) $$
+### 2.1 为什么必须在物理内存中重排（Permute）？
+很多初学者以为：既然算出了路由，直接写个循环 `for tok in tokens: Expert(tok)` 不就行了？
+**硬件大忌！GPU 痛恨碎片化的“单样本跳跃调用”！**
+GPU 最擅长的是：一次性喂给它一个规整的二维大矩阵，让它的几千个 Tensor Core 一起做超大规模 GEMM。
+如果 100 个 Token 里面：
+- 有 20 个被分给了专家 0；
+- 有 30 个被分给了专家 1；
+底层必须做两件事：
+1. **Token Permute（重排打包）**：把分散在句子各处的这 20 个 Token 挑出来，在内存中整整齐齐紧挨着拼成一个 $[20, D]$ 的连续矩阵，一口气喂进专家 0 的神经网络！
+2. **Token Unpermute（还原回收）**：专家 0 算完后，根据之前记住的位置小账本，把结果准确放回原本的句子句号、逗号位置，并乘以刚才算好的门控权重。
 
 ```graphviz
-digraph MoERouter {
+digraph PermuteFlow {
     rankdir=LR;
     node [fontname="Helvetica,Arial,sans-serif", fontsize=11, shape=rect, style="rounded,filled", fillcolor="#f0f4f8", color="#b0c4de"];
     edge [fontname="Helvetica,Arial,sans-serif", fontsize=10, color="#555555"];
 
-    token [label="Token 向量 x [D=4]", fillcolor="#fff3e0", color="#ffb74d"];
-    logits [label="线性打分 x * W_g\n[0.2, 1.8, 0.1, 2.4]\n(4个候选专家)", fillcolor="#e0f2f1", color="#4db6ac"];
-    top2 [label="Top-2 截断与归一化\n专家 #3: 0.645\n专家 #1: 0.355\n(其余置 0)", fillcolor="#fce4ec", color="#f06292"];
+    subgraph cluster_seq {
+        label = "原时序: [T0去E1, T1去E0, T2去E1]"; style=dashed; color="#888888";
+        t0 [label="T0 (给E1)"]; t1 [label="T1 (给E0)"]; t2 [label="T2 (给E1)"];
+    }
 
-    token -> logits [label="矩阵乘法"];
-    logits -> top2 [label="TopK + Softmax"];
+    subgraph cluster_pack {
+        label = "Token Permute: 按专家打包连续张量"; style=solid; color="#006878";
+        p_e0 [label="E0 专属包: [T1]", fillcolor="#e0f2f1", color="#4db6ac"];
+        p_e1 [label="E1 专属包: [T0, T2]", fillcolor="#fff3e0", color="#ffb74d"];
+    }
+
+    subgraph cluster_back {
+        label = "Token Unpermute: 加权归位还原原时序"; style=solid; color="#2e7d32";
+        out [label="最终还原顺序: [Out_T0, Out_T1, Out_T2]", fillcolor="#fce4ec", color="#f06292"];
+    }
+
+    t1 -> p_e0; t0 -> p_e1; t2 -> p_e1;
+    p_e0 -> out [label="逆置换放回"];
+    p_e1 -> out [label="逆置换放回"];
 }
 ```
 
-### 2.2 原生 Python 实现
+### 2.2 原生 Python 逐行注释跑通全流程
 ```python
-import math
-
-def naive_moe_router(token_x: list[float], W_gate: list[list[float]], top_k: int = 2) -> list[tuple[int, float]]:
-    """原生 MoE Router: 输出 [(专家ID, 归一化权重), ...]"""
-    D = len(token_x)
-    num_experts = len(W_gate[0])
-    
-    # 1. 线性投影得到 Logits
-    logits = [0.0] * num_experts
-    for e in range(num_experts):
-        logits[e] = sum(token_x[d] * W_gate[d][e] for d in range(D))
-        
-    # 2. 挑选 Top-K 索引
-    indexed = sorted([(val, idx) for idx, val in enumerate(logits)], reverse=True)
-    selected_k = indexed[:top_k]
-    
-    # 3. 对 Top-K 重新做 Safe-Softmax 归一化
-    max_score = selected_k[0][0]
-    exp_scores = [math.exp(item[0] - max_score) for item in selected_k]
-    sum_exp = sum(exp_scores)
-    
-    routing_weights = []
-    for (orig_val, exp_id), e_val in zip(selected_k, exp_scores):
-        weight = e_val / sum_exp
-        routing_weights.append((exp_id, weight))
-        
-    return routing_weights
-
-if __name__ == "__main__":
-    t_feat = [1.0, 0.5, -1.0] # D=3
-    # 3x4 路由权重 (3个特征维度，4个专家)
-    W_g = [
-        [0.1, 0.8, -0.2, 1.2],
-        [0.4, 0.5,  0.3, 0.1],
-        [-0.5, 0.2, 0.9, -0.4]
-    ]
-    routes = naive_moe_router(t_feat, W_g, top_k=2)
-    print("MoE 路由分配结果 (专家编号, 组合权重):")
-    for exp_id, weight in routes:
-        print(f"  派发给专家 #{exp_id} -> 权重系数: {weight:.4f}")
-```
-
-### 2.3 原生 C++ 实现
-```cpp
-#include <iostream>
-#include <cmath>
-#include <vector>
-#include <algorithm>
-#include <iomanip>
-
-struct Route {
-    int expert_id;
-    float weight;
-};
-
-int main() {
-    constexpr int D = 3;
-    constexpr int E = 4;
-    constexpr int K = 2;
-
-    const float x[D] = {1.0f, 0.5f, -1.0f};
-    const float W_gate[D][E] = {
-        {0.1f, 0.8f, -0.2f, 1.2f},
-        {0.4f, 0.5f,  0.3f, 0.1f},
-        {-0.5f, 0.2f, 0.9f, -0.4f}
-    };
-
-    // 1. 线性打分
-    std::vector<std::pair<float, int>> logits;
-    for (int e = 0; e < E; ++e) {
-        float score = 0.0f;
-        for (int d = 0; d < D; ++d) score += x[d] * W_gate[d][e];
-        logits.push_back({score, e});
-    }
-
-    // 2. 选 Top-K
-    std::sort(logits.begin(), logits.end(), [](const auto& a, const auto& b) {
-        return a.first > b.first;
-    });
-
-    // 3. Softmax
-    float max_v = logits[0].first;
-    float sum_exp = 0.0f;
-    float exp_vals[K];
-    for (int i = 0; i < K; ++i) {
-        exp_vals[i] = std::exp(logits[i].first - max_v);
-        sum_exp += exp_vals[i];
-    }
-
-    std::cout << "=== 原生 C++ MoE 门控路由输出 ===" << std::endl;
-    for (int i = 0; i < K; ++i) {
-        float w = exp_vals[i] / sum_exp;
-        std::cout << "专家 #" << logits[i].second << " | 路由权重: " 
-                  << std::fixed << std::setprecision(4) << w << std::endl;
-    }
-    return 0;
-}
-```
-
----
-
-## 3. TokenPermute 与 TokenUnpermute (Token 分发与回收)
-
-### 3.1 原理解析：矩阵重排的艺术
-- **为什么必须 Permute？**
-  硬件加速芯片（GPU/NPU）无法高效处理离散的“单个 Token 跳跃调用”。如果 10 个 Token 中有 3 个分配给了专家 #1，硬件最渴望的是将这 3 个 Token 拼成一个 $[3, D]$ 的连续张量，一口气灌进专家 #1 的 GEMM 核心中！
-- **Permute 流程（分发）**：
-  根据路由决策，为每个 Token 复制其分配的目标任务，按照 `expert_id` 进行排序重排，生成连续的专家批次，并记录**逆置换索引（Reverse Indices）**。
-- **Unpermute 流程（回收）**：
-  各个专家并行完成前向推理后，根据保存的逆置换索引将结果搬回原来的时序槽位，并乘以各自的门控权重相加：
-  $$ y_t = \sum_{k \in \text{TopK}} g_{t, k} \cdot \text{Expert}_k(x_t) $$
-
-```mermaid
-graph TD
-    subgraph RawTokens["原始序列: [T0(去E1), T1(去E0), T2(去E1)]"]
-        T0["T0 -> Expert 1"]
-        T1["T1 -> Expert 0"]
-        T2["T2 -> Expert 1"]
-    end
-    subgraph Permuted["Token Permute 物理重排连续打包"]
-        PackE0["专家 0 输入包: [T1]"]
-        PackE1["专家 1 输入包: [T0, T2]"]
-    end
-    subgraph ExpertsEval["专家批量前向计算"]
-        EvalE0["Expert 0 (T1)"]
-        EvalE1["Expert 1 (T0, T2)"]
-    end
-    subgraph Unpermuted["Token Unpermute 按权重加权还原时序"]
-        Out["[Out_T0, Out_T1, Out_T2]"]
-    end
-
-    RawTokens --> Permute
-    Permuted --> ExpertsEval
-    ExpertsEval --> Unpermute
-```
-
-### 3.2 原生 Python 实现
-```python
-def naive_token_permute_unpermute():
-    """纯 Python 完整跑通 Token 分发、虚拟专家计算与逆向加权回收"""
-    # 模拟两个 Token 的输入特征 (D=2)
+def naive_moe_permute_unpermute():
+    """纯 Python 跑通从分发重排、专家批量计算到加权归位的全过程"""
+    # 原始序列: 3 个 Token (特征维度 2)
     tokens = [
         [1.0, 2.0], # Token 0
-        [3.0, 4.0]  # Token 1
+        [3.0, 4.0], # Token 1
+        [5.0, 6.0]  # Token 2
     ]
-    # 模拟路由分发结果: (token_id, expert_id, weight)
-    assignments = [
-        (0, 1, 0.7), # Token 0 去专家 1 (权重 0.7)
-        (0, 0, 0.3), # Token 0 去专家 0 (权重 0.3)
-        (1, 0, 1.0)  # Token 1 去专家 0 (权重 1.0)
-    ]
-    
-    # 1. Permute 分发打包至各专家桶中
+    # 模拟路由结果: (token_id, 目标专家, 权重)
+    # Token 0 -> 专家 1 (权重 1.0)
+    # Token 1 -> 专家 0 (权重 1.0)
+    # Token 2 -> 专家 1 (权重 1.0)
+    routing = [(0, 1, 1.0), (1, 0, 1.0), (2, 1, 1.0)]
+
+    # 步骤 1: Token Permute (分类入桶，打包成连续批次)
     expert_buckets = {0: [], 1: []}
-    for tok_id, exp_id, w in assignments:
-        expert_buckets[exp_id].append((tok_id, tokens[tok_id], w))
-        
-    # 2. 模拟专家 FFN 运算: Expert 0 翻倍, Expert 1 加 10
-    expert_results = []
+    for tok_idx, exp_id, weight in routing:
+        expert_buckets[exp_id].append((tok_idx, tokens[tok_idx], weight))
+
+    # 步骤 2: 专家批量计算 (专家 0 翻 2 倍，专家 1 加 10)
+    expert_outputs = []
     for exp_id in [0, 1]:
-        for tok_id, feat, w in expert_buckets[exp_id]:
+        for tok_idx, feat, weight in expert_buckets[exp_id]:
             if exp_id == 0:
                 out_feat = [v * 2.0 for v in feat]
             else:
                 out_feat = [v + 10.0 for v in feat]
-            expert_results.append((tok_id, out_feat, w))
-            
-    # 3. Unpermute 加权还原回收至原时序槽位
-    final_output = [[0.0, 0.0], [0.0, 0.0]]
-    for tok_id, out_feat, w in expert_results:
+            expert_outputs.append((tok_idx, out_feat, weight))
+
+    # 步骤 3: Token Unpermute (根据 tok_idx 放回原有时序槽位并加权累加)
+    final_output = [[0.0, 0.0] for _ in range(len(tokens))]
+    for tok_idx, out_feat, weight in expert_outputs:
         for d in range(2):
-            final_output[tok_id][d] += out_feat[d] * w
-            
+            final_output[tok_idx][d] += out_feat[d] * weight
+
     return final_output
 
 if __name__ == "__main__":
-    final_res = naive_token_permute_unpermute()
-    print("经过 Permute -> 专家计算 -> Unpermute 还原后的最终张量:")
-    print("  Token 0:", [round(v, 2) for v in final_res[0]])
-    print("  Token 1:", [round(v, 2) for v in final_res[1]])
-```
-
-### 3.3 原生 C++ 实现
-```cpp
-#include <iostream>
-#include <iomanip>
-
-int main() {
-    // 模拟两个 Token，经由两个专家计算并加权汇总
-    // Token 0: 30% 专家 0 (乘2), 70% 专家 1 (加10)
-    // 原始 Token 0 特征 = [1.0, 2.0]
-    float t0[2] = {1.0f, 2.0f};
-
-    float e0_out[2] = {t0[0] * 2.0f, t0[1] * 2.0f};        // [2.0, 4.0]
-    float e1_out[2] = {t0[0] + 10.0f, t0[1] + 10.0f};      // [11.0, 12.0]
-
-    float final_t0[2];
-    final_t0[0] = 0.3f * e0_out[0] + 0.7f * e1_out[0];
-    final_t0[1] = 0.3f * e0_out[1] + 0.7f * e1_out[1];
-
-    std::cout << "=== 原生 C++ Token Unpermute 加权汇总 ===" << std::endl;
-    std::cout << "Token 0 最终输出: [" 
-              << std::fixed << std::setprecision(2) 
-              << final_t0[0] << ", " << final_t0[1] << "]" << std::endl;
-    return 0;
-}
+    final_seq = naive_moe_permute_unpermute()
+    print("完整 MoE 流转还原后的最终序列:")
+    for idx, t in enumerate(final_seq):
+        print(f"  Token {idx}: {t}")
 ```
 
 ---
 
-## 总结与思维进阶
+## 总结与初学者避坑指南
 
-| 核心算子 | 职责担当 | 物理与算法难点 | 工业应对之道 |
-| :--- | :--- | :--- | :--- |
-| **TopK** | 稀疏决策 | 排序开销与分支跳转 | 树形归约并行筛选 |
-| **MoE Router** | 动态权衡分配 | 专家坍缩、负载不均衡 | 辅助损失（Load Balance Loss） |
-| **Token Permute** | 物理内存连续化 | 非连续访存、跨卡 All-To-All 通信 | 专有重排内核融合 |
-| **Token Unpermute** | 逆向还原恢复 | 动态累加原子写 | 融合加权 Scatter-Add |
+1. **MoE 的灵魂是“分工与稀疏激活”**：拥有千亿全科知识，但每个词只激活极小部分参数；
+2. **TopK + Softmax**：分诊台选出最顶尖的 $K$ 位专家并归一化加权系数；
+3. **Token Permute / Unpermute**：为了迎合 GPU 的连续 GEMM 胃口，必须在内存中“重新打包 $\to$ 算完加权放回”。
 
-下一讲，我们将进军多模态视觉基础——**卷积与池化算子全家桶（Conv2D / DepthwiseConv / ConvTranspose / MaxPool / AvgPool）**！
+下一讲，我们将探讨计算机视觉与多模态空间感知的骨骼——**卷积与池化算子全家桶（Conv2D / Depthwise / ConvTranspose / Pool）**！
