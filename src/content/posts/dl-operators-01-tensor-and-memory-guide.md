@@ -290,7 +290,7 @@ if __name__ == "__main__":
 
 int main() {
     // 物理连续一维内存
-    const float raw_mem[] = {10.f, 20.f, 30.f, 40.f, 50.f, 60.f};
+    const float raw_mem[] = {10.0f, 20.0f, 30.0f, 40.0f, 50.0f, 60.0f};
     constexpr int rows = 3;
     constexpr int cols = 2;
     // 步长：行步长 = 列数 = 2，列步长 = 1

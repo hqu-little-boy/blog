@@ -74,6 +74,29 @@ function executeClientSideCpp(
     .replace(/extern\s*"C"\s*\{?/g, "")
     .replace(/std::/g, "");
 
+  // Remove float literal suffixes: e.g. 10.f -> 10.0, 10.0f -> 10.0, 1e-6f -> 1e-6, 5f -> 5
+  cleanCode = cleanCode.replace(/(?<=\b\d+)\.f\b/gi, ".0");
+  cleanCode = cleanCode.replace(/(?<=\b\d+(?:\.\d*)?|\.\d+)f\b/gi, "");
+
+  // Transform C++ helper function definitions (excluding main):
+  // void foo(...) { ... } -> function foo(...) { ... }
+  cleanCode = cleanCode.replace(
+    /\b(?:void|int|float|double|bool|auto|vector<[^>]+>)\s+([a-zA-Z0-9_]+)\s*\(([^)]*)\)\s*\{/g,
+    (match: string, funcName: string, params: string) => {
+      if (funcName === "main") return match;
+      const cleanParams = params
+        .split(",")
+        .map((p: string) => p.trim())
+        .filter(Boolean)
+        .map((p: string) => {
+          const parts = p.replace(/&|\*/g, "").trim().split(/\s+/);
+          return parts[parts.length - 1];
+        })
+        .join(", ");
+      return `function ${funcName}(${cleanParams}) {`;
+    }
+  );
+
   // Intercept printf(...)
   const customPrintf = (...args: any[]) => {
     if (args.length === 0) return;
@@ -88,15 +111,25 @@ function executeClientSideCpp(
     onStdout(formatted);
   };
 
-  // Intercept cout << ...
+  // Intercept cout << ... with stream manipulator support (e.g. fixed, setprecision)
+  let currentPrecision: number | null = null;
+
   class CoutStream {
     buffer: string = "";
     write(val: any) {
+      if (val && typeof val === "object" && val.__manip === "precision") {
+        currentPrecision = val.precision;
+        return this;
+      }
       if (val === "\n" || val === "endl") {
         onStdout(this.buffer + "\n");
         this.buffer = "";
       } else {
-        this.buffer += String(val);
+        if (typeof val === "number" && !Number.isInteger(val) && currentPrecision !== null) {
+          this.buffer += val.toFixed(currentPrecision);
+        } else {
+          this.buffer += String(val);
+        }
       }
       return this;
     }
@@ -110,33 +143,72 @@ function executeClientSideCpp(
 
   const cout = new CoutStream();
   const endl = "\n";
+  const fixed = "";
+  const setprecision = (p: number) => ({ __manip: "precision", precision: p });
 
-  // Check if there is a main function
-  const mainMatch = cleanCode.match(/(?:int|void)\s+main\s*\([^)]*\)\s*\{([\s\S]*)\}/);
-  const body = mainMatch ? mainMatch[1] : cleanCode;
+  // Separate main() body and helper functions outside main()
+  let mainBody = "";
+  let helpers = "";
+  const mainRegex = /(?:int|void)\s+main\s*\([^)]*\)\s*\{([\s\S]*)\}/;
+  const mainMatch = cleanCode.match(mainRegex);
+  if (mainMatch) {
+    mainBody = mainMatch[1];
+    helpers = cleanCode.replace(mainRegex, "");
+  } else {
+    mainBody = cleanCode;
+  }
 
-  // Convert C/C++ common constructs into executable JavaScript sandbox
-  let jsBody = body
-    // Types
-    .replace(/\b(?:int|float|double|char|long|size_t|uint32_t|int32_t|constexpr\s+int)\s+/g, "let ")
-    .replace(/\bconst\s+(?:int|float|double|char)\s+/g, "const ")
-    .replace(/\bauto\s+/g, "let ")
-    .replace(/\bstd::vector<[^>]+>\s+/g, "let ")
-    .replace(/\bvector<[^>]+>\s+/g, "let ")
-    // Arrays: int arr[] = { ... } => let arr = [ ... ]
-    .replace(/let\s+([a-zA-Z0-9_]+)\s*\[\s*\]\s*=\s*\{([^}]+)\}/g, "let $1 = [$2]")
-    .replace(/const\s+([a-zA-Z0-9_]+)\s*\[\s*\]\s*=\s*\{([^}]+)\}/g, "const $1 = [$2]")
-    // std::gcd(a, b) => gcd(a, b)
-    .replace(/gcd\s*\(([^,]+),\s*([^)]+)\)/g, "clientGcd($1, $2)")
-    // cout << a << b << endl; => cout.write(a).write(b).write(endl);
-    .replace(/cout\s*<<\s*([^;]+);/g, (_, chain) => {
-      const parts = chain.split("<<").map((s: string) => s.trim());
-      return parts.map((p: string) => `cout.write(${p})`).join(";") + ";";
-    })
-    // printf(...)
-    .replace(/printf\s*\(/g, "customPrintf(")
-    // return 0;
-    .replace(/return\s+[0-9]+;/g, "");
+  const transformBlock = (src: string): string => {
+    return src
+      // 1. Const/constexpr declarations FIRST to avoid "const let" conflict in strict mode
+      .replace(/\b(?:const|constexpr)\s+(?:int|float|double|char|long|size_t|uint32_t|int32_t|bool)\s+/g, "const ")
+      .replace(/\bconstexpr\s+/g, "const ")
+      .replace(/\bconst\s+(?:auto|vector<[^>]+>)\s+/g, "const ")
+      // 2. Mutable types -> let
+      .replace(/\b(?:int|float|double|char|long|size_t|uint32_t|int32_t|bool)\s+/g, "let ")
+      .replace(/\bauto\s+/g, "let ")
+      .replace(/\bvector<[^>]+>\s+/g, "let ")
+      // 3. 2D Array declarations with initializers: const A[R][C] = { { ... }, { ... } };
+      .replace(/(?:let|const)\s+([a-zA-Z0-9_]+)\s*\[\s*([a-zA-Z0-9_]+)\s*\]\s*\[\s*([a-zA-Z0-9_]+)\s*\]\s*=\s*\{([\s\S]*?)\};/g, 
+        (_, name, d1, d2, init) => {
+          let cleanInit = init.replace(/\/\/[^\n]*/g, "").trim();
+          if (cleanInit === "0" || cleanInit === "0.0" || cleanInit === "{0}" || cleanInit === "{0.0}") {
+            return `let ${name} = Array.from({length: ${d1}}, () => new Array(${d2}).fill(0));`;
+          }
+          cleanInit = cleanInit.replace(/\{/g, "[").replace(/\}/g, "]");
+          return `const ${name} = [${cleanInit}];`;
+        }
+      )
+      // 4. 2D uninitialized arrays: let output[N][D];
+      .replace(/let\s+([a-zA-Z0-9_]+)\s*\[\s*([a-zA-Z0-9_]+)\s*\]\s*\[\s*([a-zA-Z0-9_]+)\s*\]\s*;/g,
+        "let $1 = Array.from({length: $2}, () => new Array($3).fill(0));"
+      )
+      // 5. 1D Array declarations with initializers: const arr[] = { ... } => const arr = [ ... ]
+      .replace(/(let|const)\s+([a-zA-Z0-9_]+)\s*\[\s*[^\]]*\s*\]\s*=\s*\{([\s\S]*?)\};/g, (_, kw, name, init) => {
+        let cleanInit = init.replace(/\/\/[^\n]*/g, "").trim();
+        return `${kw} ${name} = [${cleanInit}];`;
+      })
+      // 6. 1D uninitialized arrays: float arr[N]; => let arr = new Array(N).fill(0);
+      .replace(/let\s+([a-zA-Z0-9_]+)\s*\[\s*([a-zA-Z0-9_]+)\s*\]\s*;/g, "let $1 = new Array($2).fill(0);")
+      // 7. Vector helpers: push_back -> push, size() -> length
+      .replace(/\.push_back\s*\(/g, ".push(")
+      .replace(/\.size\s*\(\)/g, ".length")
+      // 8. std::gcd(a, b) => gcd(a, b)
+      .replace(/gcd\s*\(([^,]+),\s*([^)]+)\)/g, "clientGcd($1, $2)")
+      // 9. cout << a << b << endl; => cout.write(a).write(b).write(endl); (handles multi-line)
+      .replace(/cout\s*<<\s*([\s\S]*?);/g, (_, chain) => {
+        const parts = chain.split("<<").map((s: string) => s.trim()).filter(Boolean);
+        return parts.map((p: string) => `cout.write(${p})`).join(";") + ";";
+      })
+      // 10. printf(...)
+      .replace(/printf\s*\(/g, "customPrintf(")
+      // 11. return 0;
+      .replace(/return\s+[0-9]+;/g, "");
+  };
+
+  const jsHelpers = transformBlock(helpers);
+  const jsBody = transformBlock(mainBody);
+  const executableJs = `${jsHelpers}\n${jsBody}`;
 
   const clientGcd = (a: number, b: number): number => {
     let x = Math.abs(Math.round(a));
@@ -149,18 +221,69 @@ function executeClientSideCpp(
     return x;
   };
 
+  // Map common standard math functions to Math.*
+  const exp = Math.exp;
+  const sqrt = Math.sqrt;
+  const abs = Math.abs;
+  const pow = Math.pow;
+  const min = Math.min;
+  const max = Math.max;
+  const floor = Math.floor;
+  const ceil = Math.ceil;
+  const round = Math.round;
+  const sin = Math.sin;
+  const cos = Math.cos;
+  const tan = Math.tan;
+  const log = Math.log;
+
   try {
     const sandboxFn = new Function(
       "customPrintf",
       "cout",
       "endl",
+      "fixed",
+      "setprecision",
       "clientGcd",
+      "exp",
+      "sqrt",
+      "abs",
+      "pow",
+      "min",
+      "max",
+      "floor",
+      "ceil",
+      "round",
+      "sin",
+      "cos",
+      "tan",
+      "log",
       "wasmModule",
-      `"use strict";\n${jsBody}\ncout.flush();`
+      `"use strict";\n${executableJs}\ncout.flush();`
     );
 
     const wasmModule = getClientWasmModule();
-    sandboxFn(customPrintf, cout, endl, clientGcd, wasmModule);
+    sandboxFn(
+      customPrintf,
+      cout,
+      endl,
+      fixed,
+      setprecision,
+      clientGcd,
+      exp,
+      sqrt,
+      abs,
+      pow,
+      min,
+      max,
+      floor,
+      ceil,
+      round,
+      sin,
+      cos,
+      tan,
+      log,
+      wasmModule
+    );
     return true;
   } catch (err: any) {
     onStderr(`[浏览器本地解释执行提示] ${err.message || String(err)}\n`);
