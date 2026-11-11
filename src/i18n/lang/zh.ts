@@ -26,6 +26,14 @@ export default {
     prev: "上一页",
     next: "下一页",
     page: "页码",
+    jumpTo: "跳转到页面",
+    jump: "跳转",
+    firstPage: "首页",
+    lastPage: "末页",
+    confirm: "确定",
+    cancel: "取消",
+    pageTotal: "第 {{current}} 页 / 共 {{total}} 页",
+    pageInputLabel: "输入页码 (1 - {{total}})",
   },
   home: {
     socialLinks: "社交链接",
@@ -62,6 +70,8 @@ export default {
     noResults: "未找到相关文章",
     goToPreviousPage: "前往上一页",
     goToNextPage: "前往下一页",
+    goToPage: "前往第 {{page}} 页",
+    openPageJump: "快速跳转页码",
   },
   notFound: {
     title: "404 未找到页面",

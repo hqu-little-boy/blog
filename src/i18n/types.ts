@@ -24,6 +24,14 @@ export interface UIStrings {
     prev: string;
     next: string;
     page: string;
+    jumpTo: string;
+    jump: string;
+    firstPage: string;
+    lastPage: string;
+    confirm: string;
+    cancel: string;
+    pageTotal: string;
+    pageInputLabel: string;
   };
   home: {
     socialLinks: string;
@@ -60,6 +68,8 @@ export interface UIStrings {
     noResults: string;
     goToPreviousPage: string;
     goToNextPage: string;
+    goToPage: string;
+    openPageJump: string;
   };
   notFound: {
     title: string;

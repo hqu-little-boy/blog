@@ -26,6 +26,14 @@ export default {
     prev: "Prev",
     next: "Next",
     page: "Page",
+    jumpTo: "Jump to Page",
+    jump: "Jump",
+    firstPage: "First",
+    lastPage: "Last",
+    confirm: "Go",
+    cancel: "Cancel",
+    pageTotal: "Page {{current}} of {{total}}",
+    pageInputLabel: "Enter page (1 - {{total}})",
   },
   home: {
     socialLinks: "Social Links",
@@ -62,6 +70,8 @@ export default {
     noResults: "No results found",
     goToPreviousPage: "Go to previous page",
     goToNextPage: "Go to next page",
+    goToPage: "Go to page {{page}}",
+    openPageJump: "Quick jump to page",
   },
   notFound: {
     title: "404 Not Found",

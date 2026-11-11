@@ -1,56 +1,461 @@
 ---
 import type { Page } from "astro";
-import type { CollectionEntry } from "astro:content";
 import IconArrowLeft from "@/assets/icons/IconArrowLeft.svg";
 import IconArrowRight from "@/assets/icons/IconArrowRight.svg";
+import IconChevronDown from "@/assets/icons/IconChevronDown.svg";
+import IconDots from "@/assets/icons/IconDots.svg";
+import IconX from "@/assets/icons/IconX.svg";
 import LinkButton from "./LinkButton.astro";
-import { useTranslations } from "@/i18n";
+import { useTranslations, tplStr } from "@/i18n";
 
 type Props = {
-  page: Page<CollectionEntry<"posts">>;
+  page: Page<any>;
 };
 
 const { page } = Astro.props;
 
 const t = useTranslations(Astro.currentLocale);
+
+// Calculate base path for pagination URLs (e.g. /posts or /tags/example)
+const baseUrl = (
+  page.url.first ??
+  (page.currentPage === 1
+    ? page.url.current
+    : page.url.current.replace(new RegExp(`/${page.currentPage}/?$`), ""))
+).replace(/\/$/, "");
+
+const getPageUrl = (pageNum: number) => {
+  if (pageNum === 1) {
+    return baseUrl || "/";
+  }
+  return `${baseUrl}/${pageNum}`;
+};
+
+const total = page.lastPage;
+const current = page.currentPage;
+
+type PageItem =
+  | { type: "page"; number: number; isCurrent: boolean }
+  | { type: "ellipsis"; jumpTarget: number };
+
+function getPaginationItems(): PageItem[] {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => ({
+      type: "page",
+      number: i + 1,
+      isCurrent: i + 1 === current,
+    }));
+  }
+
+  const items: PageItem[] = [];
+  items.push({ type: "page", number: 1, isCurrent: current === 1 });
+
+  if (current <= 4) {
+    for (let i = 2; i <= 5; i++) {
+      items.push({ type: "page", number: i, isCurrent: i === current });
+    }
+    const jumpTarget = Math.round((5 + total) / 2);
+    items.push({ type: "ellipsis", jumpTarget });
+    items.push({ type: "page", number: total, isCurrent: current === total });
+  } else if (current >= total - 3) {
+    const jumpTarget = Math.round((1 + (total - 4)) / 2);
+    items.push({ type: "ellipsis", jumpTarget });
+    for (let i = total - 4; i <= total; i++) {
+      items.push({ type: "page", number: i, isCurrent: i === current });
+    }
+  } else {
+    const leftTarget = Math.round((1 + (current - 1)) / 2);
+    items.push({ type: "ellipsis", jumpTarget: leftTarget });
+
+    for (let i = current - 1; i <= current + 1; i++) {
+      items.push({ type: "page", number: i, isCurrent: i === current });
+    }
+
+    const rightTarget = Math.round((current + 1 + total) / 2);
+    items.push({ type: "ellipsis", jumpTarget: rightTarget });
+
+    items.push({ type: "page", number: total, isCurrent: current === total });
+  }
+
+  return items;
+}
+
+const paginationItems = getPaginationItems();
+
+type QuickChip = { label: string; number: number; isCurrent: boolean };
+
+function getQuickChips(): QuickChip[] {
+  if (total <= 8) {
+    return Array.from({ length: total }, (_, i) => ({
+      label: String(i + 1),
+      number: i + 1,
+      isCurrent: i + 1 === current,
+    }));
+  }
+
+  const chips: QuickChip[] = [];
+
+  // First page
+  chips.push({
+    label: `${t.pagination.firstPage} (1)`,
+    number: 1,
+    isCurrent: current === 1,
+  });
+
+  // Surrounding page window
+  const start = Math.max(2, current - 2);
+  const end = Math.min(total - 1, current + 2);
+
+  for (let i = start; i <= end; i++) {
+    chips.push({
+      label: String(i),
+      number: i,
+      isCurrent: i === current,
+    });
+  }
+
+  // Last page
+  chips.push({
+    label: `${t.pagination.lastPage} (${total})`,
+    number: total,
+    isCurrent: current === total,
+  });
+
+  return chips;
+}
+
+const quickChips = getQuickChips();
 ---
 
 {
-  page.lastPage > 1 && (
+  total > 1 && (
     <nav
-      class="mt-auto mb-8 flex items-center justify-center gap-3 text-sm font-medium"
+      class="mt-auto mb-8 flex flex-wrap items-center justify-center gap-2 text-sm font-medium sm:gap-2.5"
       role="navigation"
       aria-label="Pagination Navigation"
+      data-base-url={baseUrl}
+      data-last-page={total}
+      data-current-page={current}
     >
+      {/* 上一页按钮 (Prev Button) */}
       <LinkButton
         disabled={!page.url.prev}
         href={page.url.prev as string}
         class:list={[
-          "bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container inline-flex items-center gap-1.5 rounded-full px-4 py-2 transition-all select-none active:scale-95",
-          { "pointer-events-none opacity-40": !page.url.prev },
+          "bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 shadow-xs transition-all duration-200 select-none active:scale-95 sm:px-4",
+          {
+            "pointer-events-none cursor-not-allowed opacity-40": !page.url.prev,
+          },
         ]}
         aria-label={t.a11y.goToPreviousPage}
       >
         <IconArrowLeft class="inline-block size-4 rtl:rotate-180" />
-        <span>{t.pagination.prev}</span>
+        <span class="inline">{t.pagination.prev}</span>
       </LinkButton>
 
-      <span class="bg-surface-container text-on-surface-variant rounded-full px-3.5 py-1.5 text-xs font-semibold">
-        {page.currentPage} / {page.lastPage}
-      </span>
+      {/* 移动端紧凑指示与跳转药丸 (Mobile compact indicator & jump trigger) */}
+      <button
+        type="button"
+        class="jump-dialog-trigger bg-surface-container-high dark:bg-surface-container-highest text-on-surface hover:bg-secondary-container hover:text-on-secondary-container border-outline-variant/30 flex cursor-pointer items-center gap-1.5 rounded-full border px-3.5 py-2 text-xs font-semibold shadow-xs transition-all duration-200 select-none active:scale-95 sm:hidden"
+        data-target-page={current}
+        aria-label={t.a11y.openPageJump}
+        aria-haspopup="dialog"
+      >
+        <span>
+          {current} / {total}
+        </span>
+        <IconChevronDown class="text-primary size-3.5" />
+      </button>
 
+      {/* 桌面端数字页码药丸列表 (Desktop numeric page pills) */}
+      <div class="hidden items-center gap-1.5 sm:flex">
+        {paginationItems.map(item => {
+          if (item.type === "page") {
+            if (item.isCurrent) {
+              return (
+                <span
+                  class="bg-primary text-on-primary ring-primary/20 inline-flex size-9 items-center justify-center rounded-full text-sm font-bold shadow-xs ring-2 select-none"
+                  aria-current="page"
+                >
+                  {item.number}
+                </span>
+              );
+            }
+            return (
+              <a
+                href={getPageUrl(item.number)}
+                class="bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container inline-flex size-9 items-center justify-center rounded-full text-sm font-medium transition-all duration-200 select-none active:scale-95"
+                aria-label={tplStr(t.a11y.goToPage, { page: item.number })}
+              >
+                {item.number}
+              </a>
+            );
+          }
+          return (
+            <button
+              type="button"
+              class="jump-dialog-trigger text-on-surface-variant/70 hover:bg-secondary-container hover:text-on-secondary-container inline-flex size-9 cursor-pointer items-center justify-center rounded-full transition-all duration-200 select-none active:scale-95"
+              data-target-page={item.jumpTarget}
+              title={t.pagination.jumpTo}
+              aria-label={t.pagination.jumpTo}
+            >
+              <IconDots class="size-4" />
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 下一页按钮 (Next Button) */}
       <LinkButton
         disabled={!page.url.next}
         href={page.url.next as string}
         class:list={[
-          "bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container inline-flex items-center gap-1.5 rounded-full px-4 py-2 transition-all select-none active:scale-95",
-          { "pointer-events-none opacity-40": !page.url.next },
+          "bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 shadow-xs transition-all duration-200 select-none active:scale-95 sm:px-4",
+          {
+            "pointer-events-none cursor-not-allowed opacity-40": !page.url.next,
+          },
         ]}
         aria-label={t.a11y.goToNextPage}
       >
-        <span>{t.pagination.next}</span>
+        <span class="inline">{t.pagination.next}</span>
         <IconArrowRight class="inline-block size-4 rtl:rotate-180" />
       </LinkButton>
+
+      {/* 桌面端快捷跳转药丸按钮 (Desktop quick jump trigger pill) */}
+      <button
+        type="button"
+        class="jump-dialog-trigger bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container ml-1 hidden cursor-pointer items-center gap-1 rounded-full px-3 py-2 text-xs font-semibold transition-all duration-200 select-none active:scale-95 sm:inline-flex"
+        data-target-page={current}
+        aria-label={t.a11y.openPageJump}
+        aria-haspopup="dialog"
+        title={t.pagination.jumpTo}
+      >
+        <span>{t.pagination.jump}</span>
+        <IconChevronDown class="size-3.5 opacity-70" />
+      </button>
+
+      {/* Material You · Pixel 风格跳转对话框 (M3 Jump Modal Dialog) */}
+      <dialog
+        id="pagination-jump-dialog"
+        class="m3-jump-dialog border-outline-variant/30 bg-surface-container-high text-on-surface dark:bg-surface-container-highest fixed inset-0 z-50 m-auto w-[90vw] max-w-sm rounded-[28px] border p-6 shadow-2xl transition-all duration-200 outline-none select-none"
+      >
+        <div class="border-outline-variant/20 flex items-center justify-between border-b pb-3">
+          <div class="flex items-center gap-2.5">
+            <div class="bg-primary-container text-on-primary-container flex size-9 shrink-0 items-center justify-center rounded-full">
+              <svg
+                class="size-4.5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path stroke="none" d="M0 0h24v24H0z" fill="none" />
+                <path d="M15 10l-4 4l6 6l4 -16l-18 7l4 2l2 6l3 -4" />
+              </svg>
+            </div>
+            <div>
+              <h3 class="text-on-surface text-sm font-bold tracking-tight">
+                {t.pagination.jumpTo}
+              </h3>
+              <p class="text-on-surface-variant text-[11px] font-medium">
+                {tplStr(t.pagination.pageTotal, { current, total })}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            id="jump-close-x-btn"
+            class="text-on-surface-variant hover:bg-surface-container hover:text-on-surface inline-flex size-8 cursor-pointer items-center justify-center rounded-full transition-all active:scale-90"
+            aria-label={t.pagination.cancel}
+          >
+            <IconX class="size-4" />
+          </button>
+        </div>
+
+        {/* 快捷页码芯片 (Quick Jump Chips) */}
+        <div class="mt-4">
+          <span class="text-on-surface-variant/80 mb-2 block text-[11px] font-semibold tracking-wider uppercase">
+            {t.pagination.page}
+          </span>
+          <div class="flex max-h-32 flex-wrap items-center gap-1.5 overflow-y-auto pr-1">
+            {quickChips.map(chip => (
+              <button
+                type="button"
+                class:list={[
+                  "jump-chip-btn cursor-pointer rounded-xl px-2.5 py-1 text-xs font-semibold transition-all duration-150 active:scale-95",
+                  chip.isCurrent
+                    ? "bg-primary text-on-primary ring-primary/20 pointer-events-none shadow-xs ring-2"
+                    : "bg-surface-container-lowest dark:bg-surface-container text-on-surface-variant hover:bg-secondary-container hover:text-on-secondary-container",
+                ]}
+                data-page={chip.number}
+              >
+                {chip.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 页码输入表单 (Numeric Input Form) */}
+        <form id="jump-page-form" class="mt-4">
+          <label
+            for="jump-page-input"
+            class="text-on-surface-variant/80 mb-1.5 block text-[11px] font-semibold tracking-wider uppercase"
+          >
+            {tplStr(t.pagination.pageInputLabel, { total })}
+          </label>
+          <div class="relative flex items-center">
+            <input
+              type="number"
+              id="jump-page-input"
+              name="page"
+              min="1"
+              max={total}
+              value={current}
+              inputmode="numeric"
+              class="bg-surface-container-lowest dark:bg-surface-container text-on-surface focus:border-primary focus:ring-primary/20 border-outline-variant w-full rounded-2xl border px-4 py-2.5 text-center text-lg font-bold tracking-wider transition-all outline-none focus:ring-3"
+            />
+          </div>
+
+          {/* 操作按钮栏 (Action Buttons) */}
+          <div class="mt-5 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              id="jump-cancel-btn"
+              class="text-on-surface-variant hover:bg-surface-container hover:text-on-surface inline-flex cursor-pointer items-center justify-center rounded-full px-4 py-2 text-xs font-semibold transition-all active:scale-95"
+            >
+              {t.pagination.cancel}
+            </button>
+            <button
+              type="submit"
+              id="jump-submit-btn"
+              class="bg-primary text-on-primary inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-full px-5 py-2 text-xs font-semibold shadow-xs transition-all hover:opacity-90 active:scale-95"
+            >
+              <span>{t.pagination.confirm}</span>
+              <IconArrowRight class="size-3.5 rtl:rotate-180" />
+            </button>
+          </div>
+        </form>
+      </dialog>
     </nav>
   )
 }
+
+<style>
+  .m3-jump-dialog::backdrop {
+    background-color: rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+  }
+  .m3-jump-dialog[open] {
+    animation: m3DialogSpring 0.28s cubic-bezier(0.34, 1.3, 0.64, 1) forwards;
+  }
+  @keyframes m3DialogSpring {
+    from {
+      opacity: 0;
+      transform: scale(0.92) translateY(12px);
+    }
+    to {
+      opacity: 1;
+      transform: scale(1) translateY(0);
+    }
+  }
+</style>
+
+<script>
+  import { navigate } from "astro:transitions/client";
+
+  function initPagination() {
+    const nav = document.querySelector<HTMLElement>("nav[data-base-url]");
+    if (!nav) return;
+
+    const baseUrl = nav.dataset.baseUrl || "/posts";
+    const lastPage = parseInt(nav.dataset.lastPage || "1", 10);
+    const currentPage = parseInt(nav.dataset.currentPage || "1", 10);
+
+    const dialog = document.getElementById(
+      "pagination-jump-dialog"
+    ) as HTMLDialogElement | null;
+    const input = document.getElementById(
+      "jump-page-input"
+    ) as HTMLInputElement | null;
+    const form = document.getElementById(
+      "jump-page-form"
+    ) as HTMLFormElement | null;
+    const cancelBtn = document.getElementById("jump-cancel-btn");
+    const closeXBtn = document.getElementById("jump-close-x-btn");
+
+    if (!dialog) return;
+
+    function getUrl(targetPage: number) {
+      const p = Math.min(Math.max(1, targetPage), lastPage);
+      return p === 1 ? baseUrl : `${baseUrl}/${p}`;
+    }
+
+    function performJump(targetPage: number) {
+      const p = Math.min(Math.max(1, targetPage), lastPage);
+      dialog?.close();
+      if (p === currentPage) return;
+      const url = getUrl(p);
+      navigate(url);
+    }
+
+    // Open triggers (mobile pill, desktop jump button, ellipsis dots)
+    document
+      .querySelectorAll<HTMLElement>(".jump-dialog-trigger")
+      .forEach(trigger => {
+        trigger.onclick = () => {
+          const initialTarget = trigger.dataset.targetPage;
+          const targetNum = initialTarget
+            ? parseInt(initialTarget, 10)
+            : currentPage;
+          if (input) {
+            input.value = String(targetNum || currentPage);
+          }
+          dialog.showModal();
+          requestAnimationFrame(() => {
+            input?.focus();
+            input?.select();
+          });
+        };
+      });
+
+    // Quick chips inside dialog
+    document.querySelectorAll<HTMLElement>(".jump-chip-btn").forEach(chip => {
+      chip.onclick = () => {
+        const pStr = chip.dataset.page;
+        if (pStr) {
+          performJump(parseInt(pStr, 10));
+        }
+      };
+    });
+
+    // Form submission
+    if (form) {
+      form.onsubmit = e => {
+        e.preventDefault();
+        if (input) {
+          const val = parseInt(input.value.trim(), 10);
+          if (!isNaN(val)) {
+            performJump(val);
+          }
+        }
+      };
+    }
+
+    // Cancel & Close buttons
+    if (cancelBtn) cancelBtn.onclick = () => dialog.close();
+    if (closeXBtn) closeXBtn.onclick = () => dialog.close();
+
+    // Backdrop dismissal
+    dialog.onclick = e => {
+      if (e.target === dialog) {
+        dialog.close();
+      }
+    };
+  }
+
+  document.addEventListener("astro:page-load", initPagination);
+</script>
