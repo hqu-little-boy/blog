@@ -760,3 +760,9 @@ digraph GoldenRule {
 $$\boxed{\text{Scale 应当在何时、由哪颗引擎、以何种位宽参与运算，才能在零显存膨胀的前提下，榨干算力并守住精度？}}$$
 
 理解了这一点，你便真正掌握了现代大模型低精度加速体系的底层核心密码。
+
+---
+
+> [!TIP] 进阶阅读推荐
+> 如果你想进一步深入探究工业界已落地的免反量化算法（从 Google `gemmlowp` 纯整数 GEMM、Arm `CMSIS-NN` 定点 Softmax 到 NVIDIA `cuDNN` 深度融合 Kernel 的具体数学与代码实现），欢迎继续阅读姐妹篇：
+> 📖 [《业界已落地的无中间反量化算法全景：从 Integer-only GEMM、定点 Softmax 到 Block-Scaled MMA 与融合 Kernel 深度解构》](file:///home/ubuntu/git/blog/src/content/posts/quantization-preserving-computation-and-fused-kernels-guide.md)
