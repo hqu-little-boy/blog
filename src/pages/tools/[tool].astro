@@ -1,0 +1,45 @@
+---
+import Layout from "@/layouts/Layout.astro";
+import Header from "@/components/Header.astro";
+import Breadcrumb from "@/components/Breadcrumb.astro";
+import Main from "@/components/Main.astro";
+import Footer from "@/components/Footer.astro";
+import ToolsWorkspace from "@/components/tools/ToolsWorkspace.astro";
+import { useTranslations } from "@/i18n";
+import config from "@/config";
+
+export function getStaticPaths() {
+  const tools = ["latex", "graphviz", "mermaid", "html", "svg"] as const;
+  return tools.map(tool => ({
+    params: { tool },
+  }));
+}
+
+type ToolType = "latex" | "graphviz" | "mermaid" | "html" | "svg";
+
+const { tool } = Astro.params as { tool: ToolType };
+const locale = Astro.currentLocale ?? config.site.lang;
+const t = useTranslations(locale);
+
+const toolTitles: Record<ToolType, string> = {
+  latex: "LaTeX 在线渲染",
+  graphviz: "Graphviz 在线渲染",
+  mermaid: "Mermaid 在线渲染",
+  html: "HTML 在线预览",
+  svg: "SVG 在线预览",
+};
+
+const pageTitle = toolTitles[tool] || t.pages.toolsTitle;
+---
+
+<Layout title={`${pageTitle} | ${config.site.title}`}>
+  <Header />
+
+  <Breadcrumb wide={true} />
+
+  <Main pageTitle={pageTitle} pageDesc={t.pages.toolsDesc} wide={true}>
+    <ToolsWorkspace initialTool={tool} />
+  </Main>
+
+  <Footer />
+</Layout>

@@ -6,9 +6,10 @@ type Props = {
   pageTitle: string | [string, string];
   pageDesc?: string;
   class?: string;
+  wide?: boolean;
 };
 
-const { pageTitle, pageDesc, class: className } = Astro.props;
+const { pageTitle, pageDesc, class: className, wide = false } = Astro.props;
 
 const locale = Astro.currentLocale ?? config.site.lang;
 const backUrl = config.features.showBackButton
@@ -19,7 +20,10 @@ const backUrl = config.features.showBackButton
 <main
   data-backUrl={backUrl}
   id="main-content"
-  class:list={["app-layout pb-6", className]}
+  class:list={[
+    wide ? "mx-auto w-full max-w-7xl px-4 pb-6 sm:px-6" : "app-layout pb-6",
+    className,
+  ]}
 >
   <h1 class="text-on-surface text-2xl font-bold tracking-tight sm:text-3xl">
     {pageTitle}

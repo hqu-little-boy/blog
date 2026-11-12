@@ -6,6 +6,7 @@ export default {
     posts: "Posts",
     tags: "Tags",
     about: "About",
+    tools: "Tools",
     archives: "Archives",
     search: "Search",
   },
@@ -57,6 +58,10 @@ export default {
 
     archivesTitle: "Archives",
     archivesDesc: "All the articles I've archived.",
+
+    toolsTitle: "Online Rendering Tools",
+    toolsDesc:
+      "Real-time dual-column renderer for LaTeX, Graphviz, Mermaid, HTML, and SVG.",
 
     searchTitle: "Search",
     searchDesc: "Search any article ...",

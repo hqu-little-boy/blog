@@ -6,6 +6,7 @@ export default {
     posts: "文章",
     tags: "标签",
     about: "关于",
+    tools: "工具",
     archives: "归档",
     search: "搜索",
   },
@@ -57,6 +58,10 @@ export default {
 
     archivesTitle: "归档",
     archivesDesc: "按时间归档的历史文章。",
+
+    toolsTitle: "在线渲染工具",
+    toolsDesc:
+      "支持 LaTeX、Graphviz、Mermaid、HTML、SVG 的双栏实时渲染与全屏预览工具箱。",
 
     searchTitle: "搜索",
     searchDesc: "输入关键词搜索文章...",

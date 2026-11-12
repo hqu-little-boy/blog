@@ -4,6 +4,11 @@ import { stripBase, stripLocale } from "@/utils/withBase";
 import { useTranslations } from "@/i18n";
 import config from "@/config";
 
+type Props = {
+  wide?: boolean;
+};
+
+const { wide = false } = Astro.props;
 const locale = Astro.currentLocale ?? config.site.lang;
 const t = useTranslations(locale);
 
@@ -28,6 +33,7 @@ const navLabels: Record<string, string> = {
   posts: t.nav.posts,
   tags: t.nav.tags,
   about: t.nav.about,
+  tools: t.nav.tools,
   archives: t.nav.archives,
   search: t.nav.search,
 };
@@ -57,7 +63,13 @@ if (breadcrumbList[0] === "tags" && !isNaN(Number(breadcrumbList[2]))) {
 }
 ---
 
-<nav class="app-layout mt-6 mb-2" aria-label="breadcrumb">
+<nav
+  class:list={[
+    wide ? "mx-auto w-full max-w-7xl px-4 sm:px-6" : "app-layout",
+    "mt-6 mb-2",
+  ]}
+  aria-label="breadcrumb"
+>
   <ul
     class="text-on-surface-variant/80 flex flex-wrap items-center gap-x-1.5 text-xs font-medium sm:text-sm"
   >
