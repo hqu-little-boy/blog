@@ -228,6 +228,29 @@ const { initialTool = "latex" } = Astro.props;
             </div>
           </div>
 
+          <!-- Wrap toggle button -->
+          <button
+            id="toggle-wrap-btn"
+            type="button"
+            class="m3-chip cursor-pointer text-[11px] sm:text-xs"
+            title="切换自动换行/横向滚动"
+          >
+            <svg
+              class="size-3.5"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <path d="M3 12h15a3 3 0 1 1 0 6h-4"></path>
+              <polyline points="16 16 14 18 16 20"></polyline>
+            </svg>
+            <span id="toggle-wrap-text">折行: 开</span>
+          </button>
+
           <!-- Copy code button -->
           <button
             id="copy-code-btn"
@@ -286,7 +309,7 @@ const { initialTool = "latex" } = Astro.props;
           class="bg-surface-container-low/40 dark:bg-surface-container/30 border-outline-variant/30 text-on-surface-variant/40 h-full w-10 shrink-0 overflow-hidden border-r py-3.5 pr-2 text-right font-mono text-xs leading-relaxed select-none sm:w-12"
           aria-hidden="true"
         >
-          1
+          <div class="leading-relaxed select-none">1</div>
         </div>
 
         <!-- Textarea Code Input -->
@@ -297,7 +320,17 @@ const { initialTool = "latex" } = Astro.props;
           autocomplete="off"
           autocapitalize="off"
           placeholder="在此输入代码..."
-          style="tab-size: 2;"></textarea>
+          style="tab-size: 2; word-break: break-all; white-space: pre-wrap;"
+        ></textarea>
+
+        <!-- Hidden mirror div for exact line height measurement -->
+        <div
+          id="editor-mirror"
+          class="pointer-events-none invisible absolute -top-[9999px] -left-[9999px] font-mono text-xs leading-relaxed sm:text-sm"
+          style="white-space: pre-wrap; word-break: break-all; box-sizing: border-box;"
+          aria-hidden="true"
+        >
+        </div>
       </div>
 
       <!-- Editor Footer Status / Shortcuts hint -->
@@ -431,16 +464,13 @@ const { initialTool = "latex" } = Astro.props;
             </button>
           </div>
 
-          <!-- Download Image Dropdown (for latex, graphviz, mermaid, svg) -->
-          <div
-            id="download-dropdown-wrapper"
-            class="relative inline-block text-left"
-          >
+          <!-- Download Buttons (Separate PNG & SVG buttons for latex, graphviz, mermaid, svg) -->
+          <div id="download-buttons-group" class="hidden items-center gap-1.5">
             <button
-              id="download-dropdown-btn"
+              id="download-png-btn"
               type="button"
               class="m3-chip border-outline-variant/40 cursor-pointer border text-[11px] sm:text-xs"
-              title="下载图片 (PNG / SVG)"
+              title="下载高清 PNG 图片"
             >
               <svg
                 class="text-primary size-3.5"
@@ -451,13 +481,21 @@ const { initialTool = "latex" } = Astro.props;
                 stroke-linecap="round"
                 stroke-linejoin="round"
               >
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
+                <rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect>
+                <circle cx="9" cy="9" r="2"></circle>
+                <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
               </svg>
-              <span>下载图片</span>
+              <span>下载 PNG</span>
+            </button>
+
+            <button
+              id="download-svg-btn"
+              type="button"
+              class="m3-chip border-outline-variant/40 cursor-pointer border text-[11px] sm:text-xs"
+              title="下载无损 SVG 矢量图"
+            >
               <svg
-                class="size-3 opacity-60"
+                class="text-primary size-3.5"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
@@ -465,65 +503,12 @@ const { initialTool = "latex" } = Astro.props;
                 stroke-linecap="round"
                 stroke-linejoin="round"
               >
-                <polyline points="6 9 12 15 18 9"></polyline>
+                <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+                <polyline points="2 17 12 22 22 17"></polyline>
+                <polyline points="2 12 12 17 22 12"></polyline>
               </svg>
+              <span>下载 SVG</span>
             </button>
-            <div
-              id="download-dropdown-menu"
-              class="bg-surface-container dark:bg-surface-container-high border-outline-variant/70 absolute right-0 z-30 mt-1.5 hidden w-44 rounded-2xl border py-1.5 shadow-lg backdrop-blur-md"
-            >
-              <button
-                id="download-png-btn"
-                type="button"
-                class="hover:bg-surface-container-highest/80 flex w-full cursor-pointer items-center justify-between gap-2 px-3.5 py-2 text-left text-xs transition-colors"
-              >
-                <div class="flex items-center gap-2">
-                  <svg
-                    class="text-primary size-3.5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <rect width="18" height="18" x="3" y="3" rx="2" ry="2"
-                    ></rect>
-                    <circle cx="9" cy="9" r="2"></circle>
-                    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path>
-                  </svg>
-                  <span class="text-on-surface font-medium">下载 PNG 图片</span>
-                </div>
-                <span class="text-on-surface-variant/60 font-mono text-[10px]"
-                  >.png</span
-                >
-              </button>
-              <button
-                id="download-svg-btn"
-                type="button"
-                class="hover:bg-surface-container-highest/80 flex w-full cursor-pointer items-center justify-between gap-2 px-3.5 py-2 text-left text-xs transition-colors"
-              >
-                <div class="flex items-center gap-2">
-                  <svg
-                    class="text-primary size-3.5"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="2"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  >
-                    <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
-                    <polyline points="2 17 12 22 22 17"></polyline>
-                    <polyline points="2 12 12 17 22 12"></polyline>
-                  </svg>
-                  <span class="text-on-surface font-medium">下载 SVG 矢量</span>
-                </div>
-                <span class="text-on-surface-variant/60 font-mono text-[10px]"
-                  >.svg</span
-                >
-              </button>
-            </div>
           </div>
 
           <!-- PROMINENT BUTTON: Open in New Tab (graphviz, mermaid, html, svg) -->
@@ -1015,20 +1000,23 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
     const openNewTabBtn = document.getElementById(
       "open-new-tab-btn"
     ) as HTMLElement | null;
-    const downloadDropdownWrapper = document.getElementById(
-      "download-dropdown-wrapper"
-    ) as HTMLElement | null;
-    const downloadBtn = document.getElementById(
-      "download-dropdown-btn"
-    ) as HTMLElement | null;
-    const downloadMenu = document.getElementById(
-      "download-dropdown-menu"
+    const downloadButtonsGroup = document.getElementById(
+      "download-buttons-group"
     ) as HTMLElement | null;
     const downloadPngBtn = document.getElementById(
       "download-png-btn"
     ) as HTMLElement | null;
     const downloadSvgBtn = document.getElementById(
       "download-svg-btn"
+    ) as HTMLElement | null;
+    const toggleWrapBtn = document.getElementById(
+      "toggle-wrap-btn"
+    ) as HTMLElement | null;
+    const toggleWrapText = document.getElementById(
+      "toggle-wrap-text"
+    ) as HTMLElement | null;
+    const mirror = document.getElementById(
+      "editor-mirror"
     ) as HTMLElement | null;
     const zoomBar = document.getElementById(
       "diagram-zoom-bar"
@@ -1054,25 +1042,161 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
 
     if (!editor || !previewContent) return;
 
-    // Helper: update line numbers gutter
+    // Word wrap state & handler
+    let isWrapEnabled = true;
+
+    function setWrap(enabled: boolean) {
+      isWrapEnabled = enabled;
+      if (!editor) return;
+      if (isWrapEnabled) {
+        editor.style.whiteSpace = "pre-wrap";
+        editor.style.wordBreak = "break-all";
+        editor.setAttribute("wrap", "soft");
+        if (toggleWrapText) toggleWrapText.innerText = "折行: 开";
+        toggleWrapBtn?.classList.remove("opacity-70");
+      } else {
+        editor.style.whiteSpace = "pre";
+        editor.style.wordBreak = "normal";
+        editor.setAttribute("wrap", "off");
+        if (toggleWrapText) toggleWrapText.innerText = "折行: 关";
+        toggleWrapBtn?.classList.add("opacity-70");
+      }
+      requestGutterUpdate();
+    }
+
+    toggleWrapBtn?.addEventListener("click", () => {
+      setWrap(!isWrapEnabled);
+    });
+
+    // Helper: update line numbers gutter with exact height alignment
+    let gutterRafId: number | null = null;
+    function requestGutterUpdate() {
+      if (gutterRafId !== null) cancelAnimationFrame(gutterRafId);
+      gutterRafId = requestAnimationFrame(() => {
+        gutterRafId = null;
+        updateGutter();
+      });
+    }
+
     function updateGutter() {
       if (!editor || !gutter) return;
-      const lines = editor.value.split("\n").length;
-      let numbers = "";
-      for (let i = 1; i <= lines; i++) {
-        numbers += i + "\n";
-      }
-      gutter.innerText = numbers;
+
+      const text = editor.value;
+      const lines = text.split("\n");
+      const lineCount = lines.length;
 
       // Update stats
       if (codeStats) {
-        codeStats.innerText = `${lines} 行 · ${editor.value.length} 字符`;
+        codeStats.innerText = `${lineCount} 行 · ${text.length} 字符`;
       }
+
+      const editorStyle = window.getComputedStyle(editor);
+      let baseLineHeight = parseFloat(editorStyle.lineHeight);
+      if (isNaN(baseLineHeight) || baseLineHeight <= 0) {
+        const fontSize = parseFloat(editorStyle.fontSize) || 13;
+        baseLineHeight = fontSize * 1.625;
+      }
+
+      // If wrap is off, each logical line is strictly one visual line
+      if (!isWrapEnabled || !mirror) {
+        const fragment = document.createDocumentFragment();
+        for (let i = 0; i < lineCount; i++) {
+          const item = document.createElement("div");
+          item.className = "select-none";
+          item.style.height = `${baseLineHeight}px`;
+          item.style.lineHeight = `${baseLineHeight}px`;
+          item.textContent = String(i + 1);
+          fragment.appendChild(item);
+        }
+        gutter.replaceChildren(fragment);
+        gutter.scrollTop = editor.scrollTop;
+        return;
+      }
+
+      // If wrap is on, measure wrapped line heights using hidden mirror div
+      const paddingLeft = parseFloat(editorStyle.paddingLeft) || 0;
+      const paddingRight = parseFloat(editorStyle.paddingRight) || 0;
+      const availableWidth = Math.max(
+        0,
+        editor.clientWidth - paddingLeft - paddingRight
+      );
+
+      if (availableWidth <= 0) {
+        const fragment = document.createDocumentFragment();
+        for (let i = 0; i < lineCount; i++) {
+          const item = document.createElement("div");
+          item.className = "select-none";
+          item.style.height = `${baseLineHeight}px`;
+          item.style.lineHeight = `${baseLineHeight}px`;
+          item.textContent = String(i + 1);
+          fragment.appendChild(item);
+        }
+        gutter.replaceChildren(fragment);
+        gutter.scrollTop = editor.scrollTop;
+        return;
+      }
+
+      // Sync mirror styling
+      mirror.style.width = `${availableWidth}px`;
+      mirror.style.fontFamily = editorStyle.fontFamily;
+      mirror.style.fontSize = editorStyle.fontSize;
+      mirror.style.lineHeight = editorStyle.lineHeight;
+      mirror.style.letterSpacing = editorStyle.letterSpacing;
+      mirror.style.wordBreak = editorStyle.wordBreak;
+      mirror.style.whiteSpace = editorStyle.whiteSpace;
+      mirror.style.tabSize = editorStyle.tabSize;
+      mirror.style.padding = "0";
+      mirror.style.margin = "0";
+      mirror.style.border = "0";
+
+      // Render lines into mirror
+      mirror.innerHTML = "";
+      const mirrorFragment = document.createDocumentFragment();
+      const lineDivs: HTMLDivElement[] = [];
+
+      for (let i = 0; i < lineCount; i++) {
+        const lineDiv = document.createElement("div");
+        lineDiv.style.margin = "0";
+        lineDiv.style.padding = "0";
+        lineDiv.style.border = "0";
+        lineDiv.style.wordBreak = editorStyle.wordBreak;
+        lineDiv.style.whiteSpace = editorStyle.whiteSpace;
+        lineDiv.textContent = lines[i] || "\u200b";
+        mirrorFragment.appendChild(lineDiv);
+        lineDivs.push(lineDiv);
+      }
+      mirror.appendChild(mirrorFragment);
+
+      // Measure heights and build gutter items
+      const gutterFragment = document.createDocumentFragment();
+      for (let i = 0; i < lineCount; i++) {
+        const measuredHeight =
+          lineDivs[i]?.getBoundingClientRect().height || baseLineHeight;
+        const item = document.createElement("div");
+        item.className = "select-none";
+        item.style.height = `${measuredHeight}px`;
+        item.style.lineHeight = `${baseLineHeight}px`;
+        item.textContent = String(i + 1);
+        gutterFragment.appendChild(item);
+      }
+
+      gutter.replaceChildren(gutterFragment);
+      gutter.scrollTop = editor.scrollTop;
     }
 
     // Sync scroll between textarea and gutter
     editor.addEventListener("scroll", () => {
       if (gutter) gutter.scrollTop = editor.scrollTop;
+    });
+
+    // Resize observer to re-measure gutter heights on window/container resize
+    const resizeObserver = new ResizeObserver(() => {
+      requestGutterUpdate();
+    });
+    resizeObserver.observe(editor);
+
+    document.fonts?.ready?.then(() => {
+      requestGutterUpdate();
     });
 
     // Handle Tab key
@@ -1084,7 +1208,7 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
         editor.value =
           editor.value.substring(0, start) + "  " + editor.value.substring(end);
         editor.selectionStart = editor.selectionEnd = start + 2;
-        updateGutter();
+        requestGutterUpdate();
         scheduleRender();
       } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
@@ -1094,7 +1218,7 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
 
     // Textarea input event
     editor.addEventListener("input", () => {
-      updateGutter();
+      requestGutterUpdate();
       // Save draft to localStorage
       try {
         localStorage.setItem(`tools_draft_${currentTool}`, editor.value);
@@ -1105,30 +1229,20 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
     // Template Dropdown Toggle
     templateBtn?.addEventListener("click", e => {
       e.stopPropagation();
-      downloadMenu?.classList.add("hidden");
       templateMenu?.classList.toggle("hidden");
     });
 
-    // Download Dropdown Toggle
-    downloadBtn?.addEventListener("click", e => {
-      e.stopPropagation();
-      templateMenu?.classList.add("hidden");
-      downloadMenu?.classList.toggle("hidden");
-    });
-
+    // Direct Download Buttons (PNG & SVG)
     downloadPngBtn?.addEventListener("click", () => {
-      downloadMenu?.classList.add("hidden");
       handleDownload("png");
     });
 
     downloadSvgBtn?.addEventListener("click", () => {
-      downloadMenu?.classList.add("hidden");
       handleDownload("svg");
     });
 
     document.addEventListener("click", () => {
       templateMenu?.classList.add("hidden");
-      downloadMenu?.classList.add("hidden");
     });
 
     // Populate Templates for current tool
@@ -1148,7 +1262,7 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
         item.addEventListener("click", () => {
           if (editor) {
             editor.value = tmpl.code;
-            updateGutter();
+            requestGutterUpdate();
             try {
               localStorage.setItem(`tools_draft_${currentTool}`, editor.value);
             } catch {}
@@ -1189,7 +1303,7 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
     clearBtn?.addEventListener("click", () => {
       if (!editor) return;
       editor.value = "";
-      updateGutter();
+      requestGutterUpdate();
       try {
         localStorage.removeItem(`tools_draft_${currentTool}`);
       } catch {}
@@ -1253,36 +1367,38 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
         }
       }
 
-      // Show or hide Download button (for latex, graphviz, mermaid, svg)
-      if (downloadDropdownWrapper) {
+      // Show or hide Download buttons group (for latex, graphviz, mermaid, svg)
+      if (downloadButtonsGroup) {
         if (["latex", "graphviz", "mermaid", "svg"].includes(tool)) {
-          downloadDropdownWrapper.classList.remove("hidden");
-          downloadDropdownWrapper.classList.add("inline-block");
+          downloadButtonsGroup.classList.remove("hidden");
+          downloadButtonsGroup.classList.add("flex");
         } else {
-          downloadDropdownWrapper.classList.add("hidden");
-          downloadDropdownWrapper.classList.remove("inline-block");
+          downloadButtonsGroup.classList.add("hidden");
+          downloadButtonsGroup.classList.remove("flex");
         }
       }
 
       // Populate templates for new tool
       populateTemplates();
 
-      // Load saved draft or default template
+      // Load saved draft only if user previously typed one; do NOT auto-populate templates
       let codeToLoad = "";
       try {
         const saved = localStorage.getItem(`tools_draft_${tool}`);
-        if (saved !== null && saved.trim()) {
-          codeToLoad = saved;
+        if (saved !== null) {
+          // If saved draft happens to be identical to a default template from an older version, ignore it
+          const isDefaultTemplate = (TEMPLATES[tool] || []).some(
+            t => t.code.trim() === saved.trim()
+          );
+          if (!isDefaultTemplate) {
+            codeToLoad = saved;
+          }
         }
       } catch {}
 
-      if (!codeToLoad) {
-        codeToLoad = TEMPLATES[tool][0]?.code || "";
-      }
-
       if (editor) {
         editor.value = codeToLoad;
-        updateGutter();
+        requestGutterUpdate();
       }
 
       // Update URL without reloading
