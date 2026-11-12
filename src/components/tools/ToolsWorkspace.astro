@@ -163,9 +163,9 @@ const { initialTool = "latex" } = Astro.props;
     >
       <!-- Input Header Toolbar -->
       <div
-        class="bg-surface-container-low/70 dark:bg-surface-container/60 border-outline-variant/50 flex shrink-0 flex-wrap items-center justify-between gap-2.5 border-b px-4 py-3"
+        class="bg-surface-container-low/70 dark:bg-surface-container/60 border-outline-variant/50 relative flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2.5"
       >
-        <div class="flex items-center gap-2.5">
+        <div class="flex shrink-0 items-center gap-2">
           <div
             class="text-on-surface flex items-center gap-1.5 text-xs font-medium sm:text-sm"
           >
@@ -174,14 +174,14 @@ const { initialTool = "latex" } = Astro.props;
           </div>
           <span
             id="code-stats"
-            class="text-on-surface-variant/70 bg-surface-container-high/80 dark:bg-surface-container-highest/40 rounded-full px-2.5 py-0.5 font-mono text-[11px]"
+            class="text-on-surface-variant/70 bg-surface-container-high/80 dark:bg-surface-container-highest/40 hidden rounded-full px-2.5 py-0.5 font-mono text-[11px] sm:inline-flex"
           >
             1 行 · 0 字符
           </span>
         </div>
 
-        <!-- Input Actions Toolbar -->
-        <div class="flex items-center gap-1.5">
+        <!-- Input Actions Toolbar (pinned to right) -->
+        <div class="ml-auto flex shrink-0 items-center gap-1.5">
           <!-- Template selector dropdown -->
           <div class="relative inline-block text-left">
             <button
@@ -220,7 +220,7 @@ const { initialTool = "latex" } = Astro.props;
             </button>
             <div
               id="template-dropdown-menu"
-              class="bg-surface-container dark:bg-surface-container-high border-outline-variant/70 absolute left-0 z-30 mt-1.5 hidden w-48 rounded-2xl border py-1.5 shadow-lg backdrop-blur-md sm:right-0 sm:left-auto"
+              class="bg-surface-container dark:bg-surface-container-high border-outline-variant/70 absolute top-full left-0 z-40 mt-1.5 hidden w-52 rounded-2xl border py-1.5 shadow-xl backdrop-blur-md"
             >
               <div id="template-list" class="flex flex-col">
                 <!-- Dynamically populated templates -->
@@ -363,9 +363,9 @@ const { initialTool = "latex" } = Astro.props;
     >
       <!-- Preview Header Toolbar -->
       <div
-        class="bg-surface-container-low/70 dark:bg-surface-container/60 border-outline-variant/50 flex shrink-0 flex-wrap items-center justify-between gap-2.5 border-b px-4 py-3"
+        class="bg-surface-container-low/70 dark:bg-surface-container/60 border-outline-variant/50 relative flex shrink-0 items-center justify-between gap-2 border-b px-4 py-2.5"
       >
-        <div class="flex items-center gap-2.5">
+        <div class="flex shrink-0 items-center gap-2">
           <div
             class="text-on-surface flex items-center gap-1.5 text-xs font-medium sm:text-sm"
           >
@@ -387,15 +387,15 @@ const { initialTool = "latex" } = Astro.props;
           <!-- Status badge -->
           <div
             id="render-status-badge"
-            class="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400"
+            class="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400"
           >
             <span class="size-1.5 rounded-full bg-emerald-500"></span>
             <span id="render-status-text">已渲染</span>
           </div>
         </div>
 
-        <!-- Preview Actions Toolbar -->
-        <div class="flex items-center gap-2">
+        <!-- Preview Actions Toolbar (pinned to right) -->
+        <div class="ml-auto flex shrink-0 items-center gap-1.5">
           <!-- Zoom Controls (for SVG / Graphviz / Mermaid) -->
           <div
             id="diagram-zoom-bar"
@@ -1631,76 +1631,94 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
       return { width: 800, height: 600 };
     }
 
-    function renderSvgStringToPng(
-      svgString: string,
-      baseWidth: number,
-      baseHeight: number,
-      filename: string
-    ) {
-      const isDark =
-        document.firstElementChild?.getAttribute("data-theme") === "dark";
-      const scale = 2; // Crisp 2x retina
-      const width = Math.max(100, Math.ceil(baseWidth));
-      const height = Math.max(50, Math.ceil(baseHeight));
+    async function convertSvgToPngBlob(
+      svgEl: SVGElement,
+      isDark: boolean
+    ): Promise<Blob | null> {
+      const hasForeignObject = svgEl.querySelector("foreignObject") !== null;
 
-      let preparedSvg = svgString;
-      if (!preparedSvg.includes('xmlns="http://www.w3.org/2000/svg"')) {
-        preparedSvg = preparedSvg.replace(
-          "<svg",
-          '<svg xmlns="http://www.w3.org/2000/svg"'
-        );
-      }
-      preparedSvg = preparedSvg
-        .replace(/\bwidth="[^"]*"/, `width="${width}"`)
-        .replace(/\bheight="[^"]*"/, `height="${height}"`);
-      if (!/\bwidth=/.test(preparedSvg)) {
-        preparedSvg = preparedSvg.replace("<svg", `<svg width="${width}"`);
-      }
-      if (!/\bheight=/.test(preparedSvg)) {
-        preparedSvg = preparedSvg.replace("<svg", `<svg height="${height}"`);
-      }
-
-      const canvas = document.createElement("canvas");
-      canvas.width = width * scale;
-      canvas.height = height * scale;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) return;
-
-      ctx.fillStyle = isDark ? "#0e1515" : "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      const img = new Image();
-      const blob = new Blob([preparedSvg], {
-        type: "image/svg+xml;charset=utf-8",
-      });
-      const url = URL.createObjectURL(blob);
-
-      img.onload = () => {
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        URL.revokeObjectURL(url);
+      // If foreignObject exists (like in some Mermaid diagrams), html2canvas avoids Chromium canvas taint
+      if (hasForeignObject) {
         try {
-          canvas.toBlob(pngBlob => {
-            if (pngBlob) {
-              downloadBlob(pngBlob, filename);
-            }
-          }, "image/png");
+          const { default: html2canvas } = await import("html2canvas");
+          const target = (svgEl.parentElement || svgEl) as HTMLElement;
+          const canvas = await html2canvas(target, {
+            backgroundColor: isDark ? "#0e1515" : "#ffffff",
+            scale: 2,
+            logging: false,
+          });
+          return new Promise(resolve => {
+            canvas.toBlob(blob => resolve(blob), "image/png");
+          });
         } catch {
-          downloadText(
-            svgString,
-            filename.replace(/\.png$/, ".svg"),
-            "image/svg+xml;charset=utf-8"
-          );
+          // Fall through to rasterizer
         }
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        downloadText(
-          svgString,
-          filename.replace(/\.png$/, ".svg"),
-          "image/svg+xml;charset=utf-8"
-        );
-      };
-      img.src = url;
+      }
+
+      const { width: rawW, height: rawH } = getSvgDimensions(svgEl);
+      const width = Math.max(100, rawW);
+      const height = Math.max(50, rawH);
+
+      const cloned = svgEl.cloneNode(true) as SVGElement;
+      cloned.setAttribute("width", `${width}`);
+      cloned.setAttribute("height", `${height}`);
+      if (!cloned.getAttribute("xmlns")) {
+        cloned.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+      }
+
+      const xml = new XMLSerializer().serializeToString(cloned);
+      const dataUri =
+        "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
+
+      return new Promise(resolve => {
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => {
+          const scale = 2;
+          const canvas = document.createElement("canvas");
+          canvas.width = width * scale;
+          canvas.height = height * scale;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) {
+            resolve(null);
+            return;
+          }
+          ctx.fillStyle = isDark ? "#0e1515" : "#ffffff";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          try {
+            canvas.toBlob(blob => resolve(blob), "image/png");
+          } catch {
+            import("html2canvas")
+              .then(({ default: html2canvas }) => {
+                const target = (svgEl.parentElement || svgEl) as HTMLElement;
+                html2canvas(target, {
+                  backgroundColor: isDark ? "#0e1515" : "#ffffff",
+                  scale: 2,
+                  logging: false,
+                })
+                  .then(c => c.toBlob(blob => resolve(blob), "image/png"))
+                  .catch(() => resolve(null));
+              })
+              .catch(() => resolve(null));
+          }
+        };
+        img.onerror = () => {
+          import("html2canvas")
+            .then(({ default: html2canvas }) => {
+              const target = (svgEl.parentElement || svgEl) as HTMLElement;
+              html2canvas(target, {
+                backgroundColor: isDark ? "#0e1515" : "#ffffff",
+                scale: 2,
+                logging: false,
+              })
+                .then(c => c.toBlob(blob => resolve(blob), "image/png"))
+                .catch(() => resolve(null));
+            })
+            .catch(() => resolve(null));
+        };
+        img.src = dataUri;
+      });
     }
 
     async function handleDownload(format: "png" | "svg") {
@@ -1716,28 +1734,29 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
         ) as HTMLElement | null;
         if (!katexEl) return;
 
-        const rect = katexEl.getBoundingClientRect();
-        const width = Math.max(160, Math.ceil(rect.width) + 40);
-        const height = Math.max(80, Math.ceil(rect.height) + 40);
-        const bgColor = isDark ? "#0e1515" : "#ffffff";
-        const textColor = isDark ? "#e3e2e6" : "#181d1c";
+        if (format === "svg") {
+          const rect = katexEl.getBoundingClientRect();
+          const width = Math.max(160, Math.ceil(rect.width) + 40);
+          const height = Math.max(80, Math.ceil(rect.height) + 40);
+          const bgColor = isDark ? "#0e1515" : "#ffffff";
+          const textColor = isDark ? "#e3e2e6" : "#181d1c";
 
-        let katexRules = "";
-        for (const sheet of Array.from(document.styleSheets)) {
-          try {
-            for (const rule of Array.from(sheet.cssRules || [])) {
-              if (
-                rule.cssText &&
-                rule.cssText.includes("katex") &&
-                !rule.cssText.startsWith("@font-face")
-              ) {
-                katexRules += rule.cssText + "\n";
+          let katexRules = "";
+          for (const sheet of Array.from(document.styleSheets)) {
+            try {
+              for (const rule of Array.from(sheet.cssRules || [])) {
+                if (
+                  rule.cssText &&
+                  rule.cssText.includes("katex") &&
+                  !rule.cssText.startsWith("@font-face")
+                ) {
+                  katexRules += rule.cssText + "\n";
+                }
               }
-            }
-          } catch {}
-        }
+            } catch {}
+          }
 
-        const svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+          const svgString = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
 <style>
 ${katexRules}
 .math-svg-box {
@@ -1760,36 +1779,51 @@ ${katexRules}
 </foreignObject>
 </svg>`;
 
-        if (format === "svg") {
           downloadText(
             svgString,
             `${baseName}.svg`,
             "image/svg+xml;charset=utf-8"
           );
         } else {
-          renderSvgStringToPng(svgString, width, height, `${baseName}.png`);
+          // Real PNG for LaTeX KaTeX using html2canvas
+          const { default: html2canvas } = await import("html2canvas");
+          const previewBox =
+            (previewContent.querySelector(
+              ".katex-preview-box"
+            ) as HTMLElement | null) || katexEl;
+          const canvas = await html2canvas(previewBox, {
+            backgroundColor: isDark ? "#0e1515" : "#ffffff",
+            scale: 2,
+            logging: false,
+          });
+          canvas.toBlob(blob => {
+            if (blob) {
+              downloadBlob(blob, `${baseName}.png`);
+            }
+          }, "image/png");
         }
       } else if (["graphviz", "mermaid", "svg"].includes(currentTool)) {
         const svgEl = previewContent.querySelector("svg") as SVGElement | null;
         if (!svgEl) return;
 
-        let svgString = svgEl.outerHTML;
-        if (!svgString.includes('xmlns="http://www.w3.org/2000/svg"')) {
-          svgString = svgString.replace(
-            "<svg",
-            '<svg xmlns="http://www.w3.org/2000/svg"'
-          );
-        }
-
         if (format === "svg") {
+          let svgString = svgEl.outerHTML;
+          if (!svgString.includes('xmlns="http://www.w3.org/2000/svg"')) {
+            svgString = svgString.replace(
+              "<svg",
+              '<svg xmlns="http://www.w3.org/2000/svg"'
+            );
+          }
           downloadText(
             svgString,
             `${baseName}.svg`,
             "image/svg+xml;charset=utf-8"
           );
         } else {
-          const { width, height } = getSvgDimensions(svgEl);
-          renderSvgStringToPng(svgString, width, height, `${baseName}.png`);
+          const pngBlob = await convertSvgToPngBlob(svgEl, isDark);
+          if (pngBlob) {
+            downloadBlob(pngBlob, `${baseName}.png`);
+          }
         }
       }
     }
