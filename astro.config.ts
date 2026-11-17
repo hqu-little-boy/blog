@@ -20,6 +20,7 @@ import {
 } from "@shikijs/transformers";
 import { transformerFileName } from "./src/utils/transformers/fileName";
 import { remarkDiagrams } from "./src/utils/plugins/remark-diagrams";
+import { remarkMathEnhancer } from "./src/utils/plugins/remark-math-enhancer";
 import config from "./astro-paper.config";
 
 export default defineConfig({
@@ -42,11 +43,12 @@ export default defineConfig({
     processor: unified({
       remarkPlugins: [
         remarkMath,
+        remarkMathEnhancer,
         remarkDiagrams,
         remarkToc,
         [remarkCollapse, { test: "Table of contents" }],
       ],
-      rehypePlugins: [rehypeKatex, rehypeCallouts],
+      rehypePlugins: [[rehypeKatex, { strict: false }], rehypeCallouts],
     }),
     shikiConfig: {
       themes: { light: "github-light", dark: "github-dark" },
