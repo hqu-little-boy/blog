@@ -5,11 +5,7 @@
 export type SupportedLanguage = "python" | "c" | "cpp";
 
 export type RunnerStatus =
-  | "idle"
-  | "loading_engine"
-  | "running"
-  | "success"
-  | "error";
+  "idle" | "loading_engine" | "running" | "success" | "error";
 
 export interface ExecutionResult {
   success: boolean;
@@ -25,4 +21,6 @@ export interface EngineRunOptions {
   onStdout?: (chunk: string) => void;
   onStderr?: (chunk: string) => void;
   onStatusChange?: (status: RunnerStatus, message: string) => void;
+  compilerId?: string;
+  userArguments?: string;
 }

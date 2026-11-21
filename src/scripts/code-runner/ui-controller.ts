@@ -1,5 +1,5 @@
 import { runPythonCode } from "./pyodide-engine";
-import { runCppCode } from "./emscripten-engine";
+import { runCppCode } from "./compiler-explorer-engine";
 import type { SupportedLanguage, RunnerStatus } from "./types";
 
 const PLAY_ICON = `<svg class="size-3.5 inline-block me-1 text-emerald-500 dark:text-emerald-400" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
@@ -107,7 +107,7 @@ export function setupInteractiveCodeBlocks() {
     runBtn.className = `run-code-btn absolute end-20 ${topClass} rounded-full border border-emerald-500/50 bg-surface/95 dark:bg-surface px-2.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 shadow-xs hover:bg-emerald-500/15 hover:border-emerald-500 transition-all duration-200 inline-flex items-center select-none cursor-pointer z-10`;
 
     const labelText =
-      lang === "python" ? "运行 (Pyodide)" : "运行 (C/C++)";
+      lang === "python" ? "运行 (Pyodide)" : "运行 (Compiler Explorer)";
     runBtn.innerHTML = `${PLAY_ICON}<span class="hidden sm:inline">${labelText}</span><span class="sm:hidden">运行</span>`;
     codeBlock.appendChild(runBtn);
 
@@ -122,7 +122,7 @@ export function setupInteractiveCodeBlocks() {
           <span class="status-indicator size-2.5 rounded-full bg-emerald-500 inline-block transition-colors"></span>
           <span class="status-text font-medium text-foreground/90">控制台就绪</span>
           <span class="engine-badge rounded-md px-1.5 py-0.5 text-[10px] font-mono font-semibold tracking-wider text-muted-foreground bg-muted/60">
-            ${lang === "python" ? "Pyodide WASM (客户端算力)" : "WebAssembly / 本地算力"}
+            ${lang === "python" ? "Pyodide WASM (客户端算力)" : "Compiler Explorer (云端编译器)"}
           </span>
         </div>
         <div class="flex items-center gap-1.5 text-xs">
