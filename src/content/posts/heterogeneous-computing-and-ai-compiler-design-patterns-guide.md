@@ -80,7 +80,7 @@ description: 融合面向对象设计哲学与现代异构计算（GPU/NPU/TPU�
 | **线程与并行组织** | 网格（Grid）$	o$ 线程块（Block）$	o$ 线程束（Warp） | 显式数据流触发、控制核多线程事件驱动、硬件管线级并行 | 固定 Tile 矩阵分块、硬件外循环驱动、批量数据流转 |
 | **存储体系设计** | 显存（DDR/HBM）$	o$ L2 缓存 $	o$ 共享内存（Shared Memory/SRAM）$	o$ 寄存器文件 | 系统大内存 $	o$ 片上全局 SRAM $	o$ 专用核内 Scratchpad（SMEM） $	o$ 专用寄存器 | 外部显存 $	o$ 统一大容量缓冲器（Unified Buffer） $	o$ 脉动阵列内部寄存单元 |
 | **计算与内存调度** | 硬件 Warp 调度器动态分发，依赖隐藏通过超线程上下文切换完成 | 显式软件流水线调度：由编译器/指令显式调度 DMA、指令队列与同步事件 | 静态编译期指令调度，计算与数据流动强绑定，循环展开高度依赖离线规划 |
-| **代码生成目标** | 设备中间字节码、汇编 ISA（如 通用 GPU 中间字节码与底层硬件汇编） | RISC-V 扩展指令、自定义协处理器 ISA、MMIO/ACE 硬件寄存器写入流 | 专有张量处理指令、静态内存基地址分配流、微码序列 |
+| **代码生成目标** | 设备中间字节码、汇编 ISA（如 GPU SASS/PTX 类指令） | RISC-V 扩展指令、自定义协处理器 ISA、MMIO/ACE 硬件寄存器写入流 | 专有张量处理指令、静态内存基地址分配流、微码序列 |
 | **首要性能瓶颈** | 寄存器与共享内存占用率（Occupancy）、全局访存合并（Coalescing）、Bank 冲突 | DMA 片上片外搬运带宽、核内流水线气泡（Bubbles）、片上内存容量与对齐溢出 | 脉动阵列边缘填充率（Edge Padding）、数据重用局部性（Reuse）、访存喂饱率 |
 
 ### 1.3 核心矛盾：控制平面（Control Plane）vs 数据平面（Data Plane）的二元分离
@@ -242,39 +242,86 @@ digraph ArchitectureLayers {
 
 侯捷老师在深入剖析设计模式时指出，面向对象设计原则是所有设计模式的基石与灵魂。如果在写代码时没有深刻理解这八大原则，盲目套用 23 种模式只会带来过度设计与“虚假的灵活性”。
 
-在异构计算与 AI 编译器系统中，这八大原则如何指导我们的系统架构？
+在异构计算与 AI 编译器系统中，这八大原则如何指导我们的系统架构？以下每个原则均配有**可直接复制编译运行的完整 C++20 代码**。
+
+---
 
 ### 2.1 单一职责原则（SRP: Single Responsibility Principle）
 
 > **原则定义**：一个类（或模块）应该且仅有一个引起它变化的原因。
 
 #### 异构编译器的典型反模式：超级 Pass（God Pass）
-在工业界许多初创 NPU 编译器项目中，初学者最容易写出动辄数千行的“巨型 Lowering Pass”。在这个 Pass 内部：
-1. 遍历图节点；
-2. 顺手做常数折叠与无用代码消除（DCE）；
-3. 紧接着计算 Tiling 分块切分尺寸；
-4. 随后为张量分配核内核外缓冲地址；
-5. 最后直接硬编码把物理寄存器的十六进制数值发射出来！
+在工业界许多初创 NPU 编译器项目中，初学者最容易写出动辄数千行的“巨型 Lowering Pass”。在这个 Pass 内部，同时做常数折叠、死代码消除、Tiling 尺寸切分、SRAM 地址规划，最后甚至直接把物理寄存器十六进制指令写出来。任何一个维度的变化（算法微调、寄存器偏移修改、SRAM 边界变动）都会导致这几千行代码被重构，风险极大。
 
-这种设计的毁灭性后果在于：
-- 如果算法团队需要尝试一种新的 Tiling 搜索启发式策略，不得不动这几千行代码；
-- 如果硬件团队将芯片底层寄存器的偏移从 `0x10` 改为 `0x18`，还要动这几千行代码；
-- 如果内存分配算法需要增加 Bank Conflict 规避逻辑，依然要动这几千行代码。
-**该类存在四个甚至五个引起它变化的维度，彻底违反了 SRP。**
+#### 架构实践：严格拆分职责管线（可编译运行）
+高内聚的编译器应将上述职责严格分解为流水线中独立的原子阶段：
 
-#### 架构实践：严格拆分职责管线
-高内聚的编译器应将上述职责严格分解：
-- `CanonicalizationPass`：专门负责数学等价化简与死代码消除；
-- `TilingPlanningPass`：专门基于代价模型决策 Tile 尺寸；
-- `BufferPlacementPass`：专门负责片上存储（SRAM）与外部内存地址规划；
-- `InstructionEmitter`：专门负责将抽象执行计划转化为具体指令。
+```cpp
+#include <iostream>
+#include <string>
+#include <vector>
+#include <memory>
 
-```mermaid
-flowchart LR
-    A["巨型超级 Pass\n(违反 SRP)"] -.->|重构拆解| B["规范化化简 Pass"]
-    B --> C["Tiling 规划 Pass"]
-    C --> D["内存布局 Pass"]
-    D --> E["指令发射 Pass"]
+// 1. 语义 IR 节点
+struct TensorOp {
+    std::string name;
+    size_t sizeBytes;
+    uint32_t tileM{0};
+    uint32_t sramAddress{0};
+};
+
+// 职责 A：规范化化简 Pass (只负责纯数学等价化简与死代码消除)
+class CanonicalizePass {
+public:
+    void run(TensorOp& op) {
+        std::cout << "[Pass 1: Canonicalize] 化简算子语义与死代码: " << op.name << "\n";
+    }
+};
+
+// 职责 B：Tiling 规划 Pass (只负责数学切分决策)
+class TilingPlanPass {
+public:
+    void run(TensorOp& op) {
+        op.tileM = 64; // 决策 Tile 大小为 64
+        std::cout << "[Pass 2: TilingPlan] 决策分块尺寸 TileM = " << op.tileM << "\n";
+    }
+};
+
+// 职责 C：内存布局规划 Pass (只负责片上 SRAM 分配)
+class MemoryPlanPass {
+public:
+    void run(TensorOp& op) {
+        op.sramAddress = 0x1000; // 分配片上 SRAM 基地址
+        std::cout << "[Pass 3: MemoryPlan] 分配片上 SRAM 偏移: 0x" << std::hex << op.sramAddress << std::dec << "\n";
+    }
+};
+
+// 职责 D：指令发射器 (只负责生成底层硬件机器码)
+class InstructionEmitter {
+public:
+    void emit(const TensorOp& op) {
+        std::cout << "[Pass 4: Codegen] 发射底层硬件执行微码: " << op.name 
+                  << " [Tile=" << op.tileM << ", SRAM=0x" << std::hex << op.sramAddress << std::dec << "]\n";
+    }
+};
+
+int main() {
+    std::cout << "=== SRP 原则：编译器单向职责流水线演示 ===\n";
+    TensorOp gemmOp{"MatMul_Float32", 1024 * 1024};
+
+    CanonicalizePass pass1;
+    TilingPlanPass pass2;
+    MemoryPlanPass pass3;
+    InstructionEmitter emitter;
+
+    pass1.run(gemmOp);
+    pass2.run(gemmOp);
+    pass3.run(gemmOp);
+    emitter.emit(gemmOp);
+
+    std::cout << "=== 流水线执行完毕，每个阶段仅有一个引起修改的原因 ===\n";
+    return 0;
+}
 ```
 
 ---
@@ -283,38 +330,73 @@ flowchart LR
 
 > **原则定义**：软件实体（类、模块、函数）应该对扩展开放，对修改关闭。
 
-#### 异构编译器的典型反模式：级联 `switch-case`
-在为编译器添加新算子（如从 Conv2d 拓展到 LayerNorm、Rotary Embedding）或支持新硬件时，最差的做法是在主转换函数里写满对类型的判断：
+#### 架构实践：动态注册机制与 Pattern 扩展（可编译运行）
+避免使用嵌套 `switch-case` 匹配算子类型。现代编译器采用基于改写模式库（RewritePattern）的注册体系，新增算子下沉逻辑只需新增独立类并注册：
 
 ```cpp
-// 严重违反 OCP 的坏代码
-void lowerOperation(Operation* op, DeviceType dev) {
-    if (op->getName() == "matmul") {
-        if (dev == DeviceType::GPU) lowerMatMulToGPU(op);
-        else if (dev == DeviceType::NPU) lowerMatMulToNPU(op);
-    } else if (op->getName() == "layernorm") {
-        if (dev == DeviceType::GPU) lowerLayerNormToGPU(op);
-        else if (dev == DeviceType::NPU) lowerLayerNormToNPU(op);
-    } // 每新增一个算子或一个硬件，都要修改这个核心文件！
-}
-```
+#include <iostream>
+#include <string>
+#include <memory>
+#include <unordered_map>
 
-#### 架构实践：动态注册机制与 Pattern 扩展
-现代编译器采用可插拔的改写模式库（RewritePatternSet）。主流程只负责运行管线，任何算子的下沉规则都是一个独立的结构体，通过注册器在初始化时注入：
-
-```cpp
-// 遵循 OCP 的设计：新增算子只需要新增一个文件并注册即可
-class MatMulLoweringPattern : public OpRewritePattern<MatMulOp> {
+// 抽象模式基类
+class OpRewritePattern {
 public:
-    LogicalResult matchAndRewrite(MatMulOp op, PatternRewriter& rewriter) const override {
-        // 独立的下沉与改写逻辑，绝对不侵入其他算子
-        return success();
+    virtual ~OpRewritePattern() = default;
+    virtual std::string_view getOpName() const noexcept = 0;
+    virtual void rewrite() const = 0;
+};
+
+// 核心改写引擎（对修改关闭）
+class PatternDriver {
+public:
+    void registerPattern(std::unique_ptr<OpRewritePattern> pattern) {
+        patterns_[std::string(pattern->getOpName())] = std::move(pattern);
+    }
+
+    void processOp(const std::string& opName) const {
+        auto it = patterns_.find(opName);
+        if (it != patterns_.end()) {
+            it->second->rewrite();
+        } else {
+            std::cout << "[PatternDriver] 未知算子: " << opName << "，保持原样。\n";
+        }
+    }
+
+private:
+    std::unordered_map<std::string, std::unique_ptr<OpRewritePattern>> patterns_;
+};
+
+// 扩展 A：MatMul 算子改写（对扩展开放）
+class MatMulPattern : public OpRewritePattern {
+public:
+    std::string_view getOpName() const noexcept override { return "matmul"; }
+    void rewrite() const override {
+        std::cout << "[MatMulPattern] 匹配 MatMul 算子，展开为专用矩阵乘指令！\n";
     }
 };
 
-void populateNpuLoweringPatterns(RewritePatternSet& patterns) {
-    patterns.add<MatMulLoweringPattern>();
-    patterns.add<LayerNormLoweringPattern>(); // 扩展时无需修改执行引擎的核心驱动代码
+// 扩展 B：LayerNorm 算子改写（对扩展开放）
+class LayerNormPattern : public OpRewritePattern {
+public:
+    std::string_view getOpName() const noexcept override { return "layernorm"; }
+    void rewrite() const override {
+        std::cout << "[LayerNormPattern] 匹配 LayerNorm 算子，融合为向量规约指令！\n";
+    }
+};
+
+int main() {
+    std::cout << "=== OCP 原则：可扩展 Pattern 改写机制演示 ===\n";
+    PatternDriver driver;
+    // 注册已有算子改写规则
+    driver.registerPattern(std::make_unique<MatMulPattern>());
+    driver.registerPattern(std::make_unique<LayerNormPattern>());
+
+    // 运行改写，无需修改 PatternDriver 核心代码
+    driver.processOp("matmul");
+    driver.processOp("layernorm");
+    driver.processOp("unknown_op");
+    return 0;
 }
 ```
 
@@ -324,52 +406,73 @@ void populateNpuLoweringPatterns(RewritePatternSet& patterns) {
 
 > **原则定义**：所有引用基类的地方必须能透明地使用其子类的对象，而不会导致程序的逻辑错误或异常。
 
-#### 异构计算中的虚假泛化陷阱
-在设计硬件加速卡设备驱动抽象时，开发者常定义如下接口：
+#### 架构实践：能力契约（Capability-based）查询（可编译运行）
+基类不应该强行假设所有硬件都具有相同的高级特性（如任意非对齐异步 DMA 拷贝）。应当通过能力查询结构体解耦：
 
 ```cpp
-class IDeviceEngine {
-public:
-    virtual ~IDeviceEngine() = default;
-    virtual void asyncMemCopy(void* dst, void* src, size_t bytes) = 0;
-    virtual void executeKernel(const void* binary, size_t size) = 0;
-};
-```
+#include <iostream>
+#include <memory>
+#include <cstdint>
 
-后来团队引入了一款专用张量阵列加速芯片（TPU-like），该芯片的硬件 DMA 控制器存在极为苛刻的物理约束：**传输的源地址、目的地址与字节数必须严格 64 字节对齐，且硬件内部完全不支持异步重叠传输，只能阻塞式运行。**
-
-若开发者在派生类中写出如下实现：
-
-```cpp
-class TensorArrayEngine : public IDeviceEngine {
-public:
-    void asyncMemCopy(void* dst, void* src, size_t bytes) override {
-        if ((uintptr_t)dst % 64 != 0 || bytes % 64 != 0) {
-            throw std::runtime_error("LSP 破裂！硬件不支持非 64 字节对齐的拷贝！");
-        }
-        // 实际上是同步阻塞，基类的异步假定失效
-        syncCopyBlocking(dst, src, bytes); 
-    }
-};
-```
-
-上层调度器假设 `IDeviceEngine` 具有通用的非对齐异步传输能力，结果在替换为 `TensorArrayEngine` 时崩溃或引发时序饥饿死锁。
-
-#### 架构实践：能力契约（Capability-based）拆分
-不要使用包含过多隐式假定的虚假父类。应当通过清晰的能力特性（Capabilities）进行能力查询，或者将非对齐处理作为装饰器适配层在底层隔离：
-
-```cpp
+// 硬件能力契约
 struct DmaCapabilities {
     size_t alignmentRequired{1};
     bool supportsAsync{true};
-    size_t maxBurstSize{4096};
 };
 
 class IDeviceEngine {
 public:
     virtual ~IDeviceEngine() = default;
     virtual const DmaCapabilities& getCapabilities() const noexcept = 0;
+    virtual void transfer(void* dst, void* src, size_t bytes) = 0;
 };
+
+// 通用 GPU 引擎（支持任意非对齐）
+class GeneralGpuEngine : public IDeviceEngine {
+public:
+    const DmaCapabilities& getCapabilities() const noexcept override {
+        static DmaCapabilities caps{1, true};
+        return caps;
+    }
+    void transfer(void*, void*, size_t bytes) override {
+        std::cout << "[GPU 引擎] 执行异步流 DMA 传输: " << bytes << " 字节\n";
+    }
+};
+
+// 专用张量阵列加速引擎（要求严格 64 字节对齐）
+class SystolicArrayEngine : public IDeviceEngine {
+public:
+    const DmaCapabilities& getCapabilities() const noexcept override {
+        static DmaCapabilities caps{64, false};
+        return caps;
+    }
+    void transfer(void* dst, void* src, size_t bytes) override {
+        // 在满足自身前置条件下，透明替换基类行为
+        std::cout << "[脉动阵列引擎] 执行同步对齐 DMA 传输: " << bytes << " 字节\n";
+    }
+};
+
+// 上层调度器（遵循 LSP，透明消费子类）
+void scheduleDma(IDeviceEngine& engine, void* dst, void* src, size_t bytes) {
+    const auto& caps = engine.getCapabilities();
+    if ((uintptr_t)dst % caps.alignmentRequired != 0 || bytes % caps.alignmentRequired != 0) {
+        std::cout << "[调度器注意] 目标硬件要求 " << caps.alignmentRequired << " 字节对齐，插入 Padding 缓冲。\n";
+    }
+    engine.transfer(dst, src, bytes);
+}
+
+int main() {
+    std::cout << "=== LSP 原则：能力契约解耦与安全替换演示 ===\n";
+    GeneralGpuEngine gpu;
+    SystolicArrayEngine systolic;
+
+    uint8_t buffer[128];
+    void* ptr = buffer;
+
+    scheduleDma(gpu, ptr, ptr, 100);
+    scheduleDma(systolic, ptr, ptr, 100);
+    return 0;
+}
 ```
 
 ---
@@ -378,24 +481,53 @@ public:
 
 > **原则定义**：客户端不应该被迫依赖它不使用的方法；一个类对另一个类的依赖应该建立在最小的接口上。
 
-#### 编译管线中的权限隔离
-在编译器框架中，Pass 通常分为两类：
-1. **分析型 Pass（Analysis Pass）**：只负责遍历 IR，收集数据依赖关系、活跃变量区间或内存占用估算，**绝对不能对 IR 产生任何写修改**；
-2. **转换型 Pass（Transformation Pass）**：根据分析结果对 IR 节点进行擦除、替换和分裂。
-
-如果将两者的接口定义为一个庞大的胖接口：
+#### 架构实践：分离只读分析与破坏性修改接口（可编译运行）
 
 ```cpp
-// 违反 ISP 的胖接口
-class ICompilerPass {
-public:
-    virtual void analyzeDataflow() = 0;
-    virtual void eraseDeadOps() = 0;
-    virtual void replaceOpWith(Operation* oldOp, Operation* newOp) = 0;
-};
-```
+#include <iostream>
+#include <memory>
+#include <string>
 
-分析 Pass 被迫依赖修改 IR 的接口，一旦分析代码无意中修改了 IR 结构，会导致编译管线的依赖关系完全错乱并引发段错误。现代框架（如 MLIR）通过将接口严格隔离为只读的 `AnalysisManager` 与专职写操作的 `PatternRewriter`，从类型系统层面彻底阻断了未授权的写操作。
+// 最小接口 A：只读分析接口
+class IAnalysisReader {
+public:
+    virtual ~IAnalysisReader() = default;
+    virtual size_t getTensorSize(std::string_view name) const = 0;
+};
+
+// 最小接口 B：IR 改写接口
+class IIrMutator {
+public:
+    virtual ~IIrMutator() = default;
+    virtual void replaceOp(std::string_view oldOp, std::string_view newOp) = 0;
+};
+
+// 编译器上下文实现两个接口
+class CompilerContext : public IAnalysisReader, public IIrMutator {
+public:
+    size_t getTensorSize(std::string_view) const override { return 4096; }
+    void replaceOp(std::string_view oldOp, std::string_view newOp) override {
+        std::cout << "[Context] 将 " << oldOp << " 替换为 " << newOp << "\n";
+    }
+};
+
+// 分析 Pass 只依赖只读接口，从类型系统层面杜绝误篡改 IR
+class MemoryFootprintAnalysis {
+public:
+    void analyze(const IAnalysisReader& reader) {
+        size_t sz = reader.getTensorSize("InputTensor");
+        std::cout << "[Analysis] 分析内存占用: " << sz << " 字节 (只读安全)\n";
+    }
+};
+
+int main() {
+    std::cout << "=== ISP 原则：接口隔离保障只读安全性演示 ===\n";
+    CompilerContext ctx;
+    MemoryFootprintAnalysis analysis;
+    analysis.analyze(ctx);
+    return 0;
+}
+```
 
 ---
 
@@ -403,24 +535,48 @@ public:
 
 > **原则定义**：高层模块不应该依赖低层模块，二者都应该依赖其抽象；抽象不应该依赖细节，细节应该依赖抽象。
 
-#### 异构编译中的硬件解耦
-高层优化 Pass（例如循环分块 Tiling 规划器）不应直接包含具体芯片的物理头文件（如 `#include <chip_v2_registers.h>`）。
+#### 架构实践：基于能力契约 `HardwareCaps` 解耦物理芯片（可编译运行）
 
-```mermaid
-flowchart TD
-    subgraph Bad["违反 DIP 的紧耦合架构"]
-        direction LR
-        TilingBad["Tiling 优化算法"] -->|"直接依赖具体物理芯片细节"| ChipBad["ChipV2 物理硬件规格 (256KB SRAM, 64B 对齐)"]
-    end
+```cpp
+#include <iostream>
+#include <memory>
+#include <string>
 
-    subgraph Good["遵循 DIP 的倒置架构"]
-        direction TB
-        TilingGood["Tiling 优化算法 (高层)"] -->|"依赖抽象能力契约"| Caps["HardwareCaps (抽象数据契约)"]
-        ChipGood["ChipV2 适配器 (低层)"] -->|"实现并填充契约数据"| Caps
-    end
+// 抽象数据契约：纯粹的数学与物理容量参数
+struct HardwareCaps {
+    std::string chipFamily;
+    size_t sramBytes;
+    size_t vectorWidth;
+};
+
+// 高层模块：Tiling 优化规划器（完全不依赖具体芯片类）
+class TilingPlanner {
+public:
+    uint32_t computeOptimalTile(const HardwareCaps& caps, size_t totalElements) {
+        std::cout << "[Planner] 针对硬件架构 [" << caps.chipFamily 
+                  << "] 计算分块，SRAM 预算: " << caps.sramBytes / 1024 << " KB\n";
+        // 依据通用公式计算 Tile 大小
+        return static_cast<uint32_t>(caps.vectorWidth * 4);
+    }
+};
+
+// 底层模块：具体芯片适配器提供抽象契约
+class ChipV2Adapter {
+public:
+    static HardwareCaps getCapabilities() {
+        return HardwareCaps{"DataflowNPU-V2", 256 * 1024, 64};
+    }
+};
+
+int main() {
+    std::cout << "=== DIP 原则：依赖倒置解除芯片强依赖演示 ===\n";
+    TilingPlanner planner;
+    auto caps = ChipV2Adapter::getCapabilities();
+    uint32_t tile = planner.computeOptimalTile(caps, 1024 * 1024);
+    std::cout << "计算获得的最优 Tile 尺寸: " << tile << "\n";
+    return 0;
+}
 ```
-
-通过引入数据契约结构体 `HardwareCaps`，Tiling 算法只针对数学属性（片上容量、向量计算宽度、带宽比）进行分块计算，具体芯片只负责向契约填充具体参数值，从而使高层算法可以在任何未来的新硬件架构上无缝复用。
 
 ---
 
@@ -428,49 +584,108 @@ flowchart TD
 
 > **原则定义**：通过包含现有对象并委派其功能（对象组合），往往比通过类继承扩展现有行为更加灵活且脆弱性更低。
 
-继承是**编译期静态绑定**的强耦合关系，子类会无条件继承基类的一切公有和保护状态，一旦基类修改，整个子类层级都会发生级联雪崩。
-在编译器构建 PassPipeline 时，我们绝不使用派生类来组合功能（例如 `MatMulLoweringWithProfilingAndDcePass`），而是通过组合模式将原子 Pass 装配在 `PassManager` 管道中：
+#### 架构实践：`PassPipeline` 动态装配（可编译运行）
 
 ```cpp
-// 优雅的组合哲学
-PassManager pm;
-pm.addPass(createCanonicalizerPass());
-pm.addPass(createTilingPass(tilingStrategy));
-pm.addPass(createDcePass());
-pm.run(moduleOp);
+#include <iostream>
+#include <vector>
+#include <memory>
+#include <string>
+
+class IPass {
+public:
+    virtual ~IPass() = default;
+    virtual void run() = 0;
+};
+
+class DeadCodeEliminationPass : public IPass {
+public:
+    void run() override { std::cout << "  -> 消除死代码 (DCE)\n"; }
+};
+
+class ConstantFoldingPass : public IPass {
+public:
+    void run() override { std::cout << "  -> 常量折叠 (Constant Folding)\n"; }
+};
+
+class LoopFusionPass : public IPass {
+public:
+    void run() override { std::cout << "  -> 跨核循环融合 (Loop Fusion)\n"; }
+};
+
+// 组合流水线：动态装配原子 Pass，而非多继承
+class PassPipeline {
+public:
+    void addPass(std::unique_ptr<IPass> pass) {
+        pipeline_.push_back(std::move(pass));
+    }
+
+    void execute() {
+        std::cout << ">>> 启动组合优化管线 <<<\n";
+        for (const auto& pass : pipeline_) {
+            pass->run();
+        }
+        std::cout << ">>> 管线执行完毕 <<<\n";
+    }
+
+private:
+    std::vector<std::unique_ptr<IPass>> pipeline_;
+};
+
+int main() {
+    std::cout << "=== 组合优于继承：Pass 管道动态组合演示 ===\n";
+    PassPipeline pipeline;
+    pipeline.addPass(std::make_unique<ConstantFoldingPass>());
+    pipeline.addPass(std::make_unique<DeadCodeEliminationPass>());
+    pipeline.addPass(std::make_unique<LoopFusionPass>());
+
+    pipeline.execute();
+    return 0;
+}
 ```
 
 ---
 
-### 2.7 封装变化点（Encapsulate Variation）
-
-> **原则定义**：找出应用中可能需要变化之处，把它们独立出来，不要和那些不需要变化的代码混在一起。
-
-在异构计算编译系统中，**绝对稳定**的内容是：
-- 张量算子的数学定义（如 GEMM 的数学定义永不改变）；
-- 计算图的拓扑偏序关系。
-
-而**极度剧烈变化**的三大核心变化点是：
-1. **Tiling 分块与内存排布（Layout）策略**；
-2. **目标加速芯片专有寄存器位段定义与编码协议**；
-3. **驱动交互传输总线（从单字 MMIO 到批处理原子 ACE）**。
-
-将这三大变化点分别使用独立的策略类（Strategy）、构建器（Builder）和适配器（Adapter）封装，核心编译主流程即可固若金汤。
-
----
-
-### 2.8 迪米特法则（Law of Demeter, 最少知识原则）
+### 2.7 迪米特法则（Law of Demeter, 最少知识原则）
 
 > **原则定义**：只与你直接的朋友交谈，不要跟“陌生人的朋友”发生直接依赖（不要穿透调用）。
 
-在编译器代码中，极易出现如下脆弱链式调用：
+#### 架构实践：避免脆弱的跨层链式穿透（可编译运行）
 
 ```cpp
-// 严重违反迪米特法则：脆弱的链式穿透
-auto bufferSize = op->getParentOp()->getParentOp()->getRegion(0).front().getTerminator()->getOperand(0).getType().cast<MemRefType>().getSize();
-```
+#include <iostream>
+#include <string>
 
-只要上层编译流程在中间多套了一层 `scf.for` 循环或者增加了一个辅助作用域（Scope），上述代码将在运行时发生空指针段错误。遵循迪米特法则的代码应当通过显式的上下文接口或查询工具类获取属性，严禁跨越两层以上的层级直接寻址。
+// 糟糕的做法：链式穿透 a->getB()->getC()->getD()->getValue()
+// 优雅的做法：直接向直接朋友索取计算结果
+
+class TensorMetadata {
+public:
+    explicit TensorMetadata(size_t sz) : sizeBytes_(sz) {}
+    size_t getSizeBytes() const noexcept { return sizeBytes_; }
+private:
+    size_t sizeBytes_;
+};
+
+class OperationNode {
+public:
+    explicit OperationNode(TensorMetadata meta) : meta_(meta) {}
+    // 封装直接查询方法，外界无需了解 TensorMetadata 的内部结构
+    size_t getOutputBufferBytes() const noexcept {
+        return meta_.getSizeBytes();
+    }
+private:
+    TensorMetadata meta_;
+};
+
+int main() {
+    std::cout << "=== 迪米特法则：封装内聚防穿透演示 ===\n";
+    OperationNode op(TensorMetadata(65536));
+    // 直接与直接朋友交谈，接口清晰稳固
+    std::cout << "算子所需缓冲区大小: " << op.getOutputBufferBytes() << " 字节\n";
+    return 0;
+}
+```
 
 ---
 
@@ -481,7 +696,7 @@ auto bufferSize = op->getParentOp()->getParentOp()->getRegion(0).front().getTerm
 2. **结构型模式（Structural Patterns）**：管理类与对象之间的组合关系，搭建高内聚低耦合的架构骨架；
 3. **行为型模式（Behavioral Patterns）**：管理系统运行时的职责分派、控制算法与事件通信。
 
-下面，我们将 23 种模式逐一置于现代 C++20、AI 编译器与异构底层系统的显微镜下，深入解剖其工程实践与选型边界。
+下面，我们将 23 种模式逐一置于现代 C++20、AI 编译器与异构底层系统的显微镜下，深入解剖其工程实践与选型边界。**每一个模式均配有完整的、可独立编译运行的 C++20 代码**。
 
 ---
 
@@ -492,11 +707,7 @@ auto bufferSize = op->getParentOp()->getParentOp()->getRegion(0).front().getTerm
 - **传统 GoF 意图**：定义一个用于创建对象的接口，让子类决定实例化哪一个类。工厂方法使一个类的实例化延迟到其子类。
 - **编译器映射**：Pass 动态注册体系、目标后端代码生成器（Emitter）创建机制。
 
-##### 架构痛点：主流程强依赖具体实现
-如果编译器的主流程直接使用 `new` 实例化具体 Pass，那么每当新增一个芯片特化的 Pass，编译器主流程代码就必须被重新编译，违反 DIP 原则。
-
-##### C++20 工程实现：类型安全的动态工厂注册表
-通过结合 C++ 局部静态变量与模板注册器，实现零侵入式的 Pass 自动工厂注册：
+##### C++20 工程实现：类型安全的动态工厂注册表（可编译运行）
 
 ```cpp
 #include <iostream>
@@ -512,7 +723,7 @@ public:
     virtual void runOnModule() = 0;
 };
 
-// Pass 工厂类型定义
+// Pass 工厂函数类型
 using PassFactoryFn = std::function<std::unique_ptr<ICompilerPass>()>;
 
 class PassRegistry {
@@ -538,7 +749,7 @@ private:
     std::unordered_map<std::string, PassFactoryFn> factories_;
 };
 
-// 自动注册辅助模板（静态变量在程序启动或加载时自动触发注册）
+// 自动注册辅助模板（静态变量在程序加载时自动触发注册）
 template <typename TPass>
 struct RegisterPassHelper {
     explicit RegisterPassHelper(std::string_view name) {
@@ -548,17 +759,42 @@ struct RegisterPassHelper {
     }
 };
 
-// 具体实现：NPU Tiling Pass
+// 具体实现 A：NPU 专用 Tiling Pass
 class NpuTilingPass : public ICompilerPass {
 public:
     std::string_view getName() const noexcept override { return "npu-tiling"; }
     void runOnModule() override {
-        std::cout << "[Pass] 执行 NPU 专用循环切分优化...\n";
+        std::cout << "  [Pass: npu-tiling] 执行 NPU 专用循环切分优化...\n";
+    }
+};
+
+// 具体实现 B：常数折叠 Pass
+class ConstantFoldPass : public ICompilerPass {
+public:
+    std::string_view getName() const noexcept override { return "const-fold"; }
+    void runOnModule() override {
+        std::cout << "  [Pass: const-fold] 执行编译期常量表达式静态折叠...\n";
     }
 };
 
 // 静态注册触发点（无需修改 PassManager 核心文件）
 static RegisterPassHelper<NpuTilingPass> regNpuTiling("npu-tiling");
+static RegisterPassHelper<ConstantFoldPass> regConstFold("const-fold");
+
+int main() {
+    std::cout << "=== 工厂方法模式：Pass 动态注册与创建演示 ===\n";
+    auto pass1 = PassRegistry::instance().createPass("npu-tiling");
+    auto pass2 = PassRegistry::instance().createPass("const-fold");
+
+    if (pass1) pass1->runOnModule();
+    if (pass2) pass2->runOnModule();
+
+    auto unknown = PassRegistry::instance().createPass("not-exist");
+    if (!unknown) {
+        std::cout << "  [Registry] 成功捕获未知 Pass 查询，返回空指针。\n";
+    }
+    return 0;
+}
 ```
 
 > [!TIP]
@@ -572,24 +808,14 @@ static RegisterPassHelper<NpuTilingPass> regNpuTiling("npu-tiling");
 - **编译器映射**：多芯片代际后端组件套件（Score/Tcore/DMA/ABI）的一致性绑定。
 
 ##### 架构痛点：组件版本错配引发的硬件灾难
-在真实的 NPU 项目中，芯片往往迭代迅速（如一代 NPU-V1 与 二代 NPU-V2）。
-- V1 硬件：包含 V1_Score 控制发射器、V1_DMA 搬运器、V1_ABI 调用约定；
-- V2 硬件：包含 V2_Score、具有突发传输能力的 V2_DMA、支持 64 位寻址的 V2_ABI。
+在真实的 NPU 项目中，芯片往往迭代迅速（如一代 NPU-V1 与 二代 NPU-V2）。如果使用单个独立的工厂方法分散创建各个部件，开发人员极易写出 V1 发射器配合 V2 DMA 搬运器的低级错误，导致硬件信号错乱与死锁。
 
-如果使用单个独立的工厂方法分散创建各个部件，开发人员极易在配置管线时写出类似下面的致命错误：
-
-```cpp
-// 致命的混配错误！V1 发射器配合了 V2 的 DMA，导致硬件信号协议错乱
-auto scoreEmitter = createScoreEmitter(TargetVersion::V1);
-auto dmaPlanner = createDmaPlanner(TargetVersion::V2); // 致命！协议不匹配引发硬件死锁
-```
-
-##### C++20 工程实现：后端全套组件一致性保障工厂
-抽象工厂强行将“成套组件”的生命周期与版本绑定，从类型系统层面杜绝混用：
+##### C++20 工程实现：后端全套组件一致性保障工厂（可编译运行）
 
 ```cpp
 #include <memory>
 #include <iostream>
+#include <string>
 
 struct IScoreEmitter { virtual ~IScoreEmitter() = default; virtual void emitScoreOp() = 0; };
 struct IDmaPlanner   { virtual ~IDmaPlanner() = default; virtual void planDmaTransfer() = 0; };
@@ -609,13 +835,13 @@ class NpuV1BackendFactory : public ITargetBackendFactory {
 public:
     std::unique_ptr<IScoreEmitter> createScoreEmitter() const override {
         struct ScoreEmitterV1 : IScoreEmitter {
-            void emitScoreOp() override { std::cout << "Emitting V1 Score Op\n"; }
+            void emitScoreOp() override { std::cout << "  [V1-Score] 发射单发射标量协处理指令\n"; }
         };
         return std::make_unique<ScoreEmitterV1>();
     }
     std::unique_ptr<IDmaPlanner> createDmaPlanner() const override {
         struct DmaPlannerV1 : IDmaPlanner {
-            void planDmaTransfer() override { std::cout << "Planning V1 Single-beat DMA\n"; }
+            void planDmaTransfer() override { std::cout << "  [V1-DMA] 规划单拍阻塞式内存搬运\n"; }
         };
         return std::make_unique<DmaPlannerV1>();
     }
@@ -627,10 +853,50 @@ public:
     }
 };
 
-// 关键选择：何时不要滥用抽象工厂？
-// 如果 V1 和 V2 仅仅是“寄存器偏移地址不同”、“SRAM 大小从 256K 变为 512K”，
-// 那么使用【数据驱动的硬件参数配置表 (HardwareConfig Map)】远比抽象工厂轻量优雅！
-// 只有当控制逻辑、指令微码语义发生根本性代际裂变时，抽象工厂才是不可替代的。
+// V2 硬件套件实现 (支持突发并发)
+class NpuV2BackendFactory : public ITargetBackendFactory {
+public:
+    std::unique_ptr<IScoreEmitter> createScoreEmitter() const override {
+        struct ScoreEmitterV2 : IScoreEmitter {
+            void emitScoreOp() override { std::cout << "  [V2-Score] 发射多发射原子批处理协处理指令\n"; }
+        };
+        return std::make_unique<ScoreEmitterV2>();
+    }
+    std::unique_ptr<IDmaPlanner> createDmaPlanner() const override {
+        struct DmaPlannerV2 : IDmaPlanner {
+            void planDmaTransfer() override { std::cout << "  [V2-DMA] 规划多通道双缓冲异步突发传输\n"; }
+        };
+        return std::make_unique<DmaPlannerV2>();
+    }
+    std::unique_ptr<IAbiConfig> createAbiConfig() const override {
+        struct AbiV2 : IAbiConfig {
+            size_t getStackAlignment() override { return 64; }
+        };
+        return std::make_unique<AbiV2>();
+    }
+};
+
+void runCompilationWithBackend(const ITargetBackendFactory& factory) {
+    auto score = factory.createScoreEmitter();
+    auto dma   = factory.createDmaPlanner();
+    auto abi   = factory.createAbiConfig();
+
+    score->emitScoreOp();
+    dma->planDmaTransfer();
+    std::cout << "  [ABI] 栈空间对齐字节数: " << abi->getStackAlignment() << "\n";
+}
+
+int main() {
+    std::cout << "=== 抽象工厂模式：多代 NPU 统一套件创建演示 ===\n";
+    std::cout << ">>> 针对 NPU-V1 架构编译 <<<\n";
+    NpuV1BackendFactory v1Factory;
+    runCompilationWithBackend(v1Factory);
+
+    std::cout << "\n>>> 针对 NPU-V2 架构编译 <<<\n";
+    NpuV2BackendFactory v2Factory;
+    runCompilationWithBackend(v2Factory);
+    return 0;
+}
 ```
 
 ---
@@ -640,12 +906,7 @@ public:
 - **传统 GoF 意图**：将一个复杂对象的构建与其表示分离，使得同样的构建过程可以创建不同的表示。
 - **编译器映射**：硬件执行计划构建器（ExecutionPlanBuilder）、微码指令包组装器。
 
-##### 架构痛点：复杂的硬件执行约束
-硬件加速器（如 NPU/TPU）的执行程序不是单一简单的函数调用，而是一组交织了**内存布局分配、DMA 双缓冲通道配置、片上 Scratchpad 地址偏移计算、多核事件同步槽位绑定**的复杂数据结构。直接通过构造函数传递几十个参数是灾难性的。
-
-更重要的是：**硬件执行计划在生成的每一个阶段，都必须强行进行物理硬件合法性校验（Invariant Assertions）！**
-
-##### C++20 工程实现：带有硬件强约束校验的 PlanBuilder
+##### C++20 工程实现：带有硬件强约束校验的 PlanBuilder（可编译运行）
 
 ```cpp
 #include <cstdint>
@@ -670,7 +931,7 @@ class ScorePlanBuilder {
 public:
     ScorePlanBuilder& setEventSyncSlot(uint32_t slot) {
         if (slot > 15) { // 硬件总共只有 16 个同步事件槽位
-            throw std::invalid_argument("硬件错误：同步事件槽位必须在 0~15 之间！");
+            throw std::invalid_argument("硬件约束异常：同步事件槽位必须在 0~15 之间！");
         }
         plan_.eventSyncSlot = slot;
         return *this;
@@ -682,7 +943,7 @@ public:
             bytes = (bytes + alignment - 1) & ~(alignment - 1);
         }
         if (plan_.totalSramAllocated + bytes > 256 * 1024) { // 片上 SRAM 上限 256KB
-            throw std::runtime_error("硬件错误：片上 SRAM 容量溢出！");
+            throw std::runtime_error("硬件约束异常：片上 SRAM 容量溢出！");
         }
         plan_.totalSramAllocated += bytes;
         return *this;
@@ -690,13 +951,12 @@ public:
 
     ScorePlanBuilder& addComputeLoop(uint32_t iterations, uint32_t src, uint32_t dst) {
         if (iterations == 0 || iterations > 65535) {
-            throw std::invalid_argument("硬件错误：硬件计算循环计数超限 (1~65535)！");
+            throw std::invalid_argument("硬件约束异常：硬件计算循环计数超限 (1~65535)！");
         }
         plan_.instructions.push_back({0x01, src, dst, iterations});
         return *this;
     }
 
-    // 最终交付经过严密校验的合法产品
     ExecutionPlan build() {
         if (plan_.instructions.empty()) {
             throw std::logic_error("非法构建：执行计划中未包含任何有效计算指令！");
@@ -708,9 +968,33 @@ private:
     ExecutionPlan plan_;
 };
 
-// 【核心架构辨析】Builder vs Planner 有什么本质区别？
-// Planner (规划器) 是“思考者”：运行复杂的搜索算法、代价模型，决策出 Tile 应该切多大；
-// Builder (构建器) 是“施工组装员”：接收 Planner 的决策，按部就班组装指令，并在每一步执行底线物理断言！
+int main() {
+    std::cout << "=== 构建器模式：带硬件物理约束断言的 Plan 构建演示 ===\n";
+    try {
+        ScorePlanBuilder builder;
+        auto plan = builder.setEventSyncSlot(3)
+                           .allocateSramBuffer(65536) // 申请 64KB SRAM
+                           .addComputeLoop(100, 0x1000, 0x2000)
+                           .build();
+
+        std::cout << "  [PlanBuilder] 合法计划构建成功！\n"
+                  << "  -> 已分配 SRAM: " << plan.totalSramAllocated / 1024 << " KB\n"
+                  << "  -> 指令数量: " << plan.instructions.size() << "\n"
+                  << "  -> 事件槽位: " << plan.eventSyncSlot << "\n";
+    } catch (const std::exception& e) {
+        std::cerr << "构建失败: " << e.what() << "\n";
+    }
+
+    // 测试越界保护
+    try {
+        std::cout << "  [测试非法构建] 尝试设置超出范围的事件槽位 20...\n";
+        ScorePlanBuilder badBuilder;
+        badBuilder.setEventSyncSlot(20);
+    } catch (const std::exception& e) {
+        std::cout << "  -> 成功拦截硬件物理违规: " << e.what() << "\n";
+    }
+    return 0;
+}
 ```
 
 ---
@@ -720,11 +1004,7 @@ private:
 - **传统 GoF 意图**：用原型实例指定创建对象的种类，并且通过拷贝这些原型创建新的对象。
 - **编译器映射**：探索式编译优化、自动调优（Autotuning）中的 IR 克隆分支与 SSA 映射。
 
-##### 架构痛点：优化尝试具有破坏性
-编译器在进行激进优化（如循环融合 Loop Fusion、向量化 Vectorization、内存复用优化）时，往往无法预先保证改写一定能在底层获得性能收益。如果直接在原始 IR 上修改，一旦优化失败或导致寄存器压力过大，将无法回滚到干净状态。
-
-##### 原型克隆的核心难点：SSA 值的重新映射（IRMapping）
-Operation 的克隆不是简单的 C++ 内存拷贝！因为被克隆的 Operation 内部引用了旧的 SSA 变量（Value），在新生成的克隆分支中，必须通过一个映射表（`IRMapping`）将所有旧的操作数替换为新克隆出来的对应 SSA 值：
+##### C++20 工程实现：支持 SSA 重映射的 IR 原型克隆（可编译运行）
 
 ```cpp
 #include <memory>
@@ -753,8 +1033,8 @@ private:
 class Operation {
 public:
     virtual ~Operation() = default;
-    // 原型模式的核心克隆接口
     virtual std::unique_ptr<Operation> clone(IRMapping& mapping) const = 0;
+    virtual void dump() const = 0;
 };
 
 class AddOp : public Operation {
@@ -763,7 +1043,6 @@ public:
         : lhs_(lhs), rhs_(rhs), res_(res) {}
 
     std::unique_ptr<Operation> clone(IRMapping& mapping) const override {
-        // 重映射输入操作数，并为输出生成全新的 SSA 结果值
         auto newLhs = mapping.lookup(lhs_.get());
         auto newRhs = mapping.lookup(rhs_.get());
         auto newRes = std::make_shared<Value>(res_->name + "_cloned");
@@ -776,30 +1055,40 @@ public:
         );
     }
 
+    void dump() const override {
+        std::cout << "  " << res_->name << " = add " << lhs_->name << ", " << rhs_->name << "\n";
+    }
+
 private:
     std::shared_ptr<Value> lhs_, rhs_, res_;
 };
-```
 
-> [!NOTE]
-> MLIR 中的 `Operation::clone(IRMapping &mapper)` 是原型模式在大规模工业编译器中的典范实现，为所有投机性编译搜索提供了不可或缺的沙盒克隆能力。
+int main() {
+    std::cout << "=== 原型模式：IR 节点克隆与 SSA 映射演示 ===\n";
+    auto vA = std::make_shared<Value>("%arg0");
+    auto vB = std::make_shared<Value>("%arg1");
+    auto vRes = std::make_shared<Value>("%res");
+
+    AddOp originalOp(vA, vB, vRes);
+    std::cout << "原始 IR 操作:\n";
+    originalOp.dump();
+
+    IRMapping mapping;
+    auto clonedOp = originalOp.clone(mapping);
+    std::cout << "克隆后的沙盒 IR 操作:\n";
+    clonedOp->dump();
+    return 0;
+}
+```
 
 ---
 
-#### 3.1.5 单例模式（Singleton）
+#### 3.1.5 单例替代方案：会话依赖注入（CompilationSession）
 
-- **传统 GoF 意图**：保证一个类仅有一个实例，并提供一个访问它的全局访问点。
+- **传统 GoF 意图**：保证一个类仅有一个实例，并提供一个全局访问点。
 - **编译器映射**：为什么现代工业级编译器必须**全面排斥全局单例**？
 
-##### 架构灾难：全局单例破坏多线程并发编译
-在过去的老旧编译器中，常有人将符号表（SymbolTable）、诊断引擎（DiagnosticEngine）甚至类型上下文定义为全局单例（如 `GlobalTypeContext::getInstance()`）。
-这种设计在多核时代引发了巨大灾难：
-1. **多线程并发 Pass 运行发生死锁或严重锁争用**：现代编译器往往并发编译多个独立的模块或函数；
-2. **测试隔离破裂**：单测用例 A 修改了全局单例中的配置状态，导致随后的单测用例 B 偶发性随机失败；
-3. **不可预测的初始化与析构顺序（Static Initialization Order Fiasco）**。
-
-##### 架构替代：CompilationSession / MLIRContext 作用域注入模式
-取缔全局单例，代之以显式传递的“编译会话上下文对象”：
+##### C++20 工程实现：CompilationSession 作用域注入模式（可编译运行）
 
 ```cpp
 #include <iostream>
@@ -820,18 +1109,26 @@ private:
     int optLevel_;
 };
 
-// 编译器各 Pass 通过依赖注入（Dependency Injection）接收上下文，绝不访问全局变量
+// 编译器各 Pass 通过依赖注入接收上下文，绝不访问全局变量
 class OptimizationPass {
 public:
-    void execute(CompilationSession& session) {
-        std::cout << "正在为目标芯片 [" << session.getTargetChip() 
+    void execute(const CompilationSession& session) {
+        std::cout << "  [OptimizationPass] 为目标芯片 [" << session.getTargetChip() 
                   << "] 运行优化级别 O" << session.getOptLevel() << " Pass\n";
     }
 };
 
-// 【例外】：什么在编译器中允许是进程级唯一的？
-// 只有严格只读、无任何可变状态的元信息（如指令集静态元数据表、只读常量字符串池）
-// 才可以被实现为 Meyers 线程安全静态单例。
+int main() {
+    std::cout << "=== 单例替代：编译会话上下文依赖注入演示 ===\n";
+    // 允许在多线程中并发创建两个完全独立的编译会话
+    CompilationSession sessionGpu("GPU-Cluster", 3);
+    CompilationSession sessionNpu("NPU-Edge", 2);
+
+    OptimizationPass pass;
+    pass.execute(sessionGpu);
+    pass.execute(sessionNpu);
+    return 0;
+}
 ```
 
 ---
@@ -843,21 +1140,7 @@ public:
 - **传统 GoF 意图**：将抽象部分与它的实现部分分离，使它们都可以独立地变化。
 - **编译器映射**：解耦“编译流程/工作流（Workflow）”与“目标硬件执行引擎（Target Backend）”，消除多轴类爆炸。
 
-##### 架构痛点：$M \times N$ 类爆炸
-在工业编译器中，存在两个同等量级且互相独立的剧烈变化维度：
-1. **编译工作流（Workflow）**：
-   - `DebugWorkflow`：包含全量语义校验、断言插入、生成符号调试表；
-   - `ReleaseWorkflow`：执行激进跨算子融合、常量折叠与内联优化；
-   - `ProfileWorkflow`：插入硬件性能计数器打点微码。
-2. **目标加速硬件（Backend）**：
-   - `GpuBackend`：生成并行 SIMT 机器码；
-   - `NpuV1Backend`：生成 V1 协处理器指令流；
-   - `NpuV2Backend`：生成基于 ACE 总线的高并发批处理指令包。
-
-如果采用传统的继承方式，我们需要实现 `DebugGpuWorkflow`, `ReleaseGpuWorkflow`, `ProfileGpuWorkflow`, `DebugNpuV1Workflow`... 最终导致 $3 \times 3 = 9$ 个派生类。若后续增加一个芯片后端，就要同步增加 3 个类！
-
-##### C++20 工程实现：桥接双向演化维度
-通过持有目标后端的纯虚指针，使编译工作流与目标硬件自由正交组合：
+##### C++20 工程实现：桥接双向演化维度（可编译运行）
 
 ```cpp
 #include <iostream>
@@ -875,17 +1158,17 @@ struct ITargetBackend {
 // 具体实现 A：通用 GPU 后端
 class GpuBackend : public ITargetBackend {
 public:
-    void emitKernelHeader() override { std::cout << "[GPU] 发射 SIMT 线程网格启动头\n"; }
-    void emitComputeOp(std::string_view op) override { std::cout << "[GPU] 发射张量核心加速指令: " << op << "\n"; }
-    void emitSyncBarrier() override { std::cout << "[GPU] 发射 __syncthreads() 线程束栅栏\n"; }
+    void emitKernelHeader() override { std::cout << "  [GPU] 发射 SIMT 线程网格启动头\n"; }
+    void emitComputeOp(std::string_view op) override { std::cout << "  [GPU] 发射张量核心加速指令: " << op << "\n"; }
+    void emitSyncBarrier() override { std::cout << "  [GPU] 发射 __syncthreads() 线程束栅栏\n"; }
 };
 
 // 具体实现 B：NPU 专用数据流后端
 class NpuV2Backend : public ITargetBackend {
 public:
-    void emitKernelHeader() override { std::cout << "[NPU-V2] 配置 ACE 批处理总线控制头\n"; }
-    void emitComputeOp(std::string_view op) override { std::cout << "[NPU-V2] 发射 Score 协处理数据流微码: " << op << "\n"; }
-    void emitSyncBarrier() override { std::cout << "[NPU-V2] 触发硬件事件同步槽位 (Event Slot)\n"; }
+    void emitKernelHeader() override { std::cout << "  [NPU-V2] 配置 ACE 批处理总线控制头\n"; }
+    void emitComputeOp(std::string_view op) override { std::cout << "  [NPU-V2] 发射 Score 协处理数据流微码: " << op << "\n"; }
+    void emitSyncBarrier() override { std::cout << "  [NPU-V2] 触发硬件事件同步槽位 (Event Slot)\n"; }
 };
 
 // 抽象层：编译工作流
@@ -905,7 +1188,7 @@ class ReleaseWorkflow : public CompilationWorkflow {
 public:
     using CompilationWorkflow::CompilationWorkflow;
     void runWorkflow() override {
-        std::cout << ">>> 启动 Release 编译管线 (激进优化与循环融合) <<<\n";
+        std::cout << ">>> 启动 Release 编译管线 (跨核循环融合与内联) <<<\n";
         backend_->emitKernelHeader();
         backend_->emitComputeOp("Fused_MatMul_Add_GELU");
         backend_->emitSyncBarrier();
@@ -919,15 +1202,25 @@ public:
     void runWorkflow() override {
         std::cout << ">>> 启动 Debug 编译管线 (插入地址边界断言) <<<\n";
         backend_->emitKernelHeader();
-        std::cout << "[Debug] 插入 SRAM 边界检查护卫代码...\n";
+        std::cout << "  [Debug] 插入 SRAM 边界检查护卫指令...\n";
         backend_->emitComputeOp("MatMul_StrictChecked");
         backend_->emitSyncBarrier();
     }
 };
 
-// 【核心辨析】Bridge 与 Strategy 的区别：
-// Strategy (策略模式) 改变的是类内部的“某一算法零件”；
-// Bridge (桥接模式) 分离的是两个各自拥有丰富派生体系、同等地位的“主体抽象层次”！
+int main() {
+    std::cout << "=== 桥接模式：工作流与后端正交组合演示 ===\n";
+    auto gpu = std::make_shared<GpuBackend>();
+    auto npu = std::make_shared<NpuV2Backend>();
+
+    ReleaseWorkflow relGpu(gpu);
+    DebugWorkflow dbgNpu(npu);
+
+    relGpu.runWorkflow();
+    std::cout << "\n";
+    dbgNpu.runWorkflow();
+    return 0;
+}
 ```
 
 ---
@@ -937,8 +1230,7 @@ public:
 - **传统 GoF 意图**：将一个类的接口转换成客户希望的另外一个接口。Adapter 模式使得原本由于接口不兼容而不能一起工作的那些类可以一起工作。
 - **编译器映射**：异构芯片新旧硬件寄存器接口、驱动传输总线协议平滑演进。
 
-##### 架构痛点：同一计算语义遇到断代协议差异
-在硬件演进中，一代芯片通常采用传统的 MMIO（单寄存器单地址写），而二代芯片为了提升 CPU-NPU 交互吞吐，升级为 ACE 批处理总线（一次原子提交 16 个寄存器键值对并带有掩码）：
+##### C++20 工程实现：新旧 NPU 驱动协议适配器（可编译运行）
 
 ```cpp
 #include <cstdint>
@@ -962,7 +1254,8 @@ public:
 class LegacyMmioDriver {
 public:
     void mmioWrite32(uint32_t addr, uint32_t val) {
-        std::cout << "[MMIO-Driver] 物理地址 0x" << std::hex << addr << " 写入 0x" << val << std::dec << "\n";
+        std::cout << "  [MMIO-Driver] 写入物理地址 0x" << std::hex << addr 
+                  << " <= 数据 0x" << val << std::dec << "\n";
     }
 };
 
@@ -973,6 +1266,7 @@ public:
         : driver_(driver), baseAddr_(baseAddr) {}
 
     void submitBatch(const std::vector<RegisterUpdate>& updates) override {
+        std::cout << "[Adapter] 拦截批量写请求，自动转换为逐条单字 MMIO 发射:\n";
         for (const auto& u : updates) {
             uint32_t physicalAddr = baseAddr_ + (u.regId * 4);
             driver_.mmioWrite32(physicalAddr, u.value);
@@ -984,9 +1278,20 @@ private:
     uint32_t baseAddr_;
 };
 
-// 【架构红线】：Adapter 与 Backend Lowering 的本质区别
-// Lowering (降低) 是将【高级语义】翻译为【低级语义】（如矩阵乘 -> 嵌套 for 循环 -> 汇编）；
-// Adapter 解决的是【同一抽象层级】上，接口形态、参数形式不兼容时的胶水转换！
+int main() {
+    std::cout << "=== 适配器模式：新旧硬件驱动协议适配演示 ===\n";
+    LegacyMmioDriver legacyDriver;
+    LegacyMmioAdapter adapter(legacyDriver, 0x40000000);
+
+    std::vector<RegisterUpdate> updates = {
+        {0, 0x80000001},
+        {1, 64},
+        {2, 0x1000}
+    };
+
+    adapter.submitBatch(updates);
+    return 0;
+}
 ```
 
 ---
@@ -996,10 +1301,7 @@ private:
 - **传统 GoF 意图**：动态地给一个对象添加一些额外的职责。就增加功能来说，Decorator 模式相比生成子类更为灵活。
 - **编译器映射**：非侵入式 Trace 跟踪、硬件耗时微秒级打点（Profiling）、硬件约束边界断言。
 
-##### 架构痛点：核心编码逻辑与观测代码紧密耦合
-如果直接在芯片指令编码器内部混入 `std::chrono` 计时或日志打印，代码将迅速变得不可维护，且会在性能测试中引入无法消除的常态开销。
-
-##### C++20 工程实现：可无限包裹的装饰器调用链
+##### C++20 工程实现：可无限包裹的装饰器调用链（可编译运行）
 
 ```cpp
 #include <iostream>
@@ -1015,8 +1317,8 @@ struct IInstructionEncoder {
 class RawHardwareEncoder : public IInstructionEncoder {
 public:
     void encodeAndEmit(uint32_t opcode, uint32_t regA, uint32_t regB) override {
-        std::cout << "  [Encoder] 写入物理二进制: " 
-                  << std::hex << opcode << "-" << regA << "-" << regB << std::dec << "\n";
+        std::cout << "  [RawEncoder] 写入物理二进制: Op=" 
+                  << std::hex << opcode << " R1=" << regA << " R2=" << regB << std::dec << "\n";
     }
 };
 
@@ -1030,14 +1332,14 @@ protected:
     std::unique_ptr<IInstructionEncoder> inner_;
 };
 
-// 增强功能 A：非侵入式 Trace 打印
+// 增强功能 A：非侵入式 Trace 日志
 class TracingEncoder : public EncoderDecorator {
 public:
     using EncoderDecorator::EncoderDecorator;
     void encodeAndEmit(uint32_t opcode, uint32_t regA, uint32_t regB) override {
-        std::cout << "[Trace 日志] 开始发射指令 Opcode=" << opcode << "\n";
+        std::cout << "[Trace] >>> 开始发射指令 Opcode=" << opcode << "\n";
         inner_->encodeAndEmit(opcode, regA, regB);
-        std::cout << "[Trace 日志] 指令发射完毕。\n";
+        std::cout << "[Trace] <<< 指令发射完毕。\n";
     }
 };
 
@@ -1050,18 +1352,23 @@ public:
         inner_->encodeAndEmit(opcode, regA, regB);
         auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
             std::chrono::high_resolution_clock::now() - start).count();
-        std::cout << "[Profiling 打点] 耗时: " << elapsed << " ns\n";
+        std::cout << "[Profiling] 耗时统计: " << elapsed << " ns\n";
     }
 };
 
-// 工业级编译器观测级别矩阵 (Observability Matrix)
-// Level 0: 纯 RawHardwareEncoder (完全零开销)
-// Level 1: ProfilingEncoder(Raw)
-// Level 2: TracingEncoder(ProfilingEncoder(Raw))
-```
+int main() {
+    std::cout << "=== 装饰器模式：动态非侵入式增强演示 ===\n";
+    // 动态装配两层装饰器：Trace(Profiling(Raw))
+    auto pipeline = std::make_unique<TracingEncoder>(
+        std::make_unique<ProfilingEncoder>(
+            std::make_unique<RawHardwareEncoder>()
+        )
+    );
 
-> [!TIP]
-> MLIR 中的 `PassInstrumentation` 架构正是装饰器理念的极致体现：无需修改任何具体的 Pass 代码，通过在 `PassManager` 上挂载 Instrumentation，即可全局非侵入地拦截 Pass 运行前后并收集耗时、IR 差异转储（Dump IR）。
+    pipeline->encodeAndEmit(0x1F, 2, 4);
+    return 0;
+}
+```
 
 ---
 
@@ -1070,27 +1377,76 @@ public:
 - **传统 GoF 意图**：运用共享技术有效地支持大量细粒度的对象。
 - **编译器映射**：MLIR 体系基石——Type 与 Attribute 的全局唯一定义（Uniquing）。
 
-##### 架构痛点：数百万个 AST / IR 节点引发内存爆炸
-在一个拥有数百万层张量算子或微码节点的复杂网络中，如果每个节点都拥有独立的 `Type` 对象（如 `f32`、`tensor<128x256xf32>`），内存消耗将轻易突破数十吉字节（GB），而且判断两个操作数的类型是否相等将演化为耗时的高昂深层比较。
+##### C++20 工程实现：MLIR 风格的 Type 享元唯一定位池（可编译运行）
 
-##### 核心拆解：内部状态 vs 外部状态
-- **内部状态（Intrinsic State）**：类型数学本质（元素类型、形状维度等），在整个编译上下文中不可变且全局共享，存储在享元池中；
-- **外部状态（Extrinsic State）**：该类型属于哪个具体的 SSA 变量、定义在哪一行，由使用者持有。
+```cpp
+#include <iostream>
+#include <string>
+#include <unordered_map>
+#include <memory>
+#include <vector>
 
-```mermaid
-flowchart TD
-    subgraph FlyweightPool["MLIRContext 享元唯一化存储池"]
-        T1["f32 (地址: 0x1000)"]
-        T2["tensor<128x256xf32> (地址: 0x2000)"]
-    end
-    Op1["AddOp %0"] -->|"仅持有指针"| T1
-    Op2["MulOp %1"] -->|"仅持有指针"| T1
-    Op3["MatMulOp %2"] -->|"仅持有指针"| T2
+// 内部状态（Intrinsic State）：纯粹的类型签名，不可变
+struct TypeStorage {
+    std::string typeSignature;
+    size_t elementBytes;
+};
 
-    Note["类型判断 typeA == typeB\n退化为极速单周期指针比较 (0x1000 == 0x1000)！"]
+// 享元对象：仅包装一个指向享元存储池的不可变指针
+class MLIRType {
+public:
+    explicit MLIRType(const TypeStorage* storage) : storage_(storage) {}
+
+    std::string_view getSignature() const noexcept { return storage_->typeSignature; }
+    size_t getElementBytes() const noexcept { return storage_->elementBytes; }
+
+    // 核心性能红利：类型相等性比较直接退化为单周期指针地址比对！
+    bool operator==(const MLIRType& other) const noexcept {
+        return storage_ == other.storage_;
+    }
+
+private:
+    const TypeStorage* storage_;
+};
+
+// 享元工厂：MLIRContext 全局唯一定位池
+class MLIRContext {
+public:
+    MLIRType getOrCreateType(std::string_view signature, size_t bytes) {
+        std::string key(signature);
+        auto it = typePool_.find(key);
+        if (it != typePool_.end()) {
+            return MLIRType(it->second.get());
+        }
+        auto storage = std::make_unique<TypeStorage>(TypeStorage{key, bytes});
+        const TypeStorage* rawPtr = storage.get();
+        typePool_[key] = std::move(storage);
+        return MLIRType(rawPtr);
+    }
+
+    size_t getPoolSize() const noexcept { return typePool_.size(); }
+
+private:
+    std::unordered_map<std::string, std::unique_ptr<TypeStorage>> typePool_;
+};
+
+int main() {
+    std::cout << "=== 享元模式：MLIR 类型系统唯一定位池演示 ===\n";
+    MLIRContext ctx;
+
+    // 创建 3 个张量类型
+    auto t1 = ctx.getOrCreateType("tensor<128x256xf32>", 4);
+    auto t2 = ctx.getOrCreateType("tensor<128x256xf32>", 4);
+    auto t3 = ctx.getOrCreateType("tensor<64x64xf16>", 2);
+
+    std::cout << "t1 签名: " << t1.getSignature() << "\n";
+    std::cout << "t2 签名: " << t2.getSignature() << "\n";
+    std::cout << "t1 与 t2 是否等价: " << (t1 == t2 ? "true (单指令指针比对)" : "false") << "\n";
+    std::cout << "t1 与 t3 是否等价: " << (t1 == t3 ? "true" : "false") << "\n";
+    std::cout << "享元池中实际常驻的唯一样本数量: " << ctx.getPoolSize() << " (原本 3 个引用仅占用 2 个对象)\n";
+    return 0;
+}
 ```
-
-在 MLIR 中，所有 `Type` 和 `Attribute` 实例在被创建时都会在 `MLIRContext` 内部的哈希池中进行唯一定位（Uniquing）。所有使用该类型的 Operation 仅保存一个 `TypeStorage*` 指针，使得类型相等性判断从多字段深层遍历瞬间优化为单周期指针地址比较！
 
 ---
 
@@ -1099,10 +1455,7 @@ flowchart TD
 - **传统 GoF 意图**：为子系统中的一组接口提供一个一致的界面，Facade 模式定义了一个高层接口，这个接口使得这一子系统更加容易使用。
 - **编译器映射**：统一的编译器对外调用接口 `Compiler::compile(CompileRequest)`。
 
-##### 架构痛点：复杂的子系统让外部用户望而生畏
-完整的编译器子系统包含词法语法解析器、PassManager 优化管线、Tiling 规划引擎、寄存器分配器与目标二进制链接器。如果将这些细节直接暴露给 Runtime 或用户，外部代码与编译器底层内部实现的耦合将极其严重。
-
-##### C++20 工程实现：防范“上帝编译器（God Object）”反模式
+##### C++20 工程实现：防范“上帝编译器”的统一门面（可编译运行）
 
 ```cpp
 #include <string>
@@ -1127,23 +1480,37 @@ public:
     CompileResult compile(const CompileRequest& req) {
         std::cout << "[Facade] 接收编译请求，启动内部流水线编排...\n";
         
-        // 协调各个子系统（但 Facade 类本身绝对不承揽具体优化逻辑）
+        // 协调各个子系统（Facade 本身绝对不越俎代庖承揽具体优化逻辑）
         parseFrontend(req.sourceDsl);
         runOptimizationPasses(req.optLevel);
-        auto plan = buildHardwarePlan(req.targetDevice);
-        return emitBinary(plan);
+        buildHardwarePlan(req.targetDevice);
+        return emitBinary();
     }
 
 private:
-    void parseFrontend(const std::string& dsl) { /* 委托给前端子系统 */ }
-    void runOptimizationPasses(int opt) { /* 委托给 PassManager */ }
-    int buildHardwarePlan(const std::string& dev) { return 42; /* 委托给 Backend */ }
-    CompileResult emitBinary(int plan) { return {true, {0x7F, 0x45, 0x4C, 0x46}}; }
+    void parseFrontend(const std::string& dsl) {
+        std::cout << "  1. [前端子系统] 解析 DSL 语义语法树: " << dsl << "\n";
+    }
+    void runOptimizationPasses(int opt) {
+        std::cout << "  2. [中端优化器] 编排 PassManager 执行 O" << opt << " 级图优化\n";
+    }
+    void buildHardwarePlan(const std::string& dev) {
+        std::cout << "  3. [后端生成器] 针对目标硬件 [" << dev << "] 生成执行计划\n";
+    }
+    CompileResult emitBinary() {
+        std::cout << "  4. [汇编链接器] 交付底层 ELF 二进制机器码\n";
+        return {true, {0x7F, 0x45, 0x4C, 0x46}};
+    }
 };
 
-// 【警惕反模式】上帝编译器 (God Compiler)
-// 很多程序员在重构中，把具体优化 pass 的执行逻辑、甚至 Tiling 算法直接写进 CompilerFacade 类里！
-// Facade 的职责仅仅是“调度与转发总管”，它绝对不能越俎代庖实现业务细节。
+int main() {
+    std::cout << "=== 外观模式：编译器统一门面调用演示 ===\n";
+    CompilerFacade compiler;
+    CompileRequest req{"graph { MatMul -> ReLU }", "NPU-Accelerator", 3};
+    auto result = compiler.compile(req);
+    std::cout << "编译完成，生成机器码字节数: " << result.binaryBytecode.size() << "\n";
+    return 0;
+}
 ```
 
 ---
@@ -1153,16 +1520,14 @@ private:
 - **传统 GoF 意图**：为其他对象提供一种代理以控制对这个对象的访问。
 - **编译器映射**：远程 RPC 分布式编译代理、EDA 芯片前仿沙盒代理。
 
-##### 架构痛点：物理芯片尚未流片或本地计算资源匮乏
-1. **EDA 仿真沙盒**：芯片研发早期，物理硬件并未就绪，硬件团队提供了一个周期精确（Cycle-accurate）的 SystemC / EDA 软件仿真器，速度极慢；
-2. **远程分布式编译**：本地嵌入式端资源受限，需要将复杂的编译与寄存器求解代理到云端高性能计算集群。
-
-##### C++20 工程实现：透明的远程编译代理
+##### C++20 工程实现：透明的远程分布式编译代理（可编译运行）
 
 ```cpp
 #include <iostream>
 #include <memory>
 #include <vector>
+#include <string>
+#include <unordered_map>
 
 struct ICompilationService {
     virtual ~ICompilationService() = default;
@@ -1173,30 +1538,49 @@ struct ICompilationService {
 class LocalCompilationService : public ICompilationService {
 public:
     std::vector<uint8_t> compileGraph(const std::string& graphJson) override {
-        std::cout << "[Local] 耗费大量本地 CPU 执行图切分与下沉...\n";
-        return {0x01, 0x02, 0x03};
+        std::cout << "  [LocalService] 耗费本地 CPU 密集算力执行复杂寄存器分配: " << graphJson << "\n";
+        return {0xAA, 0xBB, 0xCC};
     }
 };
 
-// 远程分布式编译代理
+// 远程分布式编译代理（带本地缓存保护）
 class RemoteRpcCompilationProxy : public ICompilationService {
 public:
     explicit RemoteRpcCompilationProxy(std::string rpcEndpoint)
         : endpoint_(std::move(rpcEndpoint)) {}
 
     std::vector<uint8_t> compileGraph(const std::string& graphJson) override {
-        std::cout << "[Proxy] 打包图序列化数据，发起 RPC 调用至集群节点: " << endpoint_ << "\n";
-        // 可以在代理中追加安全鉴权、缓存命中检查 (Cache Proxy)、错误重试等附加控制
-        return {0x01, 0x02, 0x03};
+        // 代理额外控制：缓存命中检查
+        auto it = localCache_.find(graphJson);
+        if (it != localCache_.end()) {
+            std::cout << "  [Proxy] 缓存命中！直接秒级返回历史产物，避免远程 RPC。\n";
+            return it->second;
+        }
+
+        std::cout << "  [Proxy] 缓存未命中，序列化请求并向集群节点 [" << endpoint_ << "] 发起 RPC 编译...\n";
+        // 模拟 RPC 远程生成
+        std::vector<uint8_t> result = {0xAA, 0xBB, 0xCC};
+        localCache_[graphJson] = result;
+        return result;
     }
 
 private:
     std::string endpoint_;
+    std::unordered_map<std::string, std::vector<uint8_t>> localCache_;
 };
 
-// 【核心辨析】Proxy 与 Adapter 的区别：
-// Proxy 与它所代理的对象实现完全相同的接口，目的是控制访问（远程、延迟加载、缓存、权限）；
-// Adapter 改变对象的原有接口，目的是让原本由于接口不匹配的对象能够协同工作！
+int main() {
+    std::cout << "=== 代理模式：远程分布式编译与缓存控制演示 ===\n";
+    RemoteRpcCompilationProxy proxy("tcp://192.168.1.100:8080");
+
+    std::string graph = "{ 'op': 'FlashAttention' }";
+    std::cout << ">>> 第一次请求 <<<\n";
+    proxy.compileGraph(graph);
+
+    std::cout << "\n>>> 第二次请求相同图 <<<\n";
+    proxy.compileGraph(graph);
+    return 0;
+}
 ```
 
 ---
@@ -1206,17 +1590,74 @@ private:
 - **传统 GoF 意图**：将对象组合成树形结构以表示“部分-整体”的层次结构。Composite 使得用户对单个对象和组合对象的使用具有一致性。
 - **编译器映射**：语法树（AST）、MLIR 方言容器层级（Module-Func-Block-Op）的遍历。
 
-##### 架构思考：树（Tree）与有向无环图（DAG）的本质断裂
-在传统编译器中，语法分析树是经典的 Composite 模式：
-`BinaryExpr` 是由 `LeftExpr` 和 `RightExpr` 构成的组合对象，对根节点的 `evaluate()` 会递归触发所有子节点的 `evaluate()`。
+##### C++20 工程实现：编译器表达式树的组合求值（可编译运行）
 
-但在现代 AI 编译器与 MLIR 中，情况发生了重大改变：
-1. **容器层级是树状组合结构**：`ModuleOp` $\to$ 包含 `FuncOp` $\to$ 包含 `Block` $\to$ 包含一系列 `Operation`；
-2. **数据流依赖是有向无环图（DAG）**：由于 SSA 值的引用关系，一个 Operation 的结果可能被多个不同的后续 Operation 使用（多扇出 Use-Def 链）。
+```cpp
+#include <iostream>
+#include <memory>
+#include <vector>
+#include <string>
 
-> [!CAUTION]
-> **绝对不要在 MLIR 之上强行再造一套 GoF Composite 树！**  
-> 必须清晰区分：**结构层级遍历**使用 MLIR 原生提供的 Walk 机制（自顶向下递归或自底向上遍历）；而**计算依赖图求值**必须使用基于入度数组的拓扑排序（Topological Sort），切勿将 DAG 当作树进行简单递归求值，否则会导致严重的指数级重复遍历与死循环！
+// 抽象组件
+class IExprAST {
+public:
+    virtual ~IExprAST() = default;
+    virtual double evaluate() const = 0;
+    virtual void print(int indent = 0) const = 0;
+};
+
+// 叶子节点：字面量数值
+class NumberExpr : public IExprAST {
+public:
+    explicit NumberExpr(double val) : val_(val) {}
+    double evaluate() const override { return val_; }
+    void print(int indent = 0) const override {
+        std::cout << std::string(indent * 2, ' ') << "Number(" << val_ << ")\n";
+    }
+private:
+    double val_;
+};
+
+// 组合节点：二元运算树
+class BinaryExpr : public IExprAST {
+public:
+    BinaryExpr(char op, std::unique_ptr<IExprAST> lhs, std::unique_ptr<IExprAST> rhs)
+        : op_(op), lhs_(std::move(lhs)), rhs_(std::move(rhs)) {}
+
+    double evaluate() const override {
+        double l = lhs_->evaluate();
+        double r = rhs_->evaluate();
+        if (op_ == '+') return l + r;
+        if (op_ == '*') return l * r;
+        return 0.0;
+    }
+
+    void print(int indent = 0) const override {
+        std::cout << std::string(indent * 2, ' ') << "BinaryOp('" << op_ << "'):\n";
+        lhs_->print(indent + 1);
+        rhs_->print(indent + 1);
+    }
+
+private:
+    char op_;
+    std::unique_ptr<IExprAST> lhs_, rhs_;
+};
+
+int main() {
+    std::cout << "=== 组合模式：语法树 AST 层次遍历求值演示 ===\n";
+    // 构造表达式: (3 + 5) * 2
+    auto tree = std::make_unique<BinaryExpr>(
+        '*',
+        std::make_unique<BinaryExpr>('+', std::make_unique<NumberExpr>(3), std::make_unique<NumberExpr>(5)),
+        std::make_unique<NumberExpr>(2)
+    );
+
+    std::cout << "AST 结构视图:\n";
+    tree->print();
+    std::cout << "一致性递归求值结果: " << tree->evaluate() << " (预期 16)\n";
+    return 0;
+}
+```
 
 ---
 
@@ -1241,22 +1682,13 @@ private:
 - **传统 GoF 意图**：定义一个操作中的算法的骨架，而将一些步骤延迟到子类中。Template Method 使得子类可以不改变一个算法的结构即可重定义该算法的某些特定步骤。
 - **编译器映射**：标准编译下沉流程（Lowering Pipeline）、非虚接口模式（NVI: Non-Virtual Interface）。
 
-##### 架构思想：控制反转（Inversion of Control）
-侯捷老师在讲解模板方法时形象地将其总结为好莱坞原则：**“Don't call us, we'll call you.”（别找我们，我们会找你）。**
-在编译器流水线中，下沉一个算子的主流程骨架是极为固定的：
-1. **输入合法性前置断言（Pre-condition Assertion）**；
-2. **算子参数规整与对齐（Canonicalization）**；
-3. **针对特定硬件发射具体指令（Hardware Codegen）**；
-4. **输出结果完整性后置校验（Post-condition Verification）**。
-
-如果不使用模板方法，每个算子的实现者都必须手动重复编写前置断言与后置校验逻辑，极易漏写或遗忘。
-
-##### C++20 工程实现：NVI 架构风格的 Lowering 引擎
+##### C++20 工程实现：NVI 架构风格的 Lowering 引擎（可编译运行）
 
 ```cpp
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <memory>
 
 // 模板方法骨架基类
 class BaseOperatorLowering {
@@ -1284,10 +1716,8 @@ public:
     }
 
 protected:
-    // 强制子类实现的纯虚步骤：具体硬件指令生成
     virtual void doHardwareCodegen(std::string_view opName) = 0;
 
-    // 可选钩子函数（默认空实现）
     virtual void emitHardwarePreamble() {
         std::cout << "[Step 2 (默认)] 发射通用内存同步预备指令\n";
     }
@@ -1311,6 +1741,13 @@ protected:
         std::cout << "  -> [NPU Codegen] 正在将 " << opName << " 展开为 Score 数据流流水线指令...\n";
     }
 };
+
+int main() {
+    std::cout << "=== 模板方法模式：NVI 下沉骨架流程演示 ===\n";
+    NpuOperatorLowering npuLowering;
+    npuLowering.executeLowering("FlashAttention_V2", 1024 * 1024);
+    return 0;
+}
 ```
 
 ---
@@ -1320,19 +1757,13 @@ protected:
 - **传统 GoF 意图**：定义一系列的算法，把它们一个个封装起来，并且使它们可相互替换。本模式使得算法可独立于使用它的客户而变化。
 - **编译器映射**：可插拔循环分块（Tiling）、张量排布格式变换（Layout Transform）与调度策略。
 
-##### 架构痛点：分块算法策略的动态探索
-同一个矩阵乘法算子，面对不同的张量维度和芯片状态，其分块策略截然不同：
-- 对于规则小矩阵：采用简单的**固定步长切分策略（Fixed Tiling）**；
-- 对于大模型超宽注意力矩阵：采用基于计算访存比的**硬件启发式切分（Heuristic Tiling）**；
-- 对于极致性能追求的场景：采用运行在真实硬件上的**自动调优搜索策略（AutoTuned Tiling）**。
-
-##### 运行期策略与编译期 Policy 的双剑合璧
-如果分块策略在 Host 编译期由用户配置动态决定，采用经典的面向对象虚函数 Strategy；若分块优化内嵌在 Device 端高性能算子模板中，则采用基于 C++20 Concepts 的 **Policy-based Design**，实现零开销内联：
+##### C++20 工程实现：运行期策略与编译期 Policy 结合（可编译运行）
 
 ```cpp
 #include <iostream>
 #include <memory>
 #include <concepts>
+#include <cstdint>
 
 struct TileConfig {
     uint32_t tileM{32};
@@ -1357,7 +1788,6 @@ public:
 class HeuristicTilingStrategy : public ITilingStrategy {
 public:
     TileConfig computeTile(uint32_t M, uint32_t N, uint32_t K) override {
-        // 根据 M, N, K 动态计算最大化 SMEM 占用的 Tile
         uint32_t tm = (M >= 128) ? 128 : 32;
         uint32_t tn = (N >= 128) ? 128 : 32;
         return {tm, tn, 32};
@@ -1366,7 +1796,7 @@ public:
 
 // 2. 编译期 Policy（用于数据平面底层零开销编译，C++20 Concepts）
 template <typename T>
-concept TilingPolicyConcept = requires(T policy, uint32_t m, uint32_t n, uint32_t k) {
+concept TilingPolicyConcept = requires(T policy) {
     { policy.getTileM() } -> std::convertible_to<uint32_t>;
     { policy.getTileN() } -> std::convertible_to<uint32_t>;
 };
@@ -1382,9 +1812,22 @@ public:
     void generate() {
         constexpr uint32_t TM = Policy::getTileM();
         constexpr uint32_t TN = Policy::getTileN();
-        std::cout << "[零开销生成] 完全编译期常数折叠 Tile: " << TM << "x" << TN << "\n";
+        std::cout << "  [零开销静态策略] 编译期常数折叠 Tile: " << TM << "x" << TN << "\n";
     }
 };
+
+int main() {
+    std::cout << "=== 策略模式：运行期 Strategy 与编译期 Policy 双轨演示 ===\n";
+    // 运行期动态替换
+    std::unique_ptr<ITilingStrategy> strat = std::make_unique<HeuristicTilingStrategy>();
+    auto t = strat->computeTile(512, 512, 64);
+    std::cout << "  [运行期策略] 启发式切分: " << t.tileM << "x" << t.tileN << "x" << t.tileK << "\n";
+
+    // 编译期静态分发 (零虚表开销)
+    FastKernelGenerator<StaticTilePolicy64x64> fastGen;
+    fastGen.generate();
+    return 0;
+}
 ```
 
 ---
@@ -1394,15 +1837,7 @@ public:
 - **传统 GoF 意图**：使多个对象都有机会处理请求，从而避免请求的发送者和接收者之间的耦合关系。将这些对象连成一条链，并沿着这条链传递该请求，直到有一个对象处理它为止。
 - **编译器映射**：异构多计算核心实现选择与兜底退化机制（Fallback Chain）。
 
-##### 架构痛点：多级异构算力单元的优先级退化
-现代 NPU 芯片往往集成了异构的异构核心：
-1. **第一优先级（Score 专用张量加速器）**：吞吐极高，但对矩阵维度有苛刻限制（如 M/N/K 必须是 64 的整数倍）；
-2. **第二优先级（RVV 通用向量计算单元）**：支持任意非对齐向量运算，但吞吐为专用核的 1/4；
-3. **第三优先级（主控标量 CPU 核心）**：兜底机制，无论任何奇葩边界维度都能正确运算，但性能较低。
-
-如果写死一堆嵌套 `if-else`，后续增加新的专用硬件单元将极其痛苦。
-
-##### C++20 工程实现：硬件能力匹配降级链
+##### C++20 工程实现：硬件能力匹配降级链（可编译运行）
 
 ```cpp
 #include <iostream>
@@ -1438,26 +1873,24 @@ private:
     std::shared_ptr<IHardwareCandidate> next_;
 };
 
-// 专用张量核候选者
+// 专用张量核候选者（要求 M/N/K 必须严格 64 对齐）
 class ScoreTensorCoreCandidate : public IHardwareCandidate {
 protected:
     bool canHandle(const TensorOpRequest& req) override {
-        // 要求严格的 64 字节对齐
         return (req.M % 64 == 0) && (req.N % 64 == 0) && (req.K % 64 == 0);
     }
-    void execute(const TensorOpRequest& req) override {
+    void execute(const TensorOpRequest&) override {
         std::cout << "[候选命中] 采用【Score 专用张量协处理器】极速流水线执行！\n";
     }
 };
 
-// RVV 向量单元候选者
+// RVV 向量单元候选者（支持非 64 对齐，只需能被 4 整除）
 class RvvVectorCandidate : public IHardwareCandidate {
 protected:
     bool canHandle(const TensorOpRequest& req) override {
-        // 只要能被 4 整除即可
         return (req.K % 4 == 0);
     }
-    void execute(const TensorOpRequest& req) override {
+    void execute(const TensorOpRequest&) override {
         std::cout << "[候选命中] 采用【RVV 通用向量扩展单元】执行。\n";
     }
 };
@@ -1465,15 +1898,31 @@ protected:
 // 标量 CPU 兜底
 class ScalarCpuFallbackCandidate : public IHardwareCandidate {
 protected:
-    bool canHandle(const TensorOpRequest&) override { return true; } // 兜底全能
+    bool canHandle(const TensorOpRequest&) override { return true; }
     void execute(const TensorOpRequest&) override {
         std::cout << "[候选兜底] 降级至【标量 CPU 循环】保证计算正确性。\n";
     }
 };
 
-// 【架构深思】职责链 vs 显式代价模型 (Cost Model)
-// 职责链：适用于基于【离散硬约束规则】的快速降级决策（规则 A 不满足则退化到规则 B）；
-// Cost Model：适用于所有硬件都能跑，但需要基于理论公式评估访存与时钟周期的连续多目标优化。
+int main() {
+    std::cout << "=== 职责链模式：算子执行硬件降级链演示 ===\n";
+    auto scoreCore = std::make_shared<ScoreTensorCoreCandidate>();
+    auto rvvCore   = std::make_shared<RvvVectorCandidate>();
+    auto cpuCore   = std::make_shared<ScalarCpuFallbackCandidate>();
+
+    scoreCore->setNext(rvvCore);
+    rvvCore->setNext(cpuCore);
+
+    std::cout << ">>> 请求 1: 完美对齐大矩阵 (128x128x64) <<<\n";
+    scoreCore->resolve({"GEMM_Aligned", 128, 128, 64});
+
+    std::cout << "\n>>> 请求 2: 奇数维度矩阵 (128x128x20) <<<\n";
+    scoreCore->resolve({"GEMM_NonAligned", 128, 128, 20});
+
+    std::cout << "\n>>> 请求 3: 边界残差矩阵 (128x128x13) <<<\n";
+    scoreCore->resolve({"GEMM_Odd", 128, 128, 13});
+    return 0;
+}
 ```
 
 ---
@@ -1481,34 +1930,78 @@ protected:
 #### 3.3.4 访问者模式（Visitor）
 
 - **传统 GoF 意图**：表示一个作用于某对象结构中的各元素的操作。它使你可以在不改变各元素的类的前提下定义作用于这些元素的新操作。
-- **编译器映射**：经典 AST 语法树分析；以及**现代编译器为何必须告别传统 Visitor 转向 OpInterface 与 Pattern Rewrite？**
+- **编译器映射**：经典 AST 语法树遍历与双分派机制。
 
-##### 传统 AST Visitor 的双分派机制及其死穴
-传统经典编译器使用 Visitor：`Node->accept(Visitor*)`，通过两次虚函数查找动态定位到对应的处理逻辑。
-然而，GoF Visitor 存在著名的**双向扩展性困境**：
-- 新增一个操作（如 `PrintVisitor`、`LivenessAnalysisVisitor`）极其方便；
-- **但一旦 AST 新增一个节点类型（如新增 `FusedMoeOp`），整个编译工程中所有的 Visitor 基类及其派生子类必须全部修改并重新编译！**
+##### C++20 工程实现：传统 AST 遍历访问者（可编译运行）
 
-在飞速发展的 AI 编译器中，算法团队每周都会提出数个新型融合算子。如果使用传统 Visitor，整个团队的代码将天天陷入级联重编译与代码冲突的地狱。
+```cpp
+#include <iostream>
+#include <memory>
+#include <vector>
+#include <string>
 
-```mermaid
-flowchart TD
-    subgraph TraditionalVisitor["传统 GoF Visitor (双向扩展性破裂)"]
-        Node["新增 FusedOp 节点"] -->|"灾难！必须修改所有已有 Visitor"| V1["PrintVisitor"]
-        Node --> V2["AnalysisVisitor"]
-        Node --> V3["LoweringVisitor"]
-    end
+// 前向声明
+class MatMulOp;
+class ReluOp;
 
-    subgraph ModernMLIR["现代 MLIR 架构 (OpInterface + PatternRewrite)"]
-        NewOp["新增 FusedOp 算子"] -->|"声明支持抽象接口"| Interface["OpInterface (如 TilingOpInterface)"]
-        NewOp -->|"编写独立改写规则"| Rewrite["RewritePatternSet (独立即插即用)"]
-    end
+// 访问者接口
+class IASTVisitor {
+public:
+    virtual ~IASTVisitor() = default;
+    virtual void visit(MatMulOp& op) = 0;
+    virtual void visit(ReluOp& op) = 0;
+};
+
+// 抽象节点
+class ASTNode {
+public:
+    virtual ~ASTNode() = default;
+    virtual void accept(IASTVisitor& visitor) = 0;
+};
+
+class MatMulOp : public ASTNode {
+public:
+    void accept(IASTVisitor& visitor) override { visitor.visit(*this); }
+    std::string_view getName() const noexcept { return "MatMul(128x128)"; }
+};
+
+class ReluOp : public ASTNode {
+public:
+    void accept(IASTVisitor& visitor) override { visitor.visit(*this); }
+    std::string_view getName() const noexcept { return "ReLU()"; }
+};
+
+// 具体访问者 A：打印 AST 结构
+class PrintVisitor : public IASTVisitor {
+public:
+    void visit(MatMulOp& op) override { std::cout << "  [Print] 遍历节点: " << op.getName() << "\n"; }
+    void visit(ReluOp& op) override { std::cout << "  [Print] 遍历节点: " << op.getName() << "\n"; }
+};
+
+// 具体访问者 B：计算算力 FLOPs 统计
+class FlopsVisitor : public IASTVisitor {
+public:
+    void visit(MatMulOp&) override { std::cout << "  [Flops] MatMul 预估算力: 4.19 MFLOPs\n"; }
+    void visit(ReluOp&) override { std::cout << "  [Flops] ReLU 预估算力: 0.01 MFLOPs\n"; }
+};
+
+int main() {
+    std::cout << "=== 访问者模式：双分派 AST 遍历演示 ===\n";
+    std::vector<std::unique_ptr<ASTNode>> ast;
+    ast.push_back(std::make_unique<MatMulOp>());
+    ast.push_back(std::make_unique<ReluOp>());
+
+    PrintVisitor printer;
+    FlopsVisitor flopsCalc;
+
+    std::cout << ">>> 运行打印访问者 <<<\n";
+    for (auto& node : ast) node->accept(printer);
+
+    std::cout << "\n>>> 运行算力评估访问者 <<<\n";
+    for (auto& node : ast) node->accept(flopsCalc);
+    return 0;
+}
 ```
-
-##### 现代 MLIR 的解法：OpInterface + RewritePattern
-现代框架放弃了庞大扁平的 Visitor 模式：
-1. **OpInterface**：将特定能力（如“是否可分块”、“是否可内存折叠”）抽象为细粒度接口，任何算子只需在外围声明实现该接口，无需修改任何已有分析流程；
-2. **RewritePattern**：基于 DAG 拓扑匹配局部算子子图，匹配成功后直接通过 `PatternRewriter` 替换为新指令，算子之间完全隔离解耦。
 
 ---
 
@@ -1517,10 +2010,7 @@ flowchart TD
 - **传统 GoF 意图**：将一个请求封装为一个对象，从而使你可用不同的请求对客户进行参数化；对请求排队或记录请求日志，以及支持可撤销的操作。
 - **编译器映射**：异构硬件执行命令（Command）、命令图（Command Graph）与异步命令缓冲区（Command Buffer）。
 
-##### 架构痛点：CPU 与加速器之间的高昂通信代价
-如果 CPU 在完成一次矩阵乘后，立刻同步发信号等待芯片完成，再发下一条 DMA 搬运指令，CPU-Device 之间的 PCI-e/AXI 总线往返通信延迟将彻底吃光硬件性能。
-
-必须将所有的硬件动作（数据搬运、核函数启动、事件等待）抽象为离散的 **Command 对象**，打包放入内存中的连续缓冲区中：
+##### C++20 工程实现：基于 `std::variant` 的高效命令缓冲区（可编译运行）
 
 ```cpp
 #include <iostream>
@@ -1528,7 +2018,7 @@ flowchart TD
 #include <variant>
 #include <cstdint>
 
-// 现代 C++：使用 std::variant 表达高效紧凑、零堆分配的命令集
+// 紧凑、零堆分配的命令结构体
 struct DmaCopyCommand {
     uint64_t srcDdr;
     uint32_t dstSram;
@@ -1538,17 +2028,14 @@ struct DmaCopyCommand {
 struct LaunchKernelCommand {
     uint32_t kernelId;
     uint32_t gridDimX;
-    uint32_t sramBase;
 };
 
 struct WaitEventCommand {
     uint32_t eventSlotId;
 };
 
-// 聚合类型：异构硬件命令
 using HardwareCommand = std::variant<DmaCopyCommand, LaunchKernelCommand, WaitEventCommand>;
 
-// 命令缓冲区：将构建期与执行期彻底解耦
 class CommandBuffer {
 public:
     void record(HardwareCommand cmd) {
@@ -1558,7 +2045,6 @@ public:
     void submitToDevice() {
         std::cout << ">>> 一次性批量提交 " << commands_.size() << " 条硬件命令至底层驱动 <<<\n";
         for (const auto& cmd : commands_) {
-            // 使用 std::visit 进行极致优化的模式匹配
             std::visit([](auto&& arg) {
                 using T = std::decay_t<decltype(arg)>;
                 if constexpr (std::is_same_v<T, DmaCopyCommand>) {
@@ -1575,6 +2061,17 @@ public:
 private:
     std::vector<HardwareCommand> commands_;
 };
+
+int main() {
+    std::cout << "=== 命令模式：硬件命令缓冲区录制与批量提交演示 ===\n";
+    CommandBuffer cmdBuf;
+    cmdBuf.record(DmaCopyCommand{0x80000000, 0x1000, 65536});
+    cmdBuf.record(LaunchKernelCommand{101, 16});
+    cmdBuf.record(WaitEventCommand{0});
+
+    cmdBuf.submitToDevice();
+    return 0;
+}
 ```
 
 ---
@@ -1584,38 +2081,91 @@ private:
 - **传统 GoF 意图**：允许一个对象在其内部状态改变时改变它的行为。对象看起来似乎修改了它的类。
 - **编译器映射**：异构执行任务（Invocation / Task）生命周期有限状态机（FSM）。
 
-##### 架构灾难：布尔标志位爆炸（Boolean Flag Hell）
-在初级驱动与运行时代码中，常能看到类似下面的灾难定义：
+##### C++20 工程实现：任务生命周期状态机（可编译运行）
 
 ```cpp
-// 糟糕的状态维护方式
-struct BadTask {
-    bool isSubmitted;
-    bool isDmaFinished;
-    bool isKernelRunning;
-    bool isCompleted;
-    bool hasError;
-    // 状态之间存在隐含的依赖约束，并发环境下维护极易产生死锁或竞态条件！
+#include <iostream>
+#include <memory>
+#include <string>
+
+enum class TaskStatus { Created, Queued, Running, Completed, Failed };
+
+class TaskStateContext;
+
+class ITaskState {
+public:
+    virtual ~ITaskState() = default;
+    virtual void submit(TaskStateContext& ctx) = 0;
+    virtual void onHardwareDone(TaskStateContext& ctx) = 0;
+    virtual std::string_view name() const noexcept = 0;
 };
+
+class TaskStateContext {
+public:
+    TaskStateContext();
+    void setState(std::shared_ptr<ITaskState> s) { state_ = s; }
+    void submit() { state_->submit(*this); }
+    void onHardwareDone() { state_->onHardwareDone(*this); }
+    std::string_view getStateName() const noexcept { return state_->name(); }
+
+private:
+    std::shared_ptr<ITaskState> state_;
+};
+
+class StateRunning;
+class StateCompleted;
+
+class StateCreated : public ITaskState {
+public:
+    void submit(TaskStateContext& ctx) override;
+    void onHardwareDone(TaskStateContext&) override {
+        std::cerr << "非法状态跃迁：Created 状态不可直接调用 onHardwareDone！\n";
+    }
+    std::string_view name() const noexcept override { return "Created"; }
+};
+
+class StateRunning : public ITaskState {
+public:
+    void submit(TaskStateContext&) override {
+        std::cerr << "非法操作：任务已在运行中，严禁重复提交！\n";
+    }
+    void onHardwareDone(TaskStateContext& ctx) override;
+    std::string_view name() const noexcept override { return "Running"; }
+};
+
+class StateCompleted : public ITaskState {
+public:
+    void submit(TaskStateContext&) override { std::cerr << "任务已终结。\n"; }
+    void onHardwareDone(TaskStateContext&) override {}
+    std::string_view name() const noexcept override { return "Completed"; }
+};
+
+TaskStateContext::TaskStateContext() : state_(std::make_shared<StateCreated>()) {}
+void StateCreated::submit(TaskStateContext& ctx) {
+    std::cout << "  [FSM 跃迁] Created -> Running (硬件开始执行)\n";
+    ctx.setState(std::make_shared<StateRunning>());
+}
+void StateRunning::onHardwareDone(TaskStateContext& ctx) {
+    std::cout << "  [FSM 跃迁] Running -> Completed (硬件完成中断通知)\n";
+    ctx.setState(std::make_shared<StateCompleted>());
+}
+
+int main() {
+    std::cout << "=== 状态模式：异构任务严格生命周期 FSM 演示 ===\n";
+    TaskStateContext task;
+    std::cout << "当前状态: " << task.getStateName() << "\n";
+
+    task.submit();
+    std::cout << "当前状态: " << task.getStateName() << "\n";
+
+    // 测试非法状态拦截
+    task.submit();
+
+    task.onHardwareDone();
+    std::cout << "当前状态: " << task.getStateName() << "\n";
+    return 0;
+}
 ```
-
-##### 状态机的合法转换闭环
-一个高可靠的异构任务生命周期状态转换必须是严格单向闭环的：
-
-```mermaid
-stateDiagram-v2
-    [*] --> Created: 任务实例化
-    Created --> Queued: 加入就绪队列
-    Queued --> Running: 驱动提交硬件取指
-    Running --> DeviceDone: 硬件中断/事件通知完成
-    DeviceDone --> Completed: Host 清理资源并通知用户
-    Running --> Failed: 硬件超时/校验异常
-    DeviceDone --> Failed: 结果 CRC 校验失败
-    Completed --> [*]
-    Failed --> [*]
-```
-
-通过状态机模式，对象只允许沿预设的合法边缘发生跃迁，在 `Created` 状态下调用 `handleInterrupt()` 会被类型断言直接拦截，彻底消灭非法状态组合。
 
 ---
 
@@ -1624,17 +2174,64 @@ stateDiagram-v2
 - **传统 GoF 意图**：定义对象间的一种一对多的依赖关系，当一个对象的状态发生改变时，所有依赖于它的对象都得到通知并被自动更新。
 - **编译器映射**：异构执行完成事件总线、Pass 运行监控追踪。
 
-##### 架构铁律：观察者绝对不能拥有“状态真相”
-在异步 Runtime 中，硬件加速器通常通过中断控制器触发完成通知。
-Runtime 的 `EventBroadcaster` 会将这一事件分发给多个观察者：
-1. **内存释放器（MemoryReclaimer）**：解除对输入张量片上显存的锁定；
-2. **性能剖析器（Profiler）**：记录微秒完成时间戳；
-3. **上层 Future 对象**：唤醒用户态等待线程。
+##### C++20 工程实现：无死锁事件通知总线（可编译运行）
 
-> [!WARNING]
-> **观察者的常见架构陷阱**：
-> 1. **状态污染**：某些观察者在接收到通知后，擅自修改任务的状态机，引发多观察者执行次序依赖！**状态转移必须由核心状态机主导，观察者只读消费。**
-> 2. **回调死锁**：在持有全局分发器互斥锁的同时同步调用观察者的回调函数，而观察者内部又试图去获取另一把锁，瞬间导致跨线程死锁。**通知应当尽可能无锁化或将事件投递至异步无锁队列。**
+```cpp
+#include <iostream>
+#include <vector>
+#include <memory>
+#include <string>
+
+class IExecutionListener {
+public:
+    virtual ~IExecutionListener() = default;
+    virtual void onKernelCompleted(uint32_t kernelId, double elapsedMs) = 0;
+};
+
+// 观察者 A：显存释放器
+class MemoryDeallocator : public IExecutionListener {
+public:
+    void onKernelCompleted(uint32_t kernelId, double) override {
+        std::cout << "  [内存回收器] 监听到 Kernel " << kernelId << " 执行结束，安全解封片上显存！\n";
+    }
+};
+
+// 观察者 B：性能分析器
+class ExecutionProfiler : public IExecutionListener {
+public:
+    void onKernelCompleted(uint32_t kernelId, double elapsedMs) override {
+        std::cout << "  [性能统计器] 监听到 Kernel " << kernelId << " 耗时: " << elapsedMs << " ms\n";
+    }
+};
+
+// 被观察者：硬件事件广播中心
+class HardwareEventBus {
+public:
+    void subscribe(std::shared_ptr<IExecutionListener> listener) {
+        listeners_.push_back(listener);
+    }
+
+    void notifyKernelDone(uint32_t kernelId, double elapsedMs) {
+        std::cout << "[EventBus] 硬件中断触发，广播 Kernel 完成事件...\n";
+        for (const auto& l : listeners_) {
+            l->onKernelCompleted(kernelId, elapsedMs);
+        }
+    }
+
+private:
+    std::vector<std::shared_ptr<IExecutionListener>> listeners_;
+};
+
+int main() {
+    std::cout << "=== 观察者模式：硬件完成事件多方广播演示 ===\n";
+    HardwareEventBus bus;
+    bus.subscribe(std::make_shared<MemoryDeallocator>());
+    bus.subscribe(std::make_shared<ExecutionProfiler>());
+
+    bus.notifyKernelDone(42, 1.25);
+    return 0;
+}
+```
 
 ---
 
@@ -1643,38 +2240,88 @@ Runtime 的 `EventBroadcaster` 会将这一事件分发给多个观察者：
 - **传统 GoF 意图**：用一个中介对象来封装一系列的对象交互。中介者使各对象不需要显式地相互引用，从而使其耦合松散，而且可以独立地改变它们之间的交互。
 - **编译器映射**：NPU 多硬件引擎协调调度器（ExecutionScheduler）。
 
-##### 架构痛点：多引擎网状强耦合
-在复杂 NPU 内部，通常并存着：**DMA 控制器、Score 矩阵计算核心、RVV 向量计算核心、片上 Scratchpad 内存管理器**。
-如果它们之间直接相互调用：
-- DMA 传输完直接去触发 Score；
-- Score 算完直接通知 RVV 向量核做激活函数；
-- RVV 算完直接去通知 DMA 写回 DDR...
-系统将沦为一张错综复杂的网状依赖图，一旦增加一个新硬件核心，所有其他核心代码全部要修改！
+##### C++20 工程实现：星形多引擎调度中介者（可编译运行）
 
-##### C++20 工程实现：星形拓扑调度中介者
+```cpp
+#include <iostream>
+#include <string>
+#include <memory>
 
-```mermaid
-flowchart TD
-    subgraph Mesh["无中介者：网状混乱耦合"]
-        M_DMA <--> M_Score
-        M_Score <--> M_RVV
-        M_RVV <--> M_SMEM
-        M_SMEM <--> M_DMA
-    end
+class HardwareSchedulerMediator;
 
-    subgraph Star["有中介者：优雅星形解耦"]
-        DMA["DMA 控制器"] --> Sched["ExecutionScheduler (中介者)"]
-        Score["Score 矩阵核"] --> Sched
-        RVV["RVV 向量核"] --> Sched
-        SMEM["SMEM 内存分配器"] --> Sched
-        Sched --> DMA
-        Sched --> Score
-        Sched --> RVV
-        Sched --> SMEM
-    end
+// 参与者基类
+class HardwareSubsystem {
+public:
+    explicit HardwareSubsystem(HardwareSchedulerMediator* med) : mediator_(med) {}
+    virtual ~HardwareSubsystem() = default;
+protected:
+    HardwareSchedulerMediator* mediator_;
+};
+
+class DmaController : public HardwareSubsystem {
+public:
+    using HardwareSubsystem::HardwareSubsystem;
+    void startTransfer();
+    void onDmaFinished();
+};
+
+class ScoreCore : public HardwareSubsystem {
+public:
+    using HardwareSubsystem::HardwareSubsystem;
+    void startCompute();
+    void onComputeFinished();
+};
+
+// 中介者协调器
+class HardwareSchedulerMediator {
+public:
+    void setDma(DmaController* dma) { dma_ = dma; }
+    void setScore(ScoreCore* score) { score_ = score; }
+
+    void notify(std::string_view event) {
+        if (event == "DmaDone") {
+            std::cout << "[中介者] 接收到 DMA 搬运完毕通知，触发 Score 专用核启动计算！\n";
+            if (score_) score_->startCompute();
+        } else if (event == "ScoreDone") {
+            std::cout << "[中介者] 接收到 Score 计算完毕通知，执行整流与管线收拢。\n";
+        }
+    }
+
+private:
+    DmaController* dma_{nullptr};
+    ScoreCore* score_{nullptr};
+};
+
+void DmaController::startTransfer() {
+    std::cout << "  [DMA] 启动 DDR -> SRAM 数据搬运...\n";
+    onDmaFinished();
+}
+void DmaController::onDmaFinished() {
+    std::cout << "  [DMA] 搬运完成，向中介者报告。\n";
+    mediator_->notify("DmaDone");
+}
+void ScoreCore::startCompute() {
+    std::cout << "  [Score] 启动张量乘法核心流水线...\n";
+    onComputeFinished();
+}
+void ScoreCore::onComputeFinished() {
+    std::cout << "  [Score] 计算完成，向中介者报告。\n";
+    mediator_->notify("ScoreDone");
+}
+
+int main() {
+    std::cout << "=== 中介者模式：星形调度解耦网状依赖演示 ===\n";
+    HardwareSchedulerMediator scheduler;
+    DmaController dma(&scheduler);
+    ScoreCore score(&scheduler);
+
+    scheduler.setDma(&dma);
+    scheduler.setScore(&score);
+
+    dma.startTransfer();
+    return 0;
+}
 ```
-
-通过引入中介者 `ExecutionScheduler`，各个硬件引擎只需要在完成工作时向调度器报告 `onEngineIdle(EngineType)`，由调度器根据任务 DAG 的拓扑状态统一协调下一条指令下发与片上内存的释放，使系统退化为优雅的星形拓扑。
 
 ---
 
@@ -1683,19 +2330,149 @@ flowchart TD
 - **传统 GoF 意图**：在不破坏封装性的前提下，捕获一个对象的内部状态，并在该对象之外保存这个状态。这样以后就可将该对象恢复到原先保存的状态。
 - **编译器映射**：探索式编译优化、自动调优搜索中的 IR 状态快照与回滚机制。
 
-在编译器的激进优化搜索中，Pass 尝试对循环进行大步长展开（Unroll）。展开后进行寄存器压力分析，如果发现寄存器发生严重的溢出（Spilling，不得不将寄存器写回低速显存），则该优化的收益为负数。
-通过 `IRSnapshotMemento`，编译器可以在尝试优化前捕获一份轻量级的 IR 状态树；一旦评估失败，瞬间执行原位状态回滚，无需重新从源 DSL 开始解析。
+##### C++20 工程实现：循环展开失败时的状态快照回滚（可编译运行）
+
+```cpp
+#include <iostream>
+#include <string>
+#include <memory>
+
+// 备忘录：不可变的历史状态快照
+class IRSnapshotMemento {
+public:
+    IRSnapshotMemento(uint32_t unrollFactor, uint32_t regPressure)
+        : unrollFactor_(unrollFactor), regPressure_(regPressure) {}
+
+    uint32_t getUnroll() const noexcept { return unrollFactor_; }
+    uint32_t getRegPressure() const noexcept { return regPressure_; }
+
+private:
+    uint32_t unrollFactor_;
+    uint32_t regPressure_;
+};
+
+// 发起人：可变 IR 循环体
+class LoopOptimizationContext {
+public:
+    LoopOptimizationContext(uint32_t unroll, uint32_t reg)
+        : unrollFactor_(unroll), regPressure_(reg) {}
+
+    std::unique_ptr<IRSnapshotMemento> createSnapshot() const {
+        return std::make_unique<IRSnapshotMemento>(unrollFactor_, regPressure_);
+    }
+
+    void restore(const IRSnapshotMemento& snapshot) {
+        unrollFactor_ = snapshot.getUnroll();
+        regPressure_ = snapshot.getRegPressure();
+        std::cout << "  [Memento 回滚] 成功恢复至历史干净状态: 展开因子=" 
+                  << unrollFactor_ << " 寄存器压力=" << regPressure_ << "\n";
+    }
+
+    void tryAggressiveUnroll(uint32_t factor) {
+        unrollFactor_ *= factor;
+        regPressure_ *= factor; // 展开导致寄存器压力飙升
+        std::cout << "  [激进优化] 尝试展开 " << factor << " 倍 -> 当前压力: " << regPressure_ << "\n";
+    }
+
+    bool isRegisterSpilled() const noexcept { return regPressure_ > 128; }
+
+private:
+    uint32_t unrollFactor_;
+    uint32_t regPressure_;
+};
+
+int main() {
+    std::cout << "=== 备忘录模式：编译优化探索与快照秒级回滚演示 ===\n";
+    LoopOptimizationContext loopCtx(1, 32);
+
+    // 1. 尝试前建立快照 (Memento)
+    std::cout << "创建优化前状态快照...\n";
+    auto snapshot = loopCtx.createSnapshot();
+
+    // 2. 尝试过于激进的展开
+    loopCtx.tryAggressiveUnroll(8);
+
+    // 3. 评估收益：检测是否发生硬件寄存器溢出 (Spilling)
+    if (loopCtx.isRegisterSpilled()) {
+        std::cout << "[成本模型评估失败] 寄存器严重超限溢出，触发即时回滚！\n";
+        loopCtx.restore(*snapshot);
+    }
+    return 0;
+}
+```
 
 ---
 
 #### 3.3.10 迭代器模式（Iterator）
 
 - **传统 GoF 意图**：提供一种方法顺序访问一个聚合对象中各个元素，而又无须暴露该对象的内部表示。
-- **编译器映射**：AST 遍历、MLIR Block 内 Operation 链表迭代、调度 DAG 拓扑排序迭代。
+- **编译器映射**：AST 遍历、MLIR Block 内 Operation 过滤迭代。
 
-在编译管线中，我们不仅需要对平坦的指令序列进行线性迭代，更需要提供跨层级的特殊迭代视图：
-- **过滤迭代器（Filter Iterator）**：在遍历 Block 时，自动跳过所有无副作用的类型定义指令，只产出计算密集型算子；
-- **逆序拓扑迭代器（Reverse Topological Iterator）**：专门为活跃变量区间分析（Liveness Analysis）提供逆向数据流遍历。
+##### C++20 工程实现：过滤非计算型指令的自定义迭代器（可编译运行）
+
+```cpp
+#include <iostream>
+#include <vector>
+#include <string>
+
+struct Instruction {
+    std::string opcode;
+    bool isComputeIntensive;
+};
+
+// 过滤迭代器：只遍历计算密集型算子
+class ComputeInstructionIterator {
+public:
+    ComputeInstructionIterator(const std::vector<Instruction>& instrs, size_t idx)
+        : instrs_(instrs), idx_(idx) {
+        advanceToNextCompute();
+    }
+
+    bool operator!=(const ComputeInstructionIterator& other) const noexcept {
+        return idx_ != other.idx_;
+    }
+
+    const Instruction& operator*() const { return instrs_[idx_]; }
+
+    ComputeInstructionIterator& operator++() {
+        if (idx_ < instrs_.size()) {
+            idx_++;
+            advanceToNextCompute();
+        }
+        return *this;
+    }
+
+private:
+    void advanceToNextCompute() {
+        while (idx_ < instrs_.size() && !instrs_[idx_].isComputeIntensive) {
+            idx_++;
+        }
+    }
+
+    const std::vector<Instruction>& instrs_;
+    size_t idx_;
+};
+
+int main() {
+    std::cout << "=== 迭代器模式：自定义指令过滤迭代视图演示 ===\n";
+    std::vector<Instruction> block = {
+        {"type_declaration", false},
+        {"matmul_tile_64x64", true},
+        {"comment_debug_loc", false},
+        {"vector_add_f32", true},
+        {"terminator_return", false}
+    };
+
+    ComputeInstructionIterator it(block, 0);
+    ComputeInstructionIterator end(block, block.size());
+
+    std::cout << "过滤出的纯密集计算指令序列:\n";
+    for (; it != end; ++it) {
+        std::cout << "  -> " << (*it).opcode << "\n";
+    }
+    return 0;
+}
+```
 
 ---
 
@@ -1704,13 +2481,56 @@ flowchart TD
 - **传统 GoF 意图**：给定一个语言，定义它的文法的一种表示，并定义一个解释器，这个解释器使用该表示来解释语言中的句子。
 - **编译器映射**：算子 DSL 解释器；以及**编译器中极其关键的“黄金参考解释器（Reference Interpreter）”**。
 
-##### 为什么 AI 编译器工程必须拥有 Reference Interpreter？
-在异构硬件芯片开发中，当一个大型神经网络的推理结果出现数值偏差（如第 47 层 Transformer 输出 NaN 或精度下降 5%）时，硬件工程师和编译器工程师往往互相扯皮：
-- 编译器工程师认为是芯片硬件乘法器精度丢失或指令偶发错乱；
-- 硬件工程师认为是编译器 Tiling 切分逻辑越界或内存对齐错误。
+##### C++20 工程实现：黄金参考解释器数值对齐（可编译运行）
 
-彻底终结扯皮的终极武器，就是在编译器内部集成一个**黄金参考解释器**：
-输入完全相同的中间 IR，使用经过严密单测的 CPU 高精度数学库执行纯算术解释，输出一份标准的“黄金张量（Golden Tensor）”。一旦与真机执行结果比对发生偏差，能以纳秒级精度定位出到底在第几个指令周期发生了计算偏移！
+```cpp
+#include <iostream>
+#include <vector>
+#include <cmath>
+
+// 纯数学参考解释器：计算 A + B
+class GoldenReferenceInterpreter {
+public:
+    static std::vector<float> evaluateAdd(const std::vector<float>& A, const std::vector<float>& B) {
+        std::vector<float> C(A.size());
+        for (size_t i = 0; i < A.size(); ++i) {
+            C[i] = A[i] + B[i];
+        }
+        return C;
+    }
+
+    // 黄金对齐检验函数：逐元素对比真机与参考模型数值误差
+    static bool verifyAgainstHardware(const std::vector<float>& golden, 
+                                      const std::vector<float>& actual, 
+                                      float tolerance = 1e-5f) {
+        for (size_t i = 0; i < golden.size(); ++i) {
+            if (std::fabs(golden[i] - actual[i]) > tolerance) {
+                std::cerr << "数值偏差在索引 [" << i << "]: 黄金值=" 
+                          << golden[i] << " 实际值=" << actual[i] << "\n";
+                return false;
+            }
+        }
+        return true;
+    }
+};
+
+int main() {
+    std::cout << "=== 解释器模式：黄金参考解释器数值对齐演示 ===\n";
+    std::vector<float> A = {1.0f, 2.0f, 3.0f, 4.0f};
+    std::vector<float> B = {0.5f, 0.5f, 0.5f, 0.5f};
+
+    // 1. 纯 CPU 解释器输出基准理论数值
+    auto golden = GoldenReferenceInterpreter::evaluateAdd(A, B);
+
+    // 2. 模拟真机硬件输出
+    std::vector<float> deviceOutput = {1.5f, 2.5f, 3.5f, 4.5f};
+
+    bool match = GoldenReferenceInterpreter::verifyAgainstHardware(golden, deviceOutput);
+    std::cout << "真机输出与纯数学黄金解释器逐元素比对: " 
+              << (match ? "100% 绝对精确对齐！" : "发生精度偏移") << "\n";
+    return 0;
+}
+```
 
 ---
 
@@ -1848,46 +2668,14 @@ sequenceDiagram
 ### 5.1 案例一：NPU 自定义硬件寄存器配置系统设计（Adapter + Builder + Command 协同）
 
 #### 痛点回顾：初学者最容易写出的“反模式大杂烩”
-在很多初创硬件团队中，控制寄存器配置代码常常写成如下惨状：
+在很多初创硬件团队中，控制寄存器配置代码常常写成如下惨状：把语义计算、硬件寄存器偏移硬编码、物理地址计算和底层驱动直接写操作全揉在一个函数中。一旦硬件使能位改变或需要进行本地单测，代码将完全不可用。
 
-```cpp
-// 典型的严重耦合反模式：语义、规划、物理地址与驱动完全混杂
-void configureAndRunHardware(float* A, float* B, float* C, int M, int N, int K) {
-    // 1. 语义与规划硬编码
-    int tile = 64;
-    // 2. 硬件寄存器偏移与位运算硬编码
-    uint32_t reg0 = (M / tile) << 16 | (N / tile);
-    uint32_t reg1 = 0x80000000 | (64); // 假设最高位是使能位
-    // 3. 物理地址计算硬编码
-    uint32_t sramBase = 0x1000;
-    // 4. 底层 MMIO 驱动直接写调用
-    *(volatile uint32_t*)(0x40000000 + 0x00) = reg0;
-    *(volatile uint32_t*)(0x40000000 + 0x04) = reg1;
-    *(volatile uint32_t*)(0x40000000 + 0x08) = sramBase;
-}
-```
-
-上述代码只要硬件微架构稍有调整（比如使能位从最高位改到第 0 位、寄存器基地址变更、或者单测需要在无硬件的开发机上运行），整个系统立即瘫痪。
-
-#### 架构解法：严格隔离四大职责
+#### 架构解法：严格隔离四大职责（可编译运行）
 通过模式组合，将流程严格划分为四个单向解耦的层次：
 1. **语义定义（Semantic）**：纯数学意图表达；
 2. **执行规划（Planner）**：结合代价模型决策 Tile 尺寸与内存偏移；
 3. **程序构建（Builder）**：校验硬件物理约束（对齐、容量），组装逻辑硬件命令对象；
 4. **编码与传输（Encoder & Transport）**：纯数学位运算编码，并通过适配器根据实际环境（MMIO / ACE 批处理 / Mock 单测桩）无感下发。
-
-```mermaid
-flowchart LR
-    Semantic["1. 语义输入\n(Pure Math Intent)"] --> Planner["2. 执行规划器\n(ScorePlanner)"]
-    Planner --> Builder["3. 硬件程序构建器\n(ScoreProgramBuilder)"]
-    Builder --> Encoder["4. 纯数学位运算编码器\n(ScoreEncoder)"]
-    Encoder --> Transport["5. 硬件总线传输适配器\n(IRegisterTransport)"]
-    Transport -.-> HW1["MMIO 真实硬件"]
-    Transport -.-> HW2["ACE 批处理硬件"]
-    Transport -.-> HW3["本地测试 Mock 桩"]
-```
-
-#### 完整 C++20 工程实现代码
 
 ```cpp
 #include <iostream>
@@ -1991,9 +2779,9 @@ public:
 class MockRegisterTransport : public IRegisterTransport {
 public:
     void transmit(const std::vector<RegisterWord>& words) override {
-        std::cout << "[Mock 桩测试] 成功拦截到 " << words.size() << " 个寄存器写操作:\n";
+        std::cout << "  [Mock 桩测试] 成功拦截到 " << words.size() << " 个寄存器写操作:\n";
         for (const auto& w : words) {
-            std::cout << "  -> 偏移 0x" << std::hex << std::setw(2) << std::setfill('0') << w.offset 
+            std::cout << "    -> 偏移 0x" << std::hex << std::setw(2) << std::setfill('0') << w.offset 
                       << " <= 数据 0x" << std::setw(8) << w.value << std::dec << "\n";
         }
     }
@@ -2003,23 +2791,40 @@ public:
 class AceBatchTransportAdapter : public IRegisterTransport {
 public:
     void transmit(const std::vector<RegisterWord>& words) override {
-        std::cout << "[ACE 总线驱动] 组装原子突发包 (Atomic Burst Packet)，单词数量: " 
+        std::cout << "  [ACE 总线驱动] 组装原子突发包 (Atomic Burst Packet)，单词数量: " 
                   << words.size() << "，一次性直发物理总线。\n";
     }
 };
+
+int main() {
+    std::cout << "=== 案例一：NPU 芯片寄存器配置完整工程架构演示 ===\n";
+    // 1. 使用 Builder 构建合法硬件程序
+    ScoreProgramBuilder builder;
+    auto program = builder.setLoopIterations(128)
+                          .setSramBuffers(0x1000, 0x4000)
+                          .enableDoubleBuffering(true)
+                          .build();
+
+    // 2. 纯计算编码器输出二进制字
+    auto regWords = ScoreEncoder::encode(program);
+
+    // 3. 分别下发给 Mock 驱动与真实 ACE 总线驱动
+    std::cout << ">>> 模式 A：本地单元测试环境 <<<\n";
+    MockRegisterTransport mockTransport;
+    mockTransport.transmit(regWords);
+
+    std::cout << "\n>>> 模式 B：上板生产环境 <<<\n";
+    AceBatchTransportAdapter aceTransport;
+    aceTransport.transmit(regWords);
+    return 0;
+}
 ```
 
 ---
 
 ### 5.2 案例二：高可靠异构运行时（Async Runtime）设计（Command + State + Observer 协同）
 
-#### 痛点回顾：异步并发执行中的状态竞争与假死
-异构系统中的任务执行是全异步的：Host 端 CPU 下发任务后，Device 端 GPU/NPU 通过硬件调度队列运行。
-初学者常犯的错误是将任务提交直接等同于执行完成，或者使用无锁的简单标志位维护状态，导致：
-1. **Host 提前释放了仍在被底层 NPU 硬件读取的片外内存，造成数据错乱甚至操作系统内核 Panic**；
-2. **硬件超时未响应时，状态无法优雅降级与资源解绑，系统彻底死锁**。
-
-#### 完整 C++20 工程实现代码
+#### 架构解法：严格解耦提交与完成，保障并发安全（可编译运行）
 
 ```cpp
 #include <iostream>
@@ -2041,7 +2846,6 @@ enum class TaskState {
     Failed
 };
 
-// 状态转字符串工具（方便调试日志）
 inline const char* to_string(TaskState s) {
     switch(s) {
         case TaskState::Created: return "Created";
@@ -2082,7 +2886,6 @@ public:
         observers_.push_back(obs);
     }
 
-    // 原子状态跃迁驱动（强制合法转换校验）
     void transitionTo(TaskState target) {
         std::vector<std::shared_ptr<ITaskLifecycleObserver>> observersCopy;
         TaskState oldState;
@@ -2090,17 +2893,16 @@ public:
             std::lock_guard<std::mutex> lock(mutex_);
             oldState = state_;
             
-            // 状态合法性断言
             if (!isValidTransition(oldState, target)) {
                 std::cerr << "致命状态机错误：禁止从 " << to_string(oldState) 
                           << " 跃迁至 " << to_string(target) << "\n";
                 return;
             }
             state_ = target;
-            observersCopy = observers_; // 拷贝观察者列表，释放锁后再通知，坚决避免死锁！
+            observersCopy = observers_;
         }
 
-        // 通知观察者（在锁外通知，避免死锁）
+        // 释放锁后再通知观察者，彻底杜绝死锁！
         for (const auto& obs : observersCopy) {
             obs->onStateChanged(id_, oldState, target);
         }
@@ -2112,7 +2914,6 @@ private:
         if (from == TaskState::Queued && to == TaskState::Running) return true;
         if (from == TaskState::Running && to == TaskState::DeviceDone) return true;
         if (from == TaskState::DeviceDone && to == TaskState::Completed) return true;
-        // 任何非终态都可以转向 Failed 异常态
         if (to == TaskState::Failed && from != TaskState::Completed) return true;
         return false;
     }
@@ -2134,24 +2935,30 @@ public:
         }
     }
 };
+
+int main() {
+    std::cout << "=== 案例二：高可靠异步运行时 FSM 与观察者演示 ===\n";
+    auto task = std::make_shared<AsyncTaskInvocation>(1001, "FlashAttention_Kernel");
+    task->addObserver(std::make_shared<AutoMemoryReclaimer>());
+
+    std::cout << "任务入队...\n";
+    task->transitionTo(TaskState::Queued);
+
+    std::cout << "硬件启动运行...\n";
+    task->transitionTo(TaskState::Running);
+
+    std::cout << "硬件完成中断到达...\n";
+    task->transitionTo(TaskState::DeviceDone);
+
+    std::cout << "Host 收拢确认终结...\n";
+    task->transitionTo(TaskState::Completed);
+    return 0;
+}
 ```
 
 ---
 
 ### 5.3 案例三：基于 MLIR 的优雅方言 Lowering 体系设计
-
-#### 警惕工业界大坑：“属性堆叠反模式”（Attributes Everywhere Trap）
-许多团队在刚刚接触 MLIR 时，没有理解 MLIR 的分层方言哲学，写出了如下严重恶化的架构代码：
-- **Pass 1 (Tiling Pass)**：不改变任何 IR 结构，只在原生的 `linalg.matmul` 上打上字符串属性 `op->setAttr("tile_m", 64)`；
-- **Pass 2 (Memory Pass)**：继续在同一个算子上打属性 `op->setAttr("sram_offset", 0x1000)`；
-- **Pass 3 (Register Pass)**：继续打属性 `op->setAttr("reg_binding", 5)`；
-- **Pass 4 (Final Pass)**：写一个拥有两千行代码的超级 Pass，读取上述所有属性，并在最后一步“神奇地直接下沉为底层机器码”。
-
-> [!CAUTION]
-> **为什么“属性堆叠”是灾难性的？**
-> 1. **隐式契约不可见**：后续的优化 Pass 根本不知道前面的 Pass 打了哪些字符串属性，类型系统无法做任何静态检查；
-> 2. **优化失效与属性丢失**：一旦中间的标准 Pass（如死代码消除、循环重排）克隆或替换了节点，这些非标准属性瞬间全部丢失；
-> 3. **破坏单测工具链**：无法使用标准的 `mlir-opt` 工具对中间任何一个阶段进行独立的 FileCheck 单测断言。
 
 #### 架构正道：明确定义三层自包含方言（Dialect Hierarchy）
 每一层都必须有自己清晰的抽象边界与合法的 Operation 语法：
@@ -2166,8 +2973,6 @@ flowchart TD
 
     LowDialect["低级硬件方言 (Low-Level Hardware Dialect)\n例如: score.sync_barrier; score.dma_burst;\n(完全对应芯片微码与物理寄存器)"]
 ```
-
-在每一层，开发者都可以独立将 IR dump 到磁盘，并通过文本比对验证当前层的优化逻辑是否正确，这才是现代编译器高内聚、易测试的架构真谛。
 
 ---
 
