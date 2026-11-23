@@ -1,6 +1,6 @@
 ---
 author: hqu-little-boy
-pubDatetime: 2026-11-20T10:00:00Z
+pubDatetime: 2026-11-23T10:00:00Z
 title: DSL 设计哲学与全景范式指南：从流式、管道式到 AI 芯片执行模型的正交解耦
 featured: false
 draft: false
@@ -12,7 +12,7 @@ tags:
   - 编程范式
   - 随笔
   - 技术
-description: 深入解构 DSL 设计中 40 余种形式与范式全景。从第一性原理厘清语法风格与硬件执行模型的五大正交维度，系统剖析延迟与启动间隔（II）、反压与令牌流动、状态化数据流图（SDFG）、16 对最易混淆概念辩析、异构加速硬件（NPU/TPU）的软硬件现实及兼顾优雅与性能的四大黄金设计戒律。
+description: 深入解构 DSL 设计中 40 余种形式与范式全景。从第一性原理厘清语法风格与硬件执行模型的五大正交维度，为每一种 DSL 形式配备详尽的代码示例与编译器洞察。系统剖析延迟与启动间隔（II）、反压与令牌流动、状态化数据流图（SDFG）、16 对最易混淆概念辩析、异构加速硬件（NPU/TPU）的软硬件现实及兼顾优雅与性能的四大黄金设计戒律。
 ---
 
 > **导读**：在领域特定语言（DSL, Domain-Specific Language）、AI 编译器（如 MLIR、TVM、Halide）以及专用加速处理器（如 NPU、TPU、GPU）的架构设计与编程体系中，开发者经常会被一堆纷繁复杂的术语狂轰滥炸：
@@ -27,7 +27,7 @@ description: 深入解构 DSL 设计中 40 余种形式与范式全景。从第�
 >
 > **答案是：完全不矛盾！因为这些术语根本不是同一个维度的分类，而是在回答各自正交的体系结构与语言设计问题。**
 >
-> 从编程语言理论、编译器中端到 GPU/NPU/FPGA 硬件抽象，我们可以梳理出 **40 余种 DSL 形式与组织模型**。本文将从计算机体系结构与编译原理的**第一性原理**出发，全景式解构 DSL 的分类地图与设计哲学。全篇严格遵循初学者友好原则，所有专业术语初次登场均配有直观类比，抹去私有特定硬件代号与微码接口，并配备丰富的 **Graphviz** 与 **Mermaid** 高清架构图、16 对混淆概念对照表与统一算子对比，帮助读者建立端到端贯穿“上层高级语法”到“底层硅片执行”的完整心智模型。
+> 从编程语言理论、编译器中端到 GPU/NPU/FPGA 硬件抽象，我们可以梳理出 **40 余种 DSL 形式与组织模型**。本文将从计算机体系结构与编译原理的**第一性原理**出发，全景式解构 DSL 的分类地图与设计哲学。**全篇严格贯彻“每个概念必有代码示例与编译器洞察”的原则**，所有专业术语初次登场均配有通俗拆解，彻底剥离私有特定硬件代号与微码接口，并配备丰富的 **Graphviz** 与 **Mermaid** 高清架构图、16 对混淆概念对照表与统一算子对比，帮助读者建立端到端贯穿“上层高级语法”到“底层硅片执行”的完整心智模型。
 
 ---
 
@@ -35,14 +35,14 @@ description: 深入解构 DSL 设计中 40 余种形式与范式全景。从第�
 
 - [零、初学者必读：核心概念与架构术语全景词典](#零初学者必读核心概念与架构术语全景词典)
 - [一、第一性原理：DSL 设计的五个正交维度](#一第一性原理dsl-设计的五个正交维度)
-- [二、宏观体系地图：40 余种 DSL 形式的七大分类全景](#二宏观体系地图40-余种-dsl-形式的七大分类全景)
-  - [A 类：编程范式（如何描述计算）](#a-类编程范式如何描述计算)
-  - [B 类：计算结构与算法表示（如何组织算法）](#b-类计算结构与算法表示如何组织算法)
-  - [C 类：数据交互与通信模型（数据如何流动）](#c-类数据交互与通信模型数据如何流动)
-  - [D 类：执行与并发模型（何时以及怎样运行）](#d-类执行与并发模型何时以及怎样运行)
-  - [E 类：硬件映射与存储模型（在哪里使用何种资源）](#e-类硬件映射与存储模型在哪里使用何种资源)
-  - [F 类：编译优化与调度策略（如何优化与生成代码）](#f-类编译优化与调度策略如何优化与生成代码)
-  - [G 类：语言外形与呈现界面（DSL 语法如何呈现）](#g-类语言外形与呈现界面dsl-语法如何呈现)
+- [二、宏观体系地图：40 余种 DSL 形式与完整代码示例全景](#二宏观体系地图40-余种-dsl-形式与完整代码示例全景)
+  - [A 类：编程范式（如何描述计算，9 种形式与代码）](#a-类编程范式如何描述计算)
+  - [B 类：计算结构与算法表示（如何组织算法，11 种形式与代码）](#b-类计算结构与算法表示如何组织算法)
+  - [C 类：数据交互与通信模型（数据如何流动，9 种形式与代码）](#c-类数据交互与通信模型数据如何流动)
+  - [D 类：执行与并发模型（何时以及怎样运行，11 种形式与代码）](#d-类执行与并发模型何时以及怎样运行)
+  - [E 类：硬件映射与存储模型（在哪里使用何种资源，8 种形式与代码）](#e-类硬件映射与存储模型在哪里使用何种资源)
+  - [F 类：编译优化与调度策略（如何优化与生成代码，7 种形式与代码）](#f-类编译优化与调度策略如何优化与生成代码)
+  - [G 类：语言外形与呈现界面（DSL 语法如何呈现，8 种形式与代码）](#g-类语言外形与呈现界面dsl-语法如何呈现)
 - [三、核心范式深度剖析：函数式、管道式、流式与数据流式](#三核心范式深度剖析函数式管道式流式与数据流式)
   - [3.1 函数式 DSL：关注计算结果，而非执行时序](#31-函数式-dsl关注计算结果而非执行时序)
   - [3.2 管道式 DSL：关注计算阶段如何跨时间重叠](#32-管道式-dsl关注计算阶段如何跨时间重叠)
@@ -173,9 +173,9 @@ flowchart TD
 
 ---
 
-## 二、宏观体系地图：40 余种 DSL 形式的七大分类全景
+## 二、宏观体系地图：40 余种 DSL 形式与完整代码示例全景
 
-为了彻底建立全局认知，我们将现代编译器、编程语言理论与体系结构中涉及的 40 多种 DSL 形式，归纳为**七大类别（A ~ G）**。
+为了彻底建立全局认知，我们将现代编译器、编程语言理论与体系结构中涉及的 40 多种 DSL 形式，归纳为**七大类别（A ~ G）**。每一小类均提供明确的定义、直观的代码示例以及编译器设计视角下的核心洞见。
 
 ```mermaid
 mindmap
@@ -213,72 +213,403 @@ mindmap
       注解属性驱动 / 宏元编程 / 混合式
 ```
 
+---
+
 ### A 类：编程范式（如何描述计算）
 
 这一层回答：**程序员究竟通过什么思维方式表达计算意图？**
 
-1. **命令式（Imperative）**：步步给出状态修改指令序列。核心是操作顺序与状态可变性。适合硬件驱动、底层运行时控制。
-   ```python
-   dma.load(A, sram_buf0)
-   vector_engine.run_add(sram_buf0, sram_buf1, sram_buf2)
-   dma.store(sram_buf2, Y)
-   ```
-2. **过程式（Procedural）**：命令式的结构化升级，将命令打包为可重用的函数/过程。适合板卡初始化流程、测试脚本。
-3. **函数式（Functional）**：以无副作用的纯函数组合为核心，$f(x) = y$。相同输入必产生相同输出，极易进行公共子表达式消除（CSE）与算子融合。
-   ```python
-   def model(A, B, C):
-       return mul(add(A, B), C)
-   ```
-4. **声明式（Declarative）**：只描述“期望达到什么目标/满足什么约束”，隐藏具体执行步骤。由编译器寻找可行实现。
-   ```python
-   output = A + B
-   require(dtype=fp16, max_latency=100)
-   ```
-5. **关系式（Relational）**：基于关系代数，以表、集合及其连接投影为抽象（如 SQL）。在编译器中常用于查询 IR 元信息与优化候选。
-6. **逻辑式（Logic / Datalog）**：用已知事实（Fact）与推导规则（Inference Rule）求出满足条件的事实全集。在编译器静态分析（如指针分析、死锁检测、可达性分析）中极具威力（典型代表：Soufflé）。
-   ```prolog
-   depends(A, B).
-   depends(B, C).
-   reachable(X, Z) :- depends(X, Y), reachable(Y, Z).
-   ```
-7. **规则模式匹配与重写式（Rule-based / Rewrite）**：定义“当匹配到某种 AST/DAG 模式时，改写为等价新结构”。是编译器 Passes 与窥孔优化的灵魂（如 MLIR PDLL / TableGen DRR）。
-8. **约束式（Constraint-based）**：向约束求解器声明变量必须同时满足的等式与不等式，让求解器求解合法配置（如求解最优 Tile 尺寸、Bank 分配）。
-9. **概率式（Probabilistic）**：用随机变量与概率分布定义计算，核心是推断与采样（如 Stan）。
+#### A1. 命令式（Imperative DSL）
+- **核心定义**：明确指出计算机每一步应当执行的具体状态修改动作。代码顺序决定了执行的时间因果。
+- **代码示例**：
+  ```python
+  dma.load(src=DDR_A, dst=sram_buf0)
+  dma.load(src=DDR_B, dst=sram_buf1)
+  dma.wait_done()
+
+  vector_engine.configure("add")
+  vector_engine.run(in0=sram_buf0, in1=sram_buf1, out=sram_buf2)
+  vector_engine.wait_done()
+
+  dma.store(src=sram_buf2, dst=DDR_Y)
+  ```
+- **编译器洞察**：动作本身具备副作用（Side Effect）。若把 `wait_done` 调换顺序会导致读写冒险（Hazard）。适合驱动层，但限制了编译器的自动重排优化空间。
+
+#### A2. 过程式（Procedural DSL）
+- **核心定义**：命令式的结构化升级，将频繁使用的命令序列封装为具备参数的过程/函数，通过调用复用逻辑。
+- **代码示例**：
+  ```python
+  def load_tile_and_add(src_a, src_b, sram_slot):
+      dma.async_load(src_a, sram_slot.a)
+      dma.async_load(src_b, sram_slot.b)
+      dma.wait_all()
+      compute_add(sram_slot.a, sram_slot.b, sram_slot.out)
+
+  def main_pipeline():
+      for i in range(num_tiles):
+          load_tile_and_add(tiles_a[i], tiles_b[i], slot=0)
+  ```
+- **编译器洞察**：过程封装不代表自动拥有异步任务调度能力；它仍然遵循调用栈与顺序控制流。
+
+#### A3. 函数式（Functional DSL）
+- **核心定义**：以纯数学函数映射与表达式为核心，$f(x) = y$。无隐藏全局可变状态，相同输入必得相同结果（引用透明性）。
+- **代码示例**：
+  ```python
+  def model(A, B, C):
+      X = add(A, B)
+      Y = mul(X, C)
+      return Y
+  ```
+- **编译器洞察**：极其利于算子融合（Add + Mul $\rightarrow$ FMA）与公共子表达式消除（CSE）。中间量 `X` 无需在物理内存中真实分配空间。
+
+#### A4. 声明式（Declarative DSL）
+- **核心定义**：只声明“期望得到的结果是什么”以及“必须满足哪些约束”，彻底隐去具体实现步骤。
+- **代码示例**：
+  ```python
+  compute:
+      output = matmul(A, B) + C
+  constraints:
+      precision = fp16
+      max_latency_us = 50
+      max_sram_kb = 256
+  ```
+- **编译器洞察**：用户不指定多重循环如何切分。编译器内置的约束求解器或优化器负责寻找满足所有约束的最优执行路径。
+
+#### A5. 关系式（Relational DSL）
+- **核心定义**：将数据建模为元组关系（Relation），通过选择、投影、连接等代数运算生成新关系（典型如 SQL）。
+- **代码示例**：
+  ```sql
+  SELECT op_name, tile_m, tile_n, latency_cycles
+  FROM kernel_database
+  WHERE dtype = 'fp16' AND sram_footprint <= 32768
+  ORDER BY latency_cycles ASC
+  LIMIT 1;
+  ```
+- **编译器洞察**：在现代编译器的调度器或自动调优系统中，用于高效检索和匹配硬件支持的算子模式库与最佳模板。
+
+#### A6. 逻辑式（Logic / Datalog DSL）
+- **核心定义**：用已知事实（Fact）与推理规则（Rule）进行逻辑闭包演算，由推导引擎自动求解事实集合。
+- **代码示例**：
+  ```prolog
+  % 已知事实：数据依赖关系
+  depends(node_b, node_a).
+  depends(node_c, node_b).
+
+  % 推导规则：可达性与潜在死锁检测
+  reachable(X, Y) :- depends(X, Y).
+  reachable(X, Z) :- depends(X, Y), reachable(Y, Z).
+  has_deadlock(X) :- reachable(X, X).
+  ```
+- **编译器洞察**：真实项目（如 Soufflé）广泛用于编译期的高级静态分析，例如指针别名分析、死锁证明、资源冲突安全验证。
+
+#### A7. 规则模式匹配与重写式（Rule-based / Rewrite DSL）
+- **核心定义**：定义“当在计算图或 AST 中匹配到特定模式时，将其重写为等价优化形态”（模式驱动）。
+- **代码示例**：
+  ```python
+  # 类似 MLIR PDLL 的模式重写规则
+  Pattern {
+      let root = op<arith.addi>(x: Value, op<arith.constant> {value = 0});
+      rewrite root with x; // 代数恒等式优化：x + 0 => x
+  }
+  ```
+- **编译器洞察**：规则之间高度解耦，新增编译优化只需追加规则条目。由底层的重写驱动器（如 Rete 算法）自动迭代直到收敛至不动点。
+
+#### A8. 约束式（Constraint-based DSL）
+- **核心定义**：将问题表示为一组数学约束与目标函数，直接调用 SMT 求解器（如 Z3）或整数线性规划（ILP）求解合法解。
+- **代码示例**：
+  ```python
+  constraints = [
+      tile_m * tile_n * 2 <= 65536,  # SRAM 容量限制
+      tile_m % 16 == 0,              # 向量单元对齐要求
+      tile_n % 32 == 0,
+      tile_m >= 16, tile_n >= 32
+  ]
+  objective = minimize(latency_model(tile_m, tile_n))
+  solve(constraints, objective)
+  ```
+- **编译器洞察**：无需硬编码经验启发式规则，由数学求解器自动规划出最优的硬件分块参数与 Bank 分配方案。
+
+#### A9. 概率式（Probabilistic DSL）
+- **核心定义**：变量以概率分布的形式表达，通过采样或变分推断得出未知参数的后验分布（典型如 Stan）。
+- **代码示例**：
+  ```python
+  # 芯片硬件延时波动建模
+  dma_latency ~ Normal(loc=120, scale=15)
+  compute_cycles ~ Gamma(shape=2, scale=50)
+  observe(measured_total_time, dma_latency + compute_cycles)
+  ```
+- **编译器洞察**：在编译器中主要用于带有非确定性时钟抖动、动态负载扰动时的软实时延迟边界推断。
 
 ---
 
 ### B 类：计算结构与算法表示（如何组织算法）
 
-这一层回答：**计算任务本身具有何种内在的拓扑或空间结构？**
+这一层回答：**计算任务本身具有何种内在的拓扑或空间几何结构？**
 
-1. **表达式式（Expression-oriented）**：计算以一棵表达式树呈现，适合标量数学、符号代数。
-2. **张量式（Tensor-oriented）**：把高维张量作为一等公民，单个算子（如 `matmul`）封装海量底层乘加，便于高层 Shape 推导和图融合。
-3. **索引式（Index / Einstein Notation）**：显式写出每个元素的爱因斯坦求和约定，暴露并行轴与归约轴（典型代表：TACO）。
-   $$C_{ij} = \sum_k A_{ik} B_{kj} \quad \Longrightarrow \quad \texttt{C[i, j] = sum(A[i, k] * B[k, j], over=k)}$$
-4. **循环式（Loop-oriented）**：显式嵌套循环遍历迭代空间（如 `scf.for`），便于循环分块、交换、向量化。
-5. **仿射式（Affine / Polyhedral-oriented）**：将循环边界与内存下标约束为线性仿射函数，使编译器能利用多面体整数线性规划严谨证明无数据依赖并自动并行化（如 MLIR Affine Dialect）。
-6. **递归式（Recursive）**：通过分治子问题表达计算（如树状规约），可编译期展开为硬件拓扑。
-7. **图式（Graph-based）**：用显式节点与有向边构建程序，边可承载数据依赖、控制依赖或事件同步。
-8. **数据流式（Dataflow）**：计算的触发完全由“输入数据是否已全部就绪”驱动，天然具备隐式并行性。
-9. **控制流式（Control-flow / CFG）**：以条件分支、循环跳转为主线，表达程序可能经过的执行路径。
-10. **状态机式（State-machine / FSM）**：显式定义系统状态（State）与在何种事件触发下的状态转移（Transition），适合硬件握手与协议解析。
-11. **邻域计算式（Stencil）**：每个输出点依赖输入滑动窗口内的固定局部点集（如图像卷积、差分网格），利于编译器设计行缓冲（Line Buffer）与数据复用。
+#### B1. 表达式式（Expression-oriented）
+- **核心定义**：程序几乎完全由嵌套的数学表达式树构成，强调“求值返回结果”而非状态变迁。
+- **代码示例**：
+  ```python
+  Y = (A + B) * C - exp(D)
+  ```
+- **编译器洞察**：能够直接无损地解析为一棵抽象语法树（AST），天然支持结合律、分配律等代数化简Pass。
+
+#### B2. 张量式（Tensor-oriented）
+- **核心定义**：高维多维数组（Tensor）作为语言的一等公民，算子粒度是粗粒度的矩阵或卷积整体。
+- **代码示例**：
+  ```python
+  X = matmul(A, B)      # 隐式包含 M*N*K 次乘加
+  Y = relu(X + Bias)    # 隐式包含广播与非线性激活
+  ```
+- **编译器洞察**：保留了全局的高层语义（如形状推导、内存布局对齐），便于在图优化阶段进行整体算子替换。
+
+#### B3. 索引式（Index / Einstein Notation）
+- **核心定义**：显式写出多维数组每个下标的映射关系与爱因斯坦求和约定，暴露并行轴与归约轴（典型如 TACO）。
+- **代码示例**：
+  ```python
+  # 矩阵乘法的索引表达式：k 为归约轴，i 和 j 为并行轴
+  C[i, j] = sum(A[i, k] * B[k, j], over=k)
+  ```
+- **编译器洞察**：编译器能直接根据下标形式推导出循环嵌套层级、数据复用机会（Data Reuse）并自动生成稀疏/稠密合并遍历循环。
+
+#### B4. 循环式（Loop-oriented）
+- **核心定义**：显式使用嵌套循环直接遍历多维迭代空间。
+- **代码示例**：
+  ```python
+  for i in range(0, M):
+      for j in range(0, N):
+          for k in range(0, K):
+              C[i, j] += A[i, k] * B[k, j]
+  ```
+- **编译器洞察**：底层细节暴露彻底，最适合直接施加循环分块（Tiling）、循环展开（Unrolling）、循环交换（Interchange）与向量化（Vectorization）。
+
+#### B5. 仿射多面体式（Affine / Polyhedral-oriented）
+- **核心定义**：将循环上下界和内存访问下标严格限制为外部参数与循环变量的线性仿射组合（如 MLIR `affine.for`）。
+- **代码示例**：
+  ```text
+  affine.for %i = 0 to 64 {
+      affine.for %j = 0 to 128 {
+          // 下标访问为线性仿射表达式：2*%i + %j
+          %val = affine.load %A[2 * %i + %j] : memref<256xf32>
+          affine.store %val, %B[%i, %j] : memref<64x128xf32>
+      }
+  }
+  ```
+- **编译器洞察**：借助多面体模型（Polyhedral Model），编译器能够通过严格的整数规划数学证明迭代之间是否存在读写冲突，并自动生成无死锁的极致重排代码。
+
+#### B6. 递归式（Recursive DSL）
+- **核心定义**：以分治思维将宏大计算拆解为结构相同的子问题。
+- **代码示例**：
+  ```python
+  def tree_reduce_add(tensor_slice):
+      if len(tensor_slice) == 1:
+          return tensor_slice[0]
+      left, right = split_half(tensor_slice)
+      return tree_reduce_add(left) + tree_reduce_add(right)
+  ```
+- **编译器洞察**：固定深度的递归在编译期可直接展开为平衡二叉归约树拓扑，完美映射到底层多级加法树硬件电路。
+
+#### B7. 图式（Graph-based DSL）
+- **核心定义**：显式创建节点（代表算子或任务）与有向边（代表依赖或数据传递），构建计算图。
+- **代码示例**：
+  ```python
+  g = Graph()
+  n_a = g.placeholder("A", shape=[64, 128])
+  n_b = g.placeholder("B", shape=[64, 128])
+  n_add = g.create_node("Add", inputs=[n_a, n_b])
+  n_relu = g.create_node("ReLU", inputs=[n_add])
+  g.mark_output(n_relu)
+  ```
+- **编译器洞察**：图拓扑独立于任何宿主语言语法，极其便于跨进程导出、跨设备切片以及死代码消除（DCE）。
+
+#### B8. 数据流式（Dataflow DSL）
+- **核心定义**：操作的启动不依赖全局指令指针（PC），只取决于其所需的输入数据是否已经计算完毕并就绪。
+- **代码示例**：
+  ```python
+  # 算子 X 和 Z 无相互依赖，数据就绪后将自发并发启动
+  X = op.add(A, B)
+  Z = op.add(C, D)
+  Y = op.mul(X, Z)  # 严格等待 X 和 Z 的就绪信号
+  ```
+- **编译器洞察**：天然蕴含隐式并行性（Implicit Parallelism）。编译器无需费力寻找并发，无依赖分支自动天然并发。
+
+#### B9. 控制流式（Control-flow / CFG-oriented）
+- **核心定义**：以显式的条件分支、跳转和基本块（Basic Block）构成执行流程网络。
+- **代码示例**：
+  ```python
+  if precision_mode == "FP16":
+      result = execute_half_precision(A, B)
+  else:
+      result = execute_full_precision(A, B)
+  ```
+- **编译器洞察**：表达动态分支与运行时错误处理的必备手段。在编译器中端通常表示为由条件跳转指令终结的控制流图（CFG）。
+
+#### B10. 状态机式（State-machine / FSM DSL）
+- **核心定义**：显式建模为离散的状态集合，并在特定事件与守卫条件（Guard）下跃迁并触发动作。
+- **代码示例**：
+  ```python
+  state IDLE:
+      on start_signal -> LOADING
+  state LOADING:
+      entry: dma.start_prefetch()
+      on dma_interrupt -> COMPUTING
+  state COMPUTING:
+      entry: matrix_engine.start()
+      on done_interrupt -> FINISHED
+  ```
+- **编译器洞察**：非常适合芯片调度微码与外部通信协议栈。将复杂的异步状态判断收敛为一张状态转移矩阵，杜绝状态混乱。
+
+#### B11. 邻域计算式（Stencil DSL）
+- **核心定义**：专门针对规则网格上“每个输出点依赖其几何邻域固定偏移输入点”的模式。
+- **代码示例**：
+  ```python
+  # 图像 2D 拉普拉斯锐化邻域模板
+  stencil laplace(in_img, out_img):
+      out_img[x, y] = 4 * in_img[x, y] \
+                    - in_img[x-1, y] - in_img[x+1, y] \
+                    - in_img[x, y-1] - in_img[x, y+1]
+  ```
+- **编译器洞察**：编译器能一眼识别出点与点之间高度重叠的局部访存，自动分配极小容量的行缓冲（Line Buffer）消除重复访存。
 
 ---
 
 ### C 类：数据交互与通信模型（数据如何流动）
 
-这一层回答：**两个计算单元之间的数据究竟如何跨空间或跨时间传递？**
+这一层回答：**两个物理计算核心或逻辑模块之间的数据究竟如何跨空间或跨时间传递？**
 
-1. **流式（Streaming）**：数据作为随时间持续涌入的 Token 序列，消费者随到随算，强调到达顺序、速率与反压。
-2. **Channel / FIFO 式**：显式创建有容量上限的单向通道，生产者 push，消费者 pop。
-3. **同步数据流（Synchronous Dataflow, SDF）**：算子每次触发产生和消费固定数量的 Token（编译期常数），可通过拓扑矩阵解出无死锁静态调度（典型代表：StreamIt）。
-4. **进程网络（Process Network, KPN）**：独立进程通过无界（或大容量）FIFO 互通，确定性强。
-5. **消息式 / Actor**：每个并发主体拥有独立内部状态与消息邮箱，通过异步投递消息协作。
-6. **共享内存式（Shared-memory）**：通过公共物理内存空间读写数据，依赖内存屏障（Barrier）与锁同步。
-7. **显式数据移动式（Explicit Data Movement）**：数据搬运本身是一等公民操作（如 DMA 异步拷贝指令），必须显式指明源/目标存储层次。
-8. **数据中心式（Data-centric / DaCe）**：以数据容器与内存访问模式为优化核心，将计算视为伴随数据流动的副产物。
-9. **反应式（Reactive）**：当上游信号（Signal）或值发生变更时，自动驱动下游依赖链式重新计算。
+#### C1. 流式（Streaming DSL）
+- **核心定义**：将数据抽象为随时间源源不断流淌的微小 Token 序列，消费者随到随算。
+- **代码示例**：
+  ```python
+  source_stream = StreamSource(input_buffer, token_size=16)
+  output_stream = source_stream \
+      .map(lambda tok: tok + 1.0) \
+      .filter(lambda tok: tok > 0.0)
+  StreamSink(output_stream, target_buffer)
+  ```
+- **编译器洞察**：算子之间无需在中间主存持久化整块大张量，极大节省了高昂的物理外部内存带宽。
+
+#### C2. 通道与队列式（Channel / FIFO DSL）
+- **核心定义**：显式创建固定容量的单向通信通道，两端分别以阻塞或非阻塞的 `push`/`pop` 交互。
+- **代码示例**：
+  ```python
+  fifo = Channel(capacity=4, token_type=Tile32x32)
+
+  # 生产者任务
+  def producer():
+      for tile in tensor_tiles:
+          fifo.push(tile) # 满了则硬件自动挂起
+
+  # 消费者任务
+  def consumer():
+      while True:
+          tile = fifo.pop() # 空了则硬件自动等待
+          process(tile)
+  ```
+- **编译器洞察**：通道容量是核心参数。太小引发生产者频繁反压停顿，太大浪费昂贵的片上 SRAM 硅片面积。
+
+#### C3. 同步数据流式（Synchronous Dataflow, SDF）
+- **核心定义**：流式节点的进出速率在编译期完全固定为确定常数（典型如 StreamIt）。
+- **代码示例**：
+  ```python
+  sdf_node OperatorA:
+      pop_rate = 2    # 每次触发固定消费 2 个 Token
+      push_rate = 3   # 每次触发固定产出 3 个 Token
+      body:
+          out = compute(in[0], in[1])
+          emit(out[0], out[1], out[2])
+  ```
+- **编译器洞察**：编译器可以通过解拓扑平衡方程 $\Gamma \cdot \vec{q} = 0$，以纯静态方式算出无死锁的最优调度执行顺序，完全抛弃动态调度开销。
+
+#### C4. 进程网络式（Process Network / KPN）
+- **核心定义**：由多个自主并发推进的死循环进程组成，各进程通过理论上无界的 FIFO 互相传递数据。
+- **代码示例**：
+  ```python
+  @process
+  def worker_fetch(channel_out):
+      while True:
+          data = ddr.read_packet()
+          channel_out.write(data)
+
+  @process
+  def worker_calc(channel_in, channel_out):
+      while True:
+          data = channel_in.read() # 阻塞读保障确定性
+          channel_out.write(matrix_gemm(data))
+  ```
+- **编译器洞察**：Kahn 进程网络在数学上具备“执行结果绝对确定性”（Deterministic），无论各进程相对推进速度如何，输出结果唯一。
+
+#### C5. 消息式 / Actor DSL
+- **核心定义**：每个 Actor 是一个持有私有状态的独立并发实体，仅通过发送不可变消息互相通信。
+- **代码示例**：
+  ```python
+  class MatrixCoreActor:
+      def __init__(self):
+          self.running_task = None
+
+      def on_receive(self, msg):
+          if isinstance(msg, LaunchTask):
+              self.execute(msg.tile_desc)
+              msg.sender.send(TaskCompleted(self.id, msg.task_id))
+  ```
+- **编译器洞察**：非常适合异构多核调度环境。各个核互不共享指针，通过消息协议进行指令分派与心跳同步。
+
+#### C6. 共享内存式（Shared-memory DSL）
+- **核心定义**：多个并发执行单元直接映射到同一个全局可寻址的物理内存空间。
+- **代码示例**：
+  ```python
+  shared_sram = SharedMemory(size=65536)
+
+  def thread_writer():
+      shared_sram.write(offset=0, data=tile_data)
+      hardware_memory_barrier() # 内存屏障保证可见性
+      set_flag(READY)
+
+  def thread_reader():
+      wait_flag(READY)
+      hardware_memory_barrier()
+      local_data = shared_sram.read(offset=0, size=1024)
+  ```
+- **编译器洞察**：必须显式配套锁（Lock）、无锁原子操作（Atomic）或内存屏障，编译器需要进行极其严格的数据竞争（Data Race）静态排查。
+
+#### C7. 显式数据移动式（Explicit Data Movement DSL）
+- **核心定义**：将“数据在不同物理存储层次之间的迁移”提升为与“计算”同等地位的一等操作。
+- **代码示例**：
+  ```python
+  evt_dma = dma.async_copy(
+      src=MemorySpace.DDR(addr=0x8000),
+      dst=MemorySpace.SRAM(bank=1, offset=0),
+      bytes=4096
+  )
+  # 计算显式依赖搬运完成事件
+  compute_engine.launch(using=MemorySpace.SRAM(bank=1), after=evt_dma)
+  ```
+- **编译器洞察**：让异构芯片中的存储层次暴露无遗，使编译器能精准调度搬运与计算的重叠流水。
+
+#### C8. 数据中心式（Data-centric / DaCe DSL）
+- **核心定义**：以数据容器（Container）为中心，程序是一张显式标注数据在各容器间读写移动的流图。
+- **代码示例**：
+  ```python
+  # DaCe 风格：显式定义数据在全局 DDR 与片上 SRAM 之间的流入流出
+  with dace.program:
+      A_global -> A_sram[0:64, 0:128]
+      B_global -> B_sram[0:128, 0:64]
+      matmul_task(A_sram, B_sram) -> C_sram[0:64, 0:64]
+      C_sram -> C_global
+  ```
+- **编译器洞察**：以最小化数据搬运量为目标函数，自动进行极其强大的多级内存跨度重组与存储生命周期压缩。
+
+#### C9. 反应式（Reactive DSL）
+- **核心定义**：以可变事件流或信号（Signal）为驱动，上游变化自发推送到下游注册的响应算子。
+- **代码示例**：
+  ```python
+  chip_temperature = ObservableSignal()
+  fan_speed = chip_temperature \
+      .filter(lambda temp: temp > 75) \
+      .map(lambda temp: (temp - 75) * 10 + 50)
+  fan_speed.subscribe(lambda speed: hardware_pwm.set_duty(speed))
+  ```
+- **编译器洞察**：用于加速芯片运行时的温控保护、降频调度与异常中断回调处理链路。
 
 ---
 
@@ -286,17 +617,134 @@ mindmap
 
 这一层回答：**计算任务在物理时间轴上如何被调度并重叠执行？**
 
-1. **串行式（Sequential）**：一步接一步严格保序执行。
-2. **并行式（Parallel）**：显式标注多个任务可同时由独立物理单元运行。
-3. **任务式（Task-based）**：把工作切为具有显式依赖的 Task，由运行时或硬件任务队列动态分派调度。
-4. **管道化流水线（Pipeline-oriented）**：将计算拆解为多个阶段，让不同批次的数据在时间轴上交错重叠执行。
-5. **异步式（Asynchronous）**：操作的发起（Launch）与完成（Complete）解耦，非阻塞立即返回。
-6. **事件驱动式（Event-driven）**：基于硬件中断或完成事件触发下游操作。
-7. **SPMD（Single Program Multiple Data）**：多个独立程序实例运行同一套代码，根据自身 ID 处理不同数据切片（如 Triton、GPU Grid）。
-8. **SIMD / 向量式（Vector-oriented）**：一条硬件指令同时对向量寄存器内的多个元素施加运算。
-9. **SIMT（Single Instruction Multiple Threads）**：以细粒度线程表达算法，硬件微架构自动将线程编组为 Warp 锁步执行。
-10. **时钟同步式（Synchronous / Clocked RTL）**：所有寄存器状态更新严格绑定在离散时钟上升沿（如硬件描述语言）。
-11. **事务式（Transactional）**：操作集合具备 ACID 原子性，要么全部生效，要么在冲突时完整回滚。
+#### D1. 串行式（Sequential DSL）
+- **核心定义**：所有操作按代码行号严格先后排队推进，前一个操作完结才启动下一个。
+- **代码示例**：
+  ```python
+  dma_load_input()
+  execute_matrix_multiply()
+  dma_store_result()
+  ```
+- **编译器洞察**：时序因果最直观，完全无竞态风险，但硬件资源利用率极低（算时不能搬，搬时不能算）。
+
+#### D2. 并行式（Parallel DSL）
+- **核心定义**：显式声明代码块内部的各个独立任务可以同时派发到不同的物理核心上运转。
+- **代码示例**：
+  ```python
+  parallel:
+      core[0].run_submatrix(tile_0)
+      core[1].run_submatrix(tile_1)
+      core[2].run_submatrix(tile_2)
+      core[3].run_submatrix(tile_3)
+  ```
+- **编译器洞察**：编译器需要评估物理核心数量，若硬件核心不足则自动退化为分批复用。
+
+#### D3. 任务式（Task-based DSL）
+- **核心定义**：将工作打包成独立的 Task，显式给出任务间的因果依赖图，由运行时动态或静态拓扑派发。
+- **代码示例**：
+  ```python
+  t1 = Task(dma.load, args=[A_tile])
+  t2 = Task(dma.load, args=[B_tile])
+  t3 = Task(compute.gemm, args=[t1.out, t2.out], after=[t1, t2])
+  t4 = Task(dma.store, args=[t3.out], after=[t3])
+  schedule_tasks([t1, t2, t3, t4])
+  ```
+- **编译器洞察**：调度器可维护一个就绪任务队列（Ready Queue），任何一个 Task 的前置依赖计数归零即可立即调度。
+
+#### D4. 管道化流水线式（Pipeline-oriented）
+- **核心定义**：将任务划分成有序阶段，利用多缓冲让不同批次的数据在不同硬件阶段上重叠推进。
+- **代码示例**：
+  ```python
+  pipeline(depth=3):
+      stage("Load"):    dma.read_tile(input_stream)
+      stage("Compute"): tensor_core.matmul()
+      stage("Store"):   dma.write_tile(output_stream)
+  ```
+- **编译器洞察**：编译器核心追求启动间隔 $II = 1$，自动在阶段之间插入双缓冲并生成消除停顿（Stall）的稳态微码。
+
+#### D5. 异步式（Asynchronous DSL）
+- **核心定义**：操作的启动（Launch）与等待完成（Await）分离，非阻塞立即交还控制权。
+- **代码示例**：
+  ```python
+  async def run_step():
+      future_load = dma.async_read(A)
+      # 主控核可以趁着 DMA 搬运时，去计算标量控制参数
+      scalar_ctrl_param = compute_scalar_params()
+      await future_load # 显式挂起等待
+      tensor_core.run(scalar_ctrl_param)
+  ```
+- **编译器洞察**：在硬件底层通常生成“发射指令 $\rightarrow$ 做无关计算 $\rightarrow$ 轮询或中断等待”的时序代码。
+
+#### D6. 事件驱动式（Event-driven DSL）
+- **核心定义**：系统由外部中断、硬件事件信号或计数器阈值来驱动后续行为。
+- **代码示例**：
+  ```python
+  on_event(DMA_TRANSFER_DONE):
+      trigger_hardware_core(CORE_0)
+
+  on_event(CORE_CALC_DONE):
+      trigger_dma_writeback()
+  ```
+- **编译器洞察**：不需要轮询，完全由底层中断服务程序（ISR）或硬件执行控制单元直接拉高唤醒电平。
+
+#### D7. SPMD 式（Single Program Multiple Data）
+- **核心定义**：多个并发程序实例运行相同的源代码，但每个实例根据自己独一无二的 ID 切片数据（如 Triton）。
+- **代码示例**：
+  ```python
+  pid = program_id(axis=0) # 获得当前网格块 ID
+  block_start = pid * BLOCK_SIZE
+  offsets = block_start + tl.arange(0, BLOCK_SIZE)
+  mask = offsets < N
+  val = tl.load(A_ptr + offsets, mask=mask)
+  tl.store(B_ptr + offsets, val * 2, mask=mask)
+  ```
+- **编译器洞察**：极其成功的现代 GPU/NPU 编程抽象，消除了手动写线程同步的繁琐，以规整的 Tile 为粒度表达数据并行。
+
+#### D8. SIMD / 向量式（Vector-oriented DSL）
+- **核心定义**：直接操作固定长度或变长的向量寄存器，单条指令批处理一组标量数据（如 RISC-V RVV）。
+- **代码示例**：
+  ```python
+  vl = set_vector_length(n_elements)
+  v_a = v_load(ptr_a, vl=vl)
+  v_b = v_load(ptr_b, vl=vl)
+  v_res = v_add(v_a, v_b, vl=vl)
+  v_store(ptr_c, v_res, vl=vl)
+  ```
+- **编译器洞察**：编译器需精确处理尾部未对齐的边界情况（Tail Handling）以及掩码（Mask）预测执行。
+
+#### D9. SIMT 式（Single Instruction Multiple Threads）
+- **核心定义**：以细粒度的单线程视角书写算法，底层硬件自动将若干线程聚合成线程束（Warp）锁步推进。
+- **代码示例**：
+  ```cpp
+  int global_tid = blockIdx.x * blockDim.x + threadIdx.x;
+  if (global_tid < total_size) {
+      output[global_tid] = input[global_tid] * 2.0f;
+  }
+  ```
+- **编译器洞察**：当线程束内部的分支走向不一致时，硬件会发生分支分歧（Branch Divergence），编译器需要全力进行分支合并消除优化。
+
+#### D10. 时钟同步式（Synchronous / Clocked RTL DSL）
+- **核心定义**：所有的状态变量与寄存器更新严格锁定在物理时钟脉冲的上升沿发生。
+- **代码示例**：
+  ```python
+  on_rising_edge(clock_pin):
+      if reset_signal:
+          reg_accum <= 0
+      elif enable_signal:
+          reg_accum <= reg_accum + input_val
+  ```
+- **编译器洞察**：属于硬件电路描述范畴，由逻辑综合工具（Synthesis Tool）翻译为由与非门和触发器构成的物理芯片版图。
+
+#### D11. 事务式（Transactional DSL）
+- **核心定义**：一组对多处存储的操作打包为一个不可分割的事务，要么全部提交生效，要么冲突时原子回滚。
+- **代码示例**：
+  ```python
+  atomic_transaction:
+      sram_allocator.reserve(slot_a, 4096)
+      sram_allocator.reserve(slot_b, 4096)
+      link_dma_descriptor(slot_a, slot_b)
+  ```
+- **编译器洞察**：确保在多主设备共享修改片上寄存器或缓冲区描述符时，不会产生中间非法状态。
 
 ---
 
@@ -304,14 +752,102 @@ mindmap
 
 这一层回答：**如何把逻辑算法绑定到芯片的具体晶体管、存储体与总线上？**
 
-1. **空间式（Spatial）**：将算法中的不同计算操作直接映射到芯片物理空间中的不同处理单元（PE）上（如 CGRA、FPGA 空间流水线）。
-2. **脉动阵列式（Systolic Array）**：数据按照精确时钟节奏在相邻 PE 之间水平/垂直传递流动，并在本地累加，实现极致的数据局部复用。
-3. **Tile / Block 式**：将大规模张量切分为符合片上 SRAM 容量的规整分块。
-4. **存储层次感知式（Memory-hierarchy-aware）**：在类型系统或语句中显式区分全局主存（DDR）、片上暂存器（SRAM）、向量寄存器。
-5. **布局代数式（Layout-oriented / Tensor Layout）**：将逻辑多维坐标映射到物理内存连续地址的跨步（Stride）与 Swizzle 规则建模为代数对象（典型代表：CUTLASS CuTe）。
-6. **硬件配置式（Configuration-oriented）**：以寄存器位域配置硬件功能模式。
-7. **指令级 / Intrinsic 式**：直接暴露硬件专用机器指令或内建函数。
-8. **电路网络式（Circuit / RTL）**：描述连线网表、逻辑门与触发器。
+#### E1. 空间式（Spatial DSL）
+- **核心定义**：将不同的计算算子直接安放并绑定在芯片二维物理空间的不同处理单元（PE）上。
+- **代码示例**：
+  ```python
+  spatial_map:
+      operator_Add   -> PhysicalTile(row=0, col=0)
+      operator_Mul   -> PhysicalTile(row=0, col=1)
+      operator_ReLU  -> PhysicalTile(row=1, col=0)
+  ```
+- **编译器洞察**：适合可重构数据流处理器（CGRA）和 FPGA 空间计算。重点在于空间布线路由（Routing）与端口带宽匹配。
+
+#### E2. 脉动阵列式（Systolic Array DSL）
+- **核心定义**：数据按照固定的时钟节拍，在相邻紧耦合的处理单元网格之间横向与纵向节律性流动。
+- **代码示例**：
+  ```python
+  systolic_engine(mesh_rows=16, mesh_cols=16):
+      feed_horizontal(stream=matrix_A, dir=WEST_TO_EAST)
+      feed_vertical(stream=matrix_B, dir=NORTH_TO_SOUTH)
+      stationary_mode(OUTPUT_STATIONARY)
+  ```
+- **编译器洞察**：数据在相邻 PE 之间直接通过寄存器中继传递，无需每次都去读取片上 SRAM，将访存功耗压榨到物理极限。
+
+#### E3. Tile / Block 分块式
+- **核心定义**：把浩瀚的高维张量切解为与片上硬件容量匹配的几何分块。
+- **代码示例**：
+  ```python
+  for m_idx in range(0, M_DIM, 64):
+      for n_idx in range(0, N_DIM, 128):
+          # 在固定 64x128 尺寸的分块上启动硬件加速核
+          run_hardware_tile(m_offset=m_idx, n_offset=n_idx)
+  ```
+- **编译器洞察**：分块尺寸是决定模型运行吞吐与片上 SRAM 命中率的核心生命线。
+
+#### E4. 存储层次感知式（Memory-hierarchy-aware DSL）
+- **核心定义**：在数据结构与类型声明中，显式贴上其所属物理内存层级的标签。
+- **代码示例**：
+  ```text
+  var A_ddr  : Tensor<[1024, 1024], f32, Space::GlobalDDR>
+  var A_sram : Tensor<[64, 128],   f32, Space::OnChipSRAM_Bank0>
+  var A_reg  : Tensor<[8, 8],       f32, Space::VectorRegister>
+  ```
+- **编译器洞察**：跨存储层级的隐式赋值将被编译器直接拦截报错，强迫显式插入 DMA 搬运指令，消灭隐藏的高延迟远程访存。
+
+#### E5. 布局代数式（Layout-oriented / CuTe）
+- **核心定义**：将多维逻辑坐标映射到物理一维内存地址的几何变换，抽象为代数元组 `(Shape, Stride)`。
+- **代码示例**：
+  ```cpp
+  // 逻辑形状 8x8，采用列优先跨步 (1, 8)，并施加 4-bank Swizzle 错位防冲突
+  auto layout = make_layout(
+      make_shape(8, 8),
+      make_stride(1, 8)
+  );
+  auto physical_offset = layout(logical_row, logical_col);
+  ```
+- **编译器洞察**：在编译期通过模板元编程将复杂的 Bank Conflict 消除逻辑折叠为极简的常数位运算。
+
+#### E6. 硬件配置式（Configuration-oriented DSL）
+- **核心定义**：直接以硬件寄存器位域和功能模式为对象，书写硬件初始态配置。
+- **代码示例**：
+  ```python
+  hardware_config:
+      matrix_unit.mode = GEMM_INT8
+      matrix_unit.accumulation_bitwidth = 32
+      agu.stride_x = 64
+      agu.stride_y = 128
+      agu.enable_auto_increment = True
+  ```
+- **编译器洞察**：其产物往往是打包好的寄存器写入指令序列，通常在任务启动前由控制核下发配置。
+
+#### E7. 指令级 / Intrinsic 式
+- **核心定义**：直接暴露芯片微架构的底层原生指令或 C/C++ 内建函数。
+- **代码示例**：
+  ```cpp
+  // 直接调用硬件专用矩阵乘加机器指令
+  __builtin_custom_matrix_load(REG_SRC0, sram_addr_a);
+  __builtin_custom_matrix_load(REG_SRC1, sram_addr_b);
+  __builtin_custom_matrix_mma(REG_DST, REG_SRC0, REG_SRC1);
+  ```
+- **编译器洞察**：后端指令发射 Pass 的直接输入，放弃了可移植性，但赋予性能调优专家绝对的硬件控制力。
+
+#### E8. 电路网络式（Circuit / RTL DSL）
+- **核心定义**：用代码表达晶体管门级网表、连线（Wire）与寄存器（Reg）。
+- **代码示例**：
+  ```verilog
+  module MatrixPE (
+      input wire clk, rst_n,
+      input wire [15:0] in_a, in_b,
+      output reg [31:0] accum_out
+  );
+      always @(posedge clk or negedge rst_n) begin
+          if (!rst_n) accum_out <= 32'd0;
+          else accum_out <= accum_out + (in_a * in_b);
+      end
+  endmodule
+  ```
+- **编译器洞察**：硬件设计师定义芯片本体的语言，是软件编译优化下沉的终极硅片物理载体。
 
 ---
 
@@ -319,13 +855,109 @@ mindmap
 
 这一层专门用于**控制编译器内部如何优化代码**，而非描述算法本身：
 
-1. **调度式（Schedule-oriented）**：算法描述“算什么”，调度代码描述“怎么算”（如 Halide、TVM TensorIR 的 `split`、`reorder`、`parallel`、`vectorize`）。
-2. **变换式（Transformation-oriented）**：以 IR 形式书写编译器 Pass 本身，直接操作 Payload IR（如 MLIR Transform Dialect）。
-3. **等价饱和式（Equality Saturation / E-graph）**：将多个等价重写形态保留在 E-Graph 中，避免贪心启发式死胡同（典型代表：egg 库）。
-4. **多阶段式（Multi-stage / Staged Programming）**：显式区分编译期生成计算与运行期求值计算。
-5. **部分求值式（Partial Evaluation）**：在部分输入参数已知时，提前在编译期求出定值并展开特化。
-6. **自动调优式（Auto-tuning）**：定义分块尺寸、并行度的超参数搜索空间，由系统通过基准测试或代价模型自动寻优。
-7. **外部可扩展编译式（Exocompilation）**：允许用户在不修改编译器核心代码的前提下，通过外部 Python/C++ 库扩展目标硬件的存储层级、微码指令和调度规则（典型代表：MIT Exo）。
+#### F1. 调度式（Schedule-oriented / Halide）
+- **核心定义**：算法描述“算什么”，调度代码描述“怎么算”（计算与调度正交分离）。
+- **代码示例**：
+  ```python
+  # 算法定义：纯数学公式
+  C[x, y] = A[x, y] + B[x, y]
+
+  # 调度定义：决定物理执行组织形式
+  schedule(C)
+      .split(x, x_outer, x_inner, factor=16)
+      .reorder(x_outer, y, x_inner)
+      .vectorize(x_inner)
+      .parallel(x_outer)
+  ```
+- **编译器洞察**：同一套矩阵乘法数学逻辑，只需更改调度代码，就能瞬间切换为适应 CPU、GPU 或专用芯片的不同流水线代码。
+
+#### F2. 变换式（Transformation-oriented / MLIR Transform）
+- **核心定义**：以 IR 形式书写编译器 Pass 本身，直接对 Payload IR 施加模式变换。
+- **代码示例**：
+  ```text
+  transform.sequence failures(propagate) {
+  ^bb0(%arg0: !transform.any_op):
+      // 匹配所有 linalg.matmul 算子并施加分块变换
+      %matmul = transform.structured.match ops{["linalg.matmul"]} in %arg0
+      %tiled, %loops:3 = transform.structured.tile_to_scf_for %matmul [64, 128, 32]
+  }
+  ```
+- **编译器洞察**：将原本必须用 C++ 硬编码在编译器源码里的 Pass 逻辑，提升为可热插拔、可解释执行的高级变换脚本。
+
+#### F3. 等价饱和式（Equality Saturation / E-graph / egg）
+- **核心定义**：将多种数学等价形式同时保留在一张等价图（E-Graph）中，避免传统编译器贪心选择导致的死胡同。
+- **代码示例**：
+  ```python
+  rewrite_rules = [
+      rule("mul_assoc",   mul(mul(a, b), c)  <=> mul(a, mul(b, c))),
+      rule("mul_distrib", mul(a, add(b, c))  <=> add(mul(a, b), mul(a, c))),
+      rule("zero_add",    add(x, 0)          <=> x)
+  ]
+  egraph.saturate(rewrite_rules)
+  best_ast = egraph.extract_best(cost_model=hardware_cycle_cost)
+  ```
+- **编译器洞察**：从全局解空间寻找最低时钟周期的实现，彻底告别“重写顺序不对导致优化失效”的顽疾。
+
+#### F4. 多阶段式（Multi-stage / Staged Programming）
+- **核心定义**：在语言层面显式区分哪些代码在编译期执行以生成特化代码，哪些代码在运行期执行。
+- **代码示例**：
+  ```python
+  @compile_time
+  def generate_specialized_kernel(dtype, tile_m, tile_n):
+      # 编译期执行：生成硬编码寻址的代码
+      if dtype == "fp16":
+          return emit_fast_fp16_gemm(tile_m, tile_n)
+      else:
+          return emit_general_gemm(tile_m, tile_n)
+
+  # 运行期只执行生成好的极致特化机器码
+  kernel = generate_specialized_kernel("fp16", 64, 128)
+  kernel(runtime_tensor)
+  ```
+- **编译器洞察**：消灭一切运行时动态参数判断与动态寻址计算，将控制流全部在编译期折叠摊平。
+
+#### F5. 部分求值式（Partial Evaluation DSL）
+- **核心定义**：当程序的部分输入参数在编译期已知时，编译器提前计算出确定子图并消除冗余分支。
+- **代码示例**：
+  ```python
+  def conv2d_scaled(img, weight, stride=1, dilation=1):
+      # 当 stride=1 且 dilation=1 静态已知时：
+      # 编译器直接折叠消除内部所有的坐标缩放乘除法
+      return raw_conv(img, weight, stride, dilation)
+  ```
+- **编译器洞察**：常数折叠（Constant Folding）与死代码消除（DCE）的高级通用理论基石。
+
+#### F6. 自动调优式（Auto-tuning DSL）
+- **核心定义**：定义参数搜索空间（Search Space），由框架结合硬件基准评测自动寻找最佳配置。
+- **代码示例**：
+  ```python
+  @autotune(
+      configs=[
+          Config(tile_m=32,  tile_n=64,  num_stages=2),
+          Config(tile_m=64,  tile_n=128, num_stages=3),
+          Config(tile_m=128, tile_n=256, num_stages=4),
+      ],
+      key=['M', 'N', 'K']
+  )
+  def matmul_kernel(A, B, C, tile_m, tile_n, num_stages):
+      ...
+  ```
+- **编译器洞察**：用算力换性能，彻底消除工程师手动猜测最佳分块大小和流水线深度的痛苦。
+
+#### F7. 外部可扩展编译式（Exocompilation / Exo）
+- **核心定义**：允许硬件供应商或算法调优专家在编译器本体之外，通过外部库定义芯片私有指令、存储与调度（典型如 MIT Exo）。
+- **代码示例**：
+  ```python
+  @proc
+  def custom_hardware_matmul(
+      A: f32[64, 64] @ SRAM,
+      B: f32[64, 64] @ SRAM,
+      C: f32[64, 64] @ SRAM
+  ):
+      # 用户在外部库中直接将逻辑循环替换为专用硬件微码指令
+      custom_hw_gemm_instr(A, B, C)
+  ```
+- **编译器洞察**：编译器核心不再需要为每款芯片频繁修改源码，将硬件指令扩展权完全开放给外部生态。
 
 ---
 
@@ -333,14 +965,118 @@ mindmap
 
 这一层回答：**程序员在键盘上究竟以什么外形敲出这门语言？**
 
-1. **内部嵌入式（Internal / Embedded DSL）**：借用宿主语言（如 Python、C++）的原生语法与生态，通过重载运算符或上下文管理器构建。
-2. **外部独立式（External DSL）**：拥有自己完全独立的语法与 Lexer/Parser（如使用 ANTLR 自研语法）。
-3. **Builder / Fluent API 链式**：利用方法级联 `.methodA().methodB()` 构建。
-4. **配置式（Configuration / Schema-based）**：纯静态 YAML/JSON/Protobuf/TableGen。
-5. **可视化连线式（Visual Node-based）**：拖拽连线节点构建 DAG（如 ComfyUI、虚幻蓝图）。
-6. **注解 / 编译指令驱动式（Annotation / Pragma-based）**：在原生代码上贴附元数据（如 `#pragma omp parallel`）。
-7. **宏 / 元编程扩展式（Macro-based）**：利用语言宏系统在编译期改写语法树（如 Rust 过程宏、Lisp 宏）。
-8. **混合式（Hybrid DSL）**：前端用 Python 嵌入式，中端用配置表与重写规则，底层外挂微内核——**现代成功框架的普遍归宿**。
+#### G1. 内部嵌入式（Internal / Embedded DSL）
+- **核心定义**：寄宿在通用宿主语言（如 Python、C++）内部，复用宿主语言的解析器与生态环境。
+- **代码示例**：
+  ```python
+  import accelerator_dsl as dsl
+
+  with dsl.compute_scope() as ctx:
+      x = ctx.tensor([64, 128], dtype=dsl.fp16)
+      y = dsl.relu(dsl.matmul(x, x))
+  ```
+- **编译器洞察**：开发成本极低，天然享有宿主语言的代码提示与调试工具，但语法自由度受到宿主语言语法规则的束缚。
+
+#### G2. 外部独立式（External DSL）
+- **核心定义**：拥有自研的独立词法/语法解析器，使用专属的文件后缀与语法规则。
+- **代码示例**：
+  ```text
+  // 自定义加速器语言 (.accel)
+  kernel MatrixAddRelu(A: tensor<64x128xf16>, B: tensor<64x128xf16>) -> tensor<64x128xf16> {
+      %0 = math.add A, B
+      %1 = math.relu %0
+      yield %1
+  }
+  ```
+- **编译器洞察**：语法设计自由度无限，可为领域量身定制最凝练的语法，但需要全套自建 IDE 高亮插件与语法检查器。
+
+#### G3. Builder / Fluent API 链式
+- **核心定义**：利用对象方法级联调用（Method Chaining），每个方法返回 `this` 或下一个构建上下文。
+- **代码示例**：
+  ```cpp
+  auto execution_graph = PipelineBuilder::create()
+      .set_input_tensor("A", Shape{64, 128})
+      .set_input_tensor("B", Shape{64, 128})
+      .append_stage(Operator::Add)
+      .append_stage(Operator::ReLU)
+      .enable_double_buffering()
+      .build();
+  ```
+- **编译器洞察**：IDE 自动补全极度友好，敲一个 `.` 就能引导开发者探索可用配置，非常适合流水线参数构建。
+
+#### G4. 配置式（Configuration / Schema-based）
+- **核心定义**：彻底剥离任何动态控制逻辑，仅用纯静态数据结构（YAML、JSON、TableGen）定义实体。
+- **代码示例**：
+  ```yaml
+  kernel_profile:
+    name: fused_gemm_relu
+    precision: fp16
+    memory_placement:
+      tensor_A: ONCHIP_SRAM_BANK0
+      tensor_B: ONCHIP_SRAM_BANK1
+      tensor_C: OFFCHIP_DDR
+    tile_strategy:
+      tile_m: 64
+      tile_n: 128
+      pipeline_stages: 2
+  ```
+- **编译器洞察**：零副作用，极易进行跨平台序列化与自动化解析，适合模型部署拓扑与静态调度编排。
+
+#### G5. 可视化连线与积木块式（Visual Node / Block-based）
+- **核心定义**：用图形化节点和带颜色的数据管线连线替代键盘代码文本（如 ComfyUI、虚幻蓝图）。
+- **代码示例（ASCII 连线拓扑）**：
+  ```text
+  [ Tensor A (64x128) ] ──┐
+                          ├─► [ Add Node ] ──► [ ReLU Node ] ──► [ Output Y ]
+  [ Tensor B (64x128) ] ──┘
+  ```
+- **编译器洞察**：学习门槛几乎为零，数据因果流向一目了然，但难以进行 Git 文本差分合并，节点规模庞大后容易变成“面条网”。
+
+#### G6. 注解 / 编译指令驱动式（Annotation / Pragma-based）
+- **核心定义**：在原生通用代码上方添加特殊元数据标签或预处理指令，指导编译器进行特定优化。
+- **代码示例**：
+  ```c
+  #pragma accelerator tile(64, 128)
+  #pragma accelerator pipeline(depth=3, double_buffer=true)
+  for (int i = 0; i < M; i++) {
+      for (int j = 0; j < N; j++) {
+          Y[i][j] = A[i][j] + B[i][j];
+      }
+  }
+  ```
+- **编译器洞察**：对原有业务代码侵入性极低，非加速环境下可作为普通注释忽略，具备良好的向下兼容性。
+
+#### G7. 宏 / 元编程扩展式（Macro / Metaprogramming）
+- **核心定义**：在编译前置阶段直接拦截 Token 流或 AST 树，展开为复杂的底层模板代码（如 Rust 过程宏）。
+- **代码示例**：
+  ```rust
+  // Rust 过程宏：在编译期展开生成底层硬件寄存器读写微码
+  hardware_kernel! {
+      fn fast_add(A: Input, B: Input) -> Output {
+          Y = A + B;
+      }
+  }
+  ```
+- **编译器洞察**：为静态宿主语言凭空创造全新语法糖，同时完全保留宿主语言的强类型检查与优化通道。
+
+#### G8. 混合式（Hybrid DSL）
+- **核心定义**：纵向融合多种范式：顶层用 Python 嵌入式写算法，中层用链式 API 调分块，底层用配置文件定参数。
+- **代码示例**：
+  ```python
+  # 1. 顶层：Python 运算符重载定义算法
+  @dsl.kernel
+  def custom_gemm(A, B):
+      return dsl.relu(A @ B)
+
+  # 2. 调度层：链式 Fluent API 探索硬件映射
+  dsl.schedule(custom_gemm) \
+      .tile(64, 128) \
+      .bind_sram("double_buffer")
+
+  # 3. 部署层：加载 YAML 硬件微架构约束
+  dsl.compile(custom_gemm, target_config="chip_arch_v2.yaml")
+  ```
+- **编译器洞察**：**现代工业级成功框架的终极共同归宿**，分层解耦，让算法工程师、编译器开发者与硬件工程师各取所需。
 
 ---
 
