@@ -747,13 +747,13 @@ int main() {
       "rv64-gcc1420": "rv64-gcc1420",
       g142: "g142",
       clang1910: "clang1910",
-      "aarch64-gcc1420": "aarch64-gcc1420",
+      "aarch64-gcc1420": "arm64g1420",
     },
     c: {
       "rv64-gcc1420": "rv64-cgcc1420",
       g142: "cg142",
       clang1910: "cclang1910",
-      "aarch64-gcc1420": "aarch64-cgcc1420",
+      "aarch64-gcc1420": "carm64g1420",
     },
     rust: {
       "rv64-gcc1420": "r1830",
@@ -988,6 +988,26 @@ int main() {
       );
     }
 
+    function isUserSourceFile(file: string | null | undefined): boolean {
+      if (!file) return true;
+      if (
+        file.includes("/include/") ||
+        file.includes("/bits/") ||
+        file.includes("/opt/") ||
+        file.includes("/cefs/") ||
+        file.includes("/usr/")
+      ) {
+        return false;
+      }
+      return (
+        file.endsWith("example.cpp") ||
+        file.endsWith("example.c") ||
+        file.endsWith("example.rs") ||
+        file === "<stdin>" ||
+        !file.startsWith("/")
+      );
+    }
+
     // Render assembly with line-by-line source mapping
     function renderAssemblyWithMapping(items: any[]) {
       sourceToAsmMap.clear();
@@ -1001,14 +1021,7 @@ int main() {
 
         let sourceLine: number | null = null;
         if (item.source && typeof item.source.line === "number") {
-          const file = item.source.file;
-          // Check if file is main source or null
-          if (
-            !file ||
-            file === "example.cpp" ||
-            file === "<stdin>" ||
-            !file.includes("/")
-          ) {
+          if (isUserSourceFile(item.source.file)) {
             const lineNumVal: number = item.source.line;
             sourceLine = lineNumVal;
             if (!sourceToAsmMap.has(lineNumVal)) {
@@ -1037,17 +1050,24 @@ int main() {
       currentHighlightedSourceLine = null;
       if (sourceActiveHighlight) {
         sourceActiveHighlight.classList.add("hidden");
+        sourceActiveHighlight.style.backgroundColor = "";
+        sourceActiveHighlight.style.borderLeft = "";
       }
       if (asmLinkIndicator) {
         asmLinkIndicator.classList.add("hidden");
       }
       if (root) {
-        root
-          .querySelectorAll(".is-active-line")
-          .forEach(el => el.classList.remove("is-active-line"));
-        root
-          .querySelectorAll(".is-linked-asm-line")
-          .forEach(el => el.classList.remove("is-linked-asm-line"));
+        root.querySelectorAll(".is-active-line").forEach((el: any) => {
+          el.classList.remove("is-active-line");
+          el.style.color = "";
+          el.style.fontWeight = "";
+          el.style.backgroundColor = "";
+        });
+        root.querySelectorAll(".is-linked-asm-line").forEach((el: any) => {
+          el.classList.remove("is-linked-asm-line");
+          el.style.backgroundColor = "";
+          el.style.borderLeft = "";
+        });
       }
     }
 
@@ -1071,13 +1091,20 @@ int main() {
           PADDING_TOP + (sourceLine - 1) * LINE_HEIGHT - sourceEditor.scrollTop;
         if (sourceActiveHighlight) {
           sourceActiveHighlight.style.top = `${top}px`;
+          sourceActiveHighlight.style.height = `${LINE_HEIGHT}px`;
+          sourceActiveHighlight.style.backgroundColor =
+            "rgba(14, 165, 233, 0.22)";
+          sourceActiveHighlight.style.borderLeft = "3px solid #38bdf8";
           sourceActiveHighlight.classList.remove("hidden");
         }
         const srcGutterItem = sourceGutter.querySelector(
           `[data-source-line="${sourceLine}"]`
-        );
+        ) as HTMLElement;
         if (srcGutterItem) {
           srcGutterItem.classList.add("is-active-line");
+          srcGutterItem.style.color = "#38bdf8";
+          srcGutterItem.style.fontWeight = "700";
+          srcGutterItem.style.backgroundColor = "rgba(56, 189, 248, 0.25)";
         }
 
         // If triggered by assembly, auto-scroll source editor if out of view
@@ -1101,15 +1128,22 @@ int main() {
 
       if (matchingAsmIndices && matchingAsmIndices.length > 0) {
         matchingAsmIndices.forEach(idx => {
-          const asmItem = asmOutput.querySelector(`[data-asm-index="${idx}"]`);
+          const asmItem = asmOutput.querySelector(
+            `[data-asm-index="${idx}"]`
+          ) as HTMLElement;
           if (asmItem) {
             asmItem.classList.add("is-linked-asm-line");
+            asmItem.style.backgroundColor = "rgba(14, 165, 233, 0.32)";
+            asmItem.style.borderLeft = "3px solid #38bdf8";
           }
           const asmGutterItem = asmGutter.querySelector(
             `[data-asm-line="${idx + 1}"]`
-          );
+          ) as HTMLElement;
           if (asmGutterItem) {
             asmGutterItem.classList.add("is-active-line");
+            asmGutterItem.style.color = "#38bdf8";
+            asmGutterItem.style.fontWeight = "700";
+            asmGutterItem.style.backgroundColor = "rgba(56, 189, 248, 0.25)";
           }
         });
 
@@ -1220,6 +1254,8 @@ int main() {
       // If no source mapping, clear link highlights and highlight this solo asm line
       clearAllHighlights();
       target.classList.add("is-linked-asm-line");
+      target.style.backgroundColor = "rgba(14, 165, 233, 0.25)";
+      target.style.borderLeft = "3px solid #38bdf8";
     });
 
     asmOutput?.addEventListener("mouseleave", () => {
@@ -1679,6 +1715,9 @@ int main() {
     } else {
       loadPreset("hello");
     }
+
+    // Auto-compile initial preset so user sees assembly and output immediately
+    compileAndRun();
   }
 
   // Support Astro View Transitions
@@ -1712,32 +1751,49 @@ int main() {
     height: calc(100vh - 6rem) !important;
   }
 
-  /* Interactive Assembly Line Styles */
-  .asm-line-item {
-    box-sizing: border-box;
-    border-left: 3px solid transparent;
+  /* Interactive Assembly Line Styles (using :global to style dynamic elements) */
+  :global(.asm-line-item) {
+    box-sizing: border-box !important;
+    border-left: 3px solid transparent !important;
+    transition:
+      background-color 0.1s ease,
+      border-left-color 0.1s ease;
   }
 
-  .asm-line-item.is-linked-asm-line {
-    background-color: rgba(14, 165, 233, 0.22) !important;
-    border-left-color: #38bdf8 !important;
+  :global(.asm-line-item.is-linked-asm-line) {
+    background-color: rgba(14, 165, 233, 0.32) !important;
+    border-left: 3px solid #38bdf8 !important;
     color: #ffffff !important;
   }
 
-  .asm-gutter-item.is-active-line {
-    color: #38bdf8 !important;
-    font-weight: 700 !important;
-    background-color: rgba(56, 189, 248, 0.15) !important;
+  :global(.asm-gutter-item) {
+    box-sizing: border-box !important;
+    transition:
+      color 0.1s ease,
+      background-color 0.1s ease;
   }
 
-  .source-gutter-item.is-active-line {
+  :global(.asm-gutter-item.is-active-line) {
+    color: #38bdf8 !important;
+    font-weight: 700 !important;
+    background-color: rgba(56, 189, 248, 0.25) !important;
+  }
+
+  :global(.source-gutter-item) {
+    box-sizing: border-box !important;
+    transition:
+      color 0.1s ease,
+      background-color 0.1s ease;
+  }
+
+  :global(.source-gutter-item.is-active-line) {
     color: #0284c7 !important;
     font-weight: 700 !important;
-    background-color: rgba(14, 165, 233, 0.15) !important;
+    background-color: rgba(14, 165, 233, 0.2) !important;
   }
 
-  :global([data-theme="dark"]) .source-gutter-item.is-active-line {
+  :global([data-theme="dark"] .source-gutter-item.is-active-line) {
     color: #38bdf8 !important;
-    background-color: rgba(56, 189, 248, 0.2) !important;
+    background-color: rgba(56, 189, 248, 0.25) !important;
   }
 </style>
