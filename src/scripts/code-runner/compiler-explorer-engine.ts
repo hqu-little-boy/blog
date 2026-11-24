@@ -1,22 +1,28 @@
 import type { ExecutionResult, EngineRunOptions } from "./types";
 
 /**
- * Compiler Explorer (godbolt.org) RESTful API Execution & Assembly Engine.
+ * Compiler Explorer (godbolt.org) RESTful API Engine.
  *
- * Configured for RISC-V 64-bit architecture (riscv64).
- * Supports standard C and C++ compilation, RISC-V 64 assembly extraction,
- * and execution via Compiler Explorer RESTful API.
+ * - Execution: Uses x86-64 GCC 14.2 (as Compiler Explorer's cloud execution sandbox only supports amd64).
+ * - Assembly: Uses RISC-V 64-bit GCC 14.2 (rv64-gcc1420 / rv64-cgcc1420) to generate pure RISC-V 64 assembly.
  * Reference: https://github.com/compiler-explorer/compiler-explorer/blob/main/docs/API.md
  */
 
 const CE_BASE_URL = "https://godbolt.org";
 
-// Default compilers and compiler options (RISC-V 64-bit)
-const CPP_COMPILER_ID = "rv64-gcc1420"; // RISC-V (64-bits) gcc 14.2.0
-const CPP_USER_ARGS = "-O2 -std=c++23 -pthread";
+// Execution compilers (Compiler Explorer only provides runnable CPU sandboxes for amd64)
+const EXEC_CPP_COMPILER_ID = "g142"; // x86-64 gcc 14.2
+const EXEC_CPP_USER_ARGS = "-O2 -std=c++23 -pthread";
 
-const C_COMPILER_ID = "rv64-cgcc1420"; // RISC-V (64-bits) gcc 14.2.0 (C)
-const C_USER_ARGS = "-O2 -std=c23 -lm";
+const EXEC_C_COMPILER_ID = "cg142"; // x86-64 gcc 14.2 (C)
+const EXEC_C_USER_ARGS = "-O2 -std=c23 -lm";
+
+// RISC-V 64 Assembly compilers
+const ASM_CPP_COMPILER_ID = "rv64-gcc1420"; // RISC-V (64-bits) gcc 14.2.0
+const ASM_CPP_USER_ARGS = "-O2 -std=c++23 -pthread";
+
+const ASM_C_COMPILER_ID = "rv64-cgcc1420"; // RISC-V (64-bits) gcc 14.2.0 (C)
+const ASM_C_USER_ARGS = "-O2 -std=c23 -lm";
 
 interface CEOutputLine {
   text: string;
@@ -79,7 +85,8 @@ function formatLines(lines?: CEOutputLine[]): string {
 }
 
 /**
- * Execute C or C++ code via Compiler Explorer RESTful API (RISC-V 64-bit).
+ * Execute C or C++ code via Compiler Explorer RESTful API.
+ * Uses x86-64 execution sandbox to run the code and return stdout/stderr results.
  */
 export async function runCppCode(
   code: string,
@@ -89,12 +96,12 @@ export async function runCppCode(
   const startTime = performance.now();
   const isC = lang === "c";
   const compilerId =
-    options.compilerId || (isC ? C_COMPILER_ID : CPP_COMPILER_ID);
+    options.compilerId || (isC ? EXEC_C_COMPILER_ID : EXEC_CPP_COMPILER_ID);
   const userArguments =
-    options.userArguments || (isC ? C_USER_ARGS : CPP_USER_ARGS);
+    options.userArguments || (isC ? EXEC_C_USER_ARGS : EXEC_CPP_USER_ARGS);
   const engineName = isC
-    ? `Compiler Explorer (RISC-V 64 GCC 14.2 / C23)`
-    : `Compiler Explorer (RISC-V 64 GCC 14.2 / C++23)`;
+    ? `Compiler Explorer (GCC 14.2 / C23)`
+    : `Compiler Explorer (GCC 14.2 / C++23)`;
 
   let stdoutAccumulator = "";
   let stderrAccumulator = "";
@@ -111,7 +118,7 @@ export async function runCppCode(
 
   options.onStatusChange?.(
     "loading_engine",
-    `正在向 Compiler Explorer 提交代码 (${isC ? "C" : "C++"} / RISC-V 64)...`
+    `正在向 Compiler Explorer 提交代码运行 (${isC ? "C" : "C++"})...`
   );
 
   const payload = {
@@ -124,14 +131,10 @@ export async function runCppCode(
         stdin: "",
       },
       compilerOptions: {
-        executorRequest: false,
+        executorRequest: true,
       },
       filters: {
         execute: true,
-        demangle: true,
-        directives: true,
-        comments: true,
-        labels: true,
       },
       tools: [],
       libraries: [],
@@ -189,11 +192,14 @@ export async function runCppCode(
     const durationMs = Math.round(performance.now() - startTime);
 
     // 1. Check compilation/build outcome
-    const buildResult = data.buildResult || data.execResult?.buildResult;
-    const buildCode = buildResult ? buildResult.code : data.code;
+    const buildResult = data.buildResult;
+    const buildCode = buildResult
+      ? buildResult.code
+      : data.didExecute
+        ? 0
+        : data.code;
 
-    // Check if build failed
-    if (buildCode !== 0 && (!data.asm || data.asm.length === 0)) {
+    if (buildCode !== 0) {
       const buildErr = formatLines(buildResult?.stderr || data.stderr);
       const buildOut = formatLines(buildResult?.stdout);
 
@@ -209,7 +215,7 @@ export async function runCppCode(
         buildErr.includes("undefined reference to 'main'")
       ) {
         handleStderr(
-          "\n[提示] 代码片段缺少 main() 入口函数，无法直接作为可执行程序运行。若需查看控制台输出，请在代码中编写 main() 函数，或点击“展示汇编”直接查看生成的 RISC-V 64 汇编。\n"
+          "\n[提示] 代码片段缺少 main() 入口函数，无法直接作为独立程序运行。若需查看执行输出，请在代码中补充 main() 函数；或者点击“展示汇编”直接查看生成的 RISC-V 64 汇编指令。\n"
         );
       }
 
@@ -229,71 +235,41 @@ export async function runCppCode(
     // 2. Compilation warnings
     if (buildResult?.stderr && buildResult.stderr.length > 0) {
       const warnings = formatLines(buildResult.stderr);
-      if (
-        warnings.trim() &&
-        !warnings.includes("undefined reference to `main'")
-      ) {
+      if (warnings.trim()) {
         handleStderr(warnings + "\n");
       }
     }
 
-    // 3. Process execution output or fallback to assembly when execution not available
-    const execStderr = formatLines(data.execResult?.stderr || data.stderr);
-    const didExecute = Boolean(data.didExecute || data.execResult?.didExecute);
-    const isNoExecAvailable =
-      execStderr.includes("No execution available for riscv64") ||
-      (!didExecute && buildCode === 0);
-
-    if (isNoExecAvailable && data.asm && data.asm.length > 0) {
-      const asmText = formatLines(data.asm);
-      handleStdout(
-        `[Compiler Explorer 提示] 云端环境暂未开放 RISC-V 64 裸机/CPU 仿真运行环境 (No execution available for riscv64)。\n已为您自动编译并提取 RISC-V 64 目标汇编代码 (${userArguments})：\n\n${asmText}\n`
-      );
-      options.onStatusChange?.(
-        "success",
-        `编译完成，展示 RISC-V 64 汇编 (耗时 ${durationMs}ms)`
-      );
-      return {
-        success: true,
-        stdout: stdoutAccumulator,
-        stderr: stderrAccumulator,
-        durationMs,
-        engineName,
-        exitCode: 0,
-        asm: asmText,
-      };
-    }
-
-    if (didExecute) {
-      const execStdout = formatLines(data.execResult?.stdout || data.stdout);
-      const finalStderr = formatLines(data.execResult?.stderr || data.stderr);
+    // 3. Process execution output
+    if (data.didExecute) {
+      const execStdout = formatLines(data.stdout);
+      const execStderr = formatLines(data.stderr);
 
       if (execStdout) {
         handleStdout(execStdout + "\n");
       }
-      if (finalStderr) {
-        handleStderr(finalStderr + "\n");
+      if (execStderr) {
+        handleStderr(execStderr + "\n");
       }
 
-      if (data.timedOut || data.execResult?.timedOut) {
+      if (data.timedOut) {
         handleStderr("\n[执行超时] 程序运行时间超出云端沙箱限制。\n");
       }
 
-      const exitCode = data.execResult?.code ?? data.code;
-      if (exitCode !== 0) {
-        handleStderr(`\n[程序异常退出，退出码: ${exitCode}]\n`);
-        options.onStatusChange?.("error", `程序退出异常 (code: ${exitCode})`);
+      if (data.code !== 0) {
+        handleStderr(`\n[程序异常退出，退出码: ${data.code}]\n`);
+        options.onStatusChange?.("error", `程序退出异常 (code: ${data.code})`);
         return {
           success: false,
           stdout: stdoutAccumulator,
           stderr: stderrAccumulator,
           durationMs,
           engineName,
-          exitCode,
+          exitCode: data.code,
         };
       }
 
-      if (!execStdout && !finalStderr) {
+      if (!execStdout && !execStderr) {
         handleStdout("[程序执行成功，无控制台输出 (exit code: 0)]\n");
       }
 
@@ -313,11 +289,6 @@ export async function runCppCode(
     const fallbackStderr = formatLines(data.stderr);
     if (fallbackStdout) handleStdout(fallbackStdout + "\n");
     if (fallbackStderr) handleStderr(fallbackStderr + "\n");
-
-    if (data.asm && data.asm.length > 0) {
-      const asmText = formatLines(data.asm);
-      handleStdout(`\n[RISC-V 64 汇编代码]\n${asmText}\n`);
-    }
 
     options.onStatusChange?.("success", `编译完成 (${durationMs}ms)`);
     return {
@@ -355,7 +326,8 @@ export async function runCppCode(
 }
 
 /**
- * Compile C or C++ code to RISC-V 64 assembly via Compiler Explorer RESTful API.
+ * Compile C or C++ code specifically to RISC-V 64 assembly via Compiler Explorer RESTful API.
+ * Uses rv64-gcc1420 / rv64-cgcc1420 to generate pure RISC-V 64 assembly instructions.
  */
 export async function compileCppToAssembly(
   code: string,
@@ -365,9 +337,9 @@ export async function compileCppToAssembly(
   const startTime = performance.now();
   const isC = lang === "c";
   const compilerId =
-    options.compilerId || (isC ? C_COMPILER_ID : CPP_COMPILER_ID);
+    options.compilerId || (isC ? ASM_C_COMPILER_ID : ASM_CPP_COMPILER_ID);
   const userArguments =
-    options.userArguments || (isC ? C_USER_ARGS : CPP_USER_ARGS);
+    options.userArguments || (isC ? ASM_C_USER_ARGS : ASM_CPP_USER_ARGS);
   const engineName = isC
     ? `Compiler Explorer (RISC-V 64 GCC 14.2 / C23)`
     : `Compiler Explorer (RISC-V 64 GCC 14.2 / C++23)`;
