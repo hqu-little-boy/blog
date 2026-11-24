@@ -1,5 +1,6 @@
 import { runPythonCode, getPyodide } from "./pyodide-engine";
-import { runCppCode, compileCppToAssembly } from "./compiler-explorer-engine";
+import { runCppCode } from "./compiler-explorer-engine";
+import { createAsmInspector } from "./asm-inspector";
 import type { SupportedLanguage, RunnerStatus } from "./types";
 
 const PLAY_ICON = `<svg class="size-3.5 inline-block me-1 text-emerald-500 dark:text-emerald-400" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
@@ -52,7 +53,7 @@ function getCodeText(codeBlock: HTMLElement): string {
   // Clone to avoid picking up auxiliary tags
   const clone = codeEl.cloneNode(true) as HTMLElement;
   const auxElements = clone.querySelectorAll(
-    ".copy-code, .run-code-btn, .asm-code-btn, .code-runner-actions, .code-runner-console, .file-name, .lang-tag"
+    ".copy-code, .run-code-btn, .asm-code-btn, .code-runner-actions, .code-runner-console, .asm-inspector-container, .file-name, .lang-tag"
   );
   auxElements.forEach(el => el.remove());
 
@@ -107,6 +108,9 @@ export function setupInteractiveCodeBlocks() {
     actionsContainer.className = `code-runner-actions absolute end-20 ${topClass} flex items-center gap-1.5 z-10`;
 
     const isCppOrC = lang === "cpp" || lang === "c";
+    const asmInspector = isCppOrC
+      ? createAsmInspector(wrapper, () => getCodeText(codeBlock))
+      : null;
     let asmBtn: HTMLButtonElement | null = null;
 
     if (isCppOrC) {
@@ -337,48 +341,28 @@ export function setupInteractiveCodeBlocks() {
       }
     };
 
-    // Assembly compilation handler
+    // Assembly inspector handler
     const handleAsm = async () => {
-      if (isRunning) return;
-      isRunning = true;
+      if (!asmInspector) return;
+      if (asmInspector.isOpen()) {
+        asmInspector.close();
+        return;
+      }
 
-      consoleContainer.classList.remove("hidden");
       if (asmBtn) {
-        asmBtn.innerHTML = `${SPINNER_ICON}<span>生成中...</span>`;
+        asmBtn.innerHTML = `${SPINNER_ICON}<span>加载汇编...</span>`;
         asmBtn.disabled = true;
       }
-      runBtn.disabled = true;
-
-      if (engineBadge) {
-        engineBadge.innerText = "Compiler Explorer (RISC-V 64 汇编)";
-      }
-
-      statusIndicator.className =
-        "status-indicator size-2.5 rounded-full bg-amber-500 animate-pulse inline-block";
-      statusText.innerText = "正在请求生成 RISC-V 64 汇编...";
-
-      terminalOutput.innerHTML = `<span class="text-muted-foreground/70">$ [RISC-V 64 ASM] 正在编译目标汇编代码...</span>\n\n`;
-
-      const currentCode = getCodeText(codeBlock);
 
       try {
+        const currentCode = getCodeText(codeBlock);
         const targetLang: "c" | "cpp" = lang === "c" ? "c" : "cpp";
-        await compileCppToAssembly(currentCode, targetLang, {
-          onStdout: appendStdout,
-          onStderr: appendStderr,
-          onStatusChange,
-        });
-      } catch (err: any) {
-        appendStderr(
-          "\n生成汇编出现未捕获异常: " + (err?.message || String(err))
-        );
+        await asmInspector.open(currentCode, targetLang);
       } finally {
-        isRunning = false;
         if (asmBtn) {
           asmBtn.innerHTML = `${ASM_ICON}<span class="hidden sm:inline">展示汇编 (RISC-V 64)</span><span class="sm:hidden">汇编</span>`;
           asmBtn.disabled = false;
         }
-        runBtn.disabled = false;
       }
     };
 

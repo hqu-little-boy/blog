@@ -78,8 +78,27 @@ article h4 {
 }
 
 /* Interactive Code Runner styles */
-.code-runner-console {
+.code-runner-console,
+.asm-inspector-container:not(.hidden) {
   animation: codeRunnerSlideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.source-scroll,
+.asm-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.25) transparent;
+}
+
+.source-scroll::-webkit-scrollbar,
+.asm-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.source-scroll::-webkit-scrollbar-thumb,
+.asm-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.25);
+  border-radius: 9999px;
 }
 
 @keyframes codeRunnerSlideDown {

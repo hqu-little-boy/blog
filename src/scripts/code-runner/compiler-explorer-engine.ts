@@ -1,4 +1,4 @@
-import type { ExecutionResult, EngineRunOptions } from "./types";
+import type { ExecutionResult, EngineRunOptions, AsmLineItem } from "./types";
 
 /**
  * Compiler Explorer (godbolt.org) RESTful API Engine.
@@ -466,7 +466,15 @@ export async function compileCppToAssembly(
       }
     }
 
-    const asmText = formatLines(data.asm);
+    const asmLines: AsmLineItem[] = Array.isArray(data.asm)
+      ? data.asm.map(item => ({
+          text: stripAnsi(item.text ?? ""),
+          sourceLine: item.source?.line != null ? item.source.line : null,
+          sourceColumn: item.source?.column != null ? item.source.column : null,
+        }))
+      : [];
+
+    const asmText = asmLines.map(line => line.text).join("\n");
     if (asmText) {
       handleStdout(
         `; ==========================================\n; RISC-V 64 目标汇编 (GCC 14.2)\n; 架构指令集: riscv64 | 编译参数: ${userArguments}\n; ==========================================\n\n${asmText}\n`
@@ -475,7 +483,7 @@ export async function compileCppToAssembly(
       handleStdout("; [未生成汇编指令或代码为空]\n");
     }
 
-    const lineCount = data.asm?.length || 0;
+    const lineCount = asmLines.length;
     options.onStatusChange?.(
       "success",
       `RISC-V 64 汇编生成完毕 (${lineCount} 行，耗时 ${durationMs}ms)`
@@ -489,6 +497,7 @@ export async function compileCppToAssembly(
       engineName,
       exitCode: 0,
       asm: asmText,
+      asmLines,
     };
   } catch (err: any) {
     clearTimeout(timeoutId);

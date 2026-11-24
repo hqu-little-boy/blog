@@ -7,6 +7,12 @@ export type SupportedLanguage = "python" | "c" | "cpp";
 export type RunnerStatus =
   "idle" | "loading_engine" | "running" | "success" | "error";
 
+export interface AsmLineItem {
+  text: string;
+  sourceLine?: number | null;
+  sourceColumn?: number | null;
+}
+
 export interface ExecutionResult {
   success: boolean;
   stdout: string;
@@ -16,6 +22,7 @@ export interface ExecutionResult {
   exitCode?: number;
   error?: string;
   asm?: string;
+  asmLines?: AsmLineItem[];
 }
 
 export interface EngineRunOptions {
