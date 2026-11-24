@@ -182,52 +182,6 @@ const { initialTool = "latex" } = Astro.props;
 
         <!-- Input Actions Toolbar (pinned to right) -->
         <div class="ml-auto flex shrink-0 items-center gap-1.5">
-          <!-- Template selector dropdown -->
-          <div class="relative inline-block text-left">
-            <button
-              id="template-dropdown-btn"
-              type="button"
-              class="m3-chip border-outline-variant/40 cursor-pointer border text-[11px] sm:text-xs"
-              title="载入预置示例"
-            >
-              <svg
-                class="size-3.5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path
-                  d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"
-                ></path>
-                <path d="M6 6h10"></path>
-                <path d="M6 10h10"></path>
-              </svg>
-              <span>示例模板</span>
-              <svg
-                class="size-3 opacity-60"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <polyline points="6 9 12 15 18 9"></polyline>
-              </svg>
-            </button>
-            <div
-              id="template-dropdown-menu"
-              class="bg-surface-container dark:bg-surface-container-high border-outline-variant/70 absolute top-full left-0 z-40 mt-1.5 hidden w-52 rounded-2xl border py-1.5 shadow-xl backdrop-blur-md"
-            >
-              <div id="template-list" class="flex flex-col">
-                <!-- Dynamically populated templates -->
-              </div>
-            </div>
-          </div>
-
           <!-- Wrap toggle button -->
           <button
             id="toggle-wrap-btn"
@@ -605,279 +559,6 @@ const { initialTool = "latex" } = Astro.props;
   // Types & Data Structures
   type ToolType = "latex" | "graphviz" | "mermaid" | "html" | "svg";
 
-  interface PresetTemplate {
-    name: string;
-    description: string;
-    code: string;
-  }
-
-  const TEMPLATES: Record<ToolType, PresetTemplate[]> = {
-    latex: [
-      {
-        name: "高斯积分 & 麦克斯韦方程组",
-        description: "积分与经典电动力学偏微分方程",
-        code: `\\int_{-\\infty}^{\\infty} e^{-x^2} dx = \\sqrt{\\pi}
-
-\\begin{aligned}
-\\nabla \\cdot \\mathbf{E} &= \\frac{\\rho}{\\varepsilon_0} \\\\[6pt]
-\\nabla \\cdot \\mathbf{B} &= 0 \\\\[6pt]
-\\nabla \\times \\mathbf{E} &= -\\frac{\\partial \\mathbf{B}}{\\partial t} \\\\[6pt]
-\\nabla \\times \\mathbf{B} &= \\mu_0 \\mathbf{J} + \\mu_0 \\varepsilon_0 \\frac{\\partial \\mathbf{E}}{\\partial t}
-\\end{aligned}`,
-      },
-      {
-        name: "线性代数与行列式",
-        description: "矩阵表达式与莱布尼茨求和公式",
-        code: `\\mathbf{A} = \\begin{bmatrix}
-a_{11} & a_{12} & \\cdots & a_{1n} \\\\
-a_{21} & a_{22} & \\cdots & a_{2n} \\\\
-\\vdots & \\vdots & \\ddots & \\vdots \\\\
-a_{m1} & a_{m2} & \\cdots & a_{mn}
-\\end{bmatrix}, \\quad
-\\det(\\mathbf{A}) = \\sum_{\\sigma \\in S_n} \\operatorname{sgn}(\\sigma) \\prod_{i=1}^n a_{i,\\sigma(i)}`,
-      },
-      {
-        name: "欧拉公式与黎曼函数",
-        description: "数学中最美的等式与解析延拓",
-        code: `e^{i\\pi} + 1 = 0
-
-\\zeta(s) = \\sum_{n=1}^\\infty \\frac{1}{n^s} = \\prod_{p \\text{ 为素数}} \\frac{1}{1 - p^{-s}}`,
-      },
-    ],
-    graphviz: [
-      {
-        name: "微服务架构图",
-        description: "分层服务网关与数据库链路",
-        code: `digraph Microservices {
-  rankdir=LR;
-  bgcolor="transparent";
-  node [shape=box, style="rounded,filled", fillcolor="#e0f2fe", color="#0284c7", fontname="sans-serif", fontcolor="#0369a1", penwidth=1.5];
-  edge [color="#0284c7", penwidth=1.2, arrowsize=0.8, fontname="sans-serif", fontsize=10];
-
-  Client [shape=ellipse, fillcolor="#fef08a", color="#ca8a04", fontcolor="#854d0e", label="客户端 (Web/App)"];
-  LoadBalancer [label="负载均衡器\\n(Nginx)"];
-  APIGateway [label="API 网关\\n(Kong / Envoy)"];
-  AuthService [label="鉴权服务\\n(OAuth2)"];
-  BizService [label="核心业务服务"];
-  Database [shape=cylinder, label="PostgreSQL\\n主从集群", fillcolor="#bbf7d0", color="#16a34a", fontcolor="#15803d"];
-  RedisCache [shape=cylinder, label="Redis\\n分布式缓存", fillcolor="#fecdd3", color="#e11d48", fontcolor="#be123c"];
-
-  Client -> LoadBalancer [label=" HTTPS"];
-  LoadBalancer -> APIGateway;
-  APIGateway -> AuthService [label=" 校验 Token"];
-  APIGateway -> BizService [label=" RPC 路由"];
-  BizService -> Database [label=" 读写分离"];
-  BizService -> RedisCache [label=" 热点读写"];
-}`,
-      },
-      {
-        name: "平衡二叉搜索树",
-        description: "典型树形拓扑结构",
-        code: `digraph BST {
-  bgcolor="transparent";
-  node [shape=circle, style="filled", fillcolor="#f0fdf4", color="#16a34a", fontname="sans-serif", fontcolor="#166534", penwidth=1.5, width=0.6];
-  edge [color="#16a34a", penwidth=1.2];
-
-  8 -> 3;
-  8 -> 10;
-  3 -> 1;
-  3 -> 6;
-  6 -> 4;
-  6 -> 7;
-  10 -> 14;
-  14 -> 13;
-}`,
-      },
-      {
-        name: "有限状态机 (FSM)",
-        description: "生命周期与状态转移矩阵",
-        code: `digraph FiniteStateMachine {
-  rankdir=LR;
-  bgcolor="transparent";
-  node [shape=circle, fontname="sans-serif", color="#6366f1", style="filled", fillcolor="#e0e7ff", fontcolor="#3730a3", penwidth=1.5];
-  edge [color="#6366f1", fontname="sans-serif", fontsize=10];
-
-  Start [shape=point, width=0.2];
-  Idle [label="就绪\\n(Idle)"];
-  Running [label="运行\\n(Running)"];
-  Paused [label="挂起\\n(Paused)"];
-  Terminated [shape=doublecircle, label="终止\\n(Done)"];
-
-  Start -> Idle;
-  Idle -> Running [label=" start()"];
-  Running -> Paused [label=" pause()"];
-  Paused -> Running [label=" resume()"];
-  Running -> Terminated [label=" complete()"];
-  Terminated -> Idle [label=" reset()"];
-}`,
-      },
-    ],
-    mermaid: [
-      {
-        name: "业务执行流程图 (Flowchart)",
-        description: "条件分支与异常闭环流程",
-        code: `flowchart TD
-  Start([开始流程]) --> Fetch[/接收用户输入/]
-  Fetch --> Validate{校验参数格式}
-  Validate -->|格式合法| Compile[执行编译渲染引擎]
-  Validate -->|格式错误| ShowErr[高亮显示语法报错]
-  Compile --> Output[生成矢量图表与 DOM]
-  Output --> NewTab[/新标签页一键全屏展示/]
-  ShowErr --> Fetch
-  NewTab --> End([完成])`,
-      },
-      {
-        name: "客户端与服务端时序交互 (Sequence)",
-        description: "异步调用与全屏预览流程",
-        code: `sequenceDiagram
-  autonumber
-  actor User as 用户
-  participant UI as 在线渲染界面
-  participant Worker as 编译渲染引擎
-  participant Tab as 新标签页 (Preview)
-
-  User->>UI: 编辑代码或载入模板
-  UI->>Worker: 防抖请求编译 (Debounce)
-  Worker-->>UI: 返回已渲染结果 (SVG/HTML)
-  UI->>User: 右栏实时呈现高保真结果
-  User->>UI: 点击右上角"在新标签页展示"
-  UI->>Tab: 打开独立纯净全屏预览页面`,
-      },
-      {
-        name: "类继承与架构设计 (Class)",
-        description: "面向对象模型抽象",
-        code: `classDiagram
-  class RenderTool {
-    +String toolType
-    +String sourceCode
-    +render(): Promise~String~
-    +openInNewTab(): void
-  }
-  class LatexRenderer {
-    +KaTeX katex
-    +renderMath(): String
-  }
-  class GraphvizRenderer {
-    +WASM graphviz
-    +renderDot(): String
-  }
-  class MermaidRenderer {
-    +Mermaid mermaid
-    +renderDiagram(): String
-  }
-  RenderTool <|-- LatexRenderer
-  RenderTool <|-- GraphvizRenderer
-  RenderTool <|-- MermaidRenderer`,
-      },
-    ],
-    html: [
-      {
-        name: "Material You Pixel 悬浮卡片",
-        description: "遵循 Material 3 设计规范的交互卡片",
-        code: `<div style="max-width: 480px; margin: 36px auto; font-family: system-ui, -apple-system, sans-serif; background: #ffffff; border-radius: 28px; padding: 28px; box-shadow: 0 16px 40px rgba(0, 104, 119, 0.12); border: 1px solid rgba(0, 104, 119, 0.15);">
-  <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px;">
-    <span style="background: #a1effe; color: #001f25; font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 9999px;">MATERIAL YOU</span>
-    <span style="font-size: 13px; color: #707978;">Live Component</span>
-  </div>
-  <h3 style="margin: 0 0 10px; font-size: 22px; color: #181d1c; font-weight: 700;">在线 HTML 实时渲染</h3>
-  <p style="margin: 0 0 24px; color: #404948; font-size: 14px; line-height: 1.6;">
-    在沙箱环境中即时预览任意 HTML、CSS 与 JS 逻辑，支持点击右上角按钮在独立新标签页中打开纯净视图。
-  </p>
-  <div style="display: flex; gap: 12px;">
-    <button style="flex: 1; background: #006877; color: #ffffff; border: none; padding: 12px 20px; border-radius: 9999px; font-size: 14px; font-weight: 600; cursor: pointer;">
-      即刻体验
-    </button>
-    <button style="flex: 1; background: #ebeeed; color: #181d1c; border: none; padding: 12px 20px; border-radius: 9999px; font-size: 14px; font-weight: 600; cursor: pointer;">
-      查看文档
-    </button>
-  </div>
-</div>`,
-      },
-      {
-        name: "CSS 关键帧流光光球",
-        description: "纯 CSS 渐变光晕与脉冲动效",
-        code: `<!DOCTYPE html>
-<html>
-<head>
-  <style>
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: #0e1515;
-      font-family: sans-serif;
-    }
-    .orb {
-      width: 150px;
-      height: 150px;
-      border-radius: 50%;
-      background: radial-gradient(circle at 35% 35%, #55d6ec, #006877 70%, #002e35);
-      box-shadow: 0 0 60px rgba(85, 214, 236, 0.5);
-      animation: breathe 3s ease-in-out infinite;
-    }
-    @keyframes breathe {
-      0%, 100% { transform: scale(0.95); box-shadow: 0 0 40px rgba(85, 214, 236, 0.4); }
-      50% { transform: scale(1.15); box-shadow: 0 0 80px rgba(85, 214, 236, 0.8); }
-    }
-  </style>
-</head>
-<body>
-  <div class="orb"></div>
-</body>
-</html>`,
-      },
-    ],
-    svg: [
-      {
-        name: "渐变矢量徽标",
-        description: "高保真现代 SVG 徽章与光影滤镜",
-        code: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 360" width="100%" height="100%">
-  <defs>
-    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#006877" />
-      <stop offset="60%" stop-color="#0284c7" />
-      <stop offset="100%" stop-color="#55d6ec" />
-    </linearGradient>
-    <linearGradient id="circleGrad" x1="0%" y1="100%" x2="100%" y2="0%">
-      <stop offset="0%" stop-color="#a1effe" />
-      <stop offset="100%" stop-color="#ffffff" />
-    </linearGradient>
-    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
-      <feDropShadow dx="0" dy="16" stdDeviation="20" flood-color="#00353d" flood-opacity="0.35"/>
-    </filter>
-  </defs>
-  
-  <rect x="40" y="40" width="420" height="280" rx="36" fill="url(#bgGrad)" filter="url(#cardShadow)" />
-  <circle cx="160" cy="180" r="65" fill="url(#circleGrad)" opacity="0.95" />
-  <circle cx="340" cy="180" r="48" fill="#ffffff" opacity="0.35" />
-  <path d="M160 135 L340 180" stroke="#ffffff" stroke-width="4" stroke-dasharray="8 6" opacity="0.85" />
-  <text x="250" y="270" text-anchor="middle" fill="#ffffff" font-family="system-ui, sans-serif" font-size="20" font-weight="700" letter-spacing="1">MATERIAL YOU · SVG</text>
-</svg>`,
-      },
-      {
-        name: "精致工艺齿轮轮廓",
-        description: "几何矢量对称绘制",
-        code: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="100%" height="100%">
-  <circle cx="120" cy="120" r="100" fill="#f1f5f3" stroke="#006877" stroke-width="6"/>
-  <circle cx="120" cy="120" r="55" fill="#a1effe" stroke="#006877" stroke-width="5"/>
-  <circle cx="120" cy="120" r="24" fill="#006877"/>
-  <g stroke="#006877" stroke-width="8" stroke-linecap="round">
-    <line x1="120" y1="10" x2="120" y2="28"/>
-    <line x1="120" y1="212" x2="120" y2="230"/>
-    <line x1="10" y1="120" x2="28" y2="120"/>
-    <line x1="212" y1="120" x2="230" y2="120"/>
-    <line x1="42" y1="42" x2="55" y2="55"/>
-    <line x1="185" y1="185" x2="198" y2="198"/>
-    <line x1="42" y1="198" x2="55" y2="185"/>
-    <line x1="185" y1="55" x2="198" y2="42"/>
-  </g>
-</svg>`,
-      },
-    ],
-  };
-
   const TOOL_INFO: Record<
     ToolType,
     { title: string; desc: string; inputLabel: string; hint: string }
@@ -978,15 +659,6 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
     ) as HTMLElement | null;
     const codeStats = document.getElementById(
       "code-stats"
-    ) as HTMLElement | null;
-    const templateBtn = document.getElementById(
-      "template-dropdown-btn"
-    ) as HTMLElement | null;
-    const templateMenu = document.getElementById(
-      "template-dropdown-menu"
-    ) as HTMLElement | null;
-    const templateList = document.getElementById(
-      "template-list"
     ) as HTMLElement | null;
     const copyBtn = document.getElementById(
       "copy-code-btn"
@@ -1226,12 +898,6 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
       scheduleRender();
     });
 
-    // Template Dropdown Toggle
-    templateBtn?.addEventListener("click", e => {
-      e.stopPropagation();
-      templateMenu?.classList.toggle("hidden");
-    });
-
     // Direct Download Buttons (PNG & SVG)
     downloadPngBtn?.addEventListener("click", () => {
       handleDownload("png");
@@ -1240,39 +906,6 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
     downloadSvgBtn?.addEventListener("click", () => {
       handleDownload("svg");
     });
-
-    document.addEventListener("click", () => {
-      templateMenu?.classList.add("hidden");
-    });
-
-    // Populate Templates for current tool
-    function populateTemplates() {
-      if (!templateList) return;
-      templateList.innerHTML = "";
-      const list = TEMPLATES[currentTool] || [];
-      list.forEach(tmpl => {
-        const item = document.createElement("button");
-        item.type = "button";
-        item.className =
-          "w-full text-left px-3.5 py-2 text-xs hover:bg-surface-container-highest/80 transition-colors flex flex-col gap-0.5 cursor-pointer";
-        item.innerHTML = `
-          <span class="font-medium text-on-surface">${tmpl.name}</span>
-          <span class="text-[11px] text-on-surface-variant/70 truncate">${tmpl.description}</span>
-        `;
-        item.addEventListener("click", () => {
-          if (editor) {
-            editor.value = tmpl.code;
-            requestGutterUpdate();
-            try {
-              localStorage.setItem(`tools_draft_${currentTool}`, editor.value);
-            } catch {}
-            performRender();
-          }
-          templateMenu?.classList.add("hidden");
-        });
-        templateList.appendChild(item);
-      });
-    }
 
     // Copy Code
     copyBtn?.addEventListener("click", async () => {
@@ -1378,21 +1011,12 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
         }
       }
 
-      // Populate templates for new tool
-      populateTemplates();
-
-      // Load saved draft only if user previously typed one; do NOT auto-populate templates
+      // Load saved draft only if user previously typed one
       let codeToLoad = "";
       try {
         const saved = localStorage.getItem(`tools_draft_${tool}`);
         if (saved !== null) {
-          // If saved draft happens to be identical to a default template from an older version, ignore it
-          const isDefaultTemplate = (TEMPLATES[tool] || []).some(
-            t => t.code.trim() === saved.trim()
-          );
-          if (!isDefaultTemplate) {
-            codeToLoad = saved;
-          }
+          codeToLoad = saved;
         }
       } catch {}
 
@@ -1445,7 +1069,7 @@ a_{m1} & a_{m2} & \\cdots & a_{mn}
       if (errorMessage) errorMessage.innerText = "";
 
       if (!rawCode) {
-        previewContent.innerHTML = `<div class="text-on-surface-variant/50 text-xs italic text-center py-12">暂无代码输入，请在左侧输入或载入示例模板</div>`;
+        previewContent.innerHTML = `<div class="text-on-surface-variant/50 text-xs italic text-center py-12">暂无代码输入，请在左侧输入代码开始渲染</div>`;
         currentRenderedOutput = "";
         if (statusBadge && statusText) {
           statusBadge.className =

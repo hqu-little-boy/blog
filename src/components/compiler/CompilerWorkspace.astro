@@ -3,7 +3,7 @@
  * CompilerWorkspace.astro
  * Interactive three-column Compiler Explorer (Godbolt) workspace.
  * Features:
- * - Column 1: Source code editor with line gutter and syntax presets
+ * - Column 1: Source code editor with line gutter
  * - Column 2: Assembly output viewer with architecture/compiler switching, filters, and source-to-assembly bidirectional highlighting
  * - Column 3: Terminal execution console with stdout/stderr and stdin support
  */
@@ -17,7 +17,7 @@
   <div
     class="bg-surface-container-low dark:bg-surface-container border-outline-variant/60 flex flex-wrap items-center justify-between gap-3 rounded-3xl border p-3 shadow-xs"
   >
-    <!-- Left: Language & Presets -->
+    <!-- Left: Language & Compiler Flags -->
     <div class="flex flex-wrap items-center gap-2">
       <!-- Language Selector -->
       <div class="flex items-center gap-1.5">
@@ -34,25 +34,6 @@
           <option value="cpp" selected>C++ (C++23)</option>
           <option value="c">C (C23)</option>
           <option value="rust">Rust (1.83)</option>
-        </select>
-      </div>
-
-      <!-- Presets Selector -->
-      <div class="flex items-center gap-1.5">
-        <label
-          for="preset-select"
-          class="text-on-surface-variant text-xs font-medium sm:text-sm"
-        >
-          预设:
-        </label>
-        <select
-          id="preset-select"
-          class="bg-surface-container-high dark:bg-surface-container-highest text-on-surface border-outline-variant/60 focus-visible:ring-primary/40 max-w-[170px] cursor-pointer truncate rounded-xl border px-2.5 py-1 text-xs font-medium shadow-xs transition-colors sm:max-w-[210px] sm:text-sm"
-        >
-          <option value="hello">1. 基础打印与数值计算</option>
-          <option value="riscv">2. RISC-V 循环与向量算子</option>
-          <option value="cpp23">3. 现代 C++23 与泛型</option>
-          <option value="struct">4. C23 结构体内存对齐</option>
         </select>
       </div>
 
@@ -328,15 +309,6 @@
         </div>
 
         <div class="flex items-center gap-1.5 text-xs">
-          <!-- Reset button -->
-          <button
-            id="btn-source-reset"
-            type="button"
-            class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high cursor-pointer rounded-lg px-2 py-1 transition-colors"
-            title="还原为当前预设"
-          >
-            还原
-          </button>
           <!-- Clear button -->
           <button
             id="btn-source-clear"
@@ -694,113 +666,6 @@
    */
   const CE_BASE_URL = "https://godbolt.org";
 
-  // Pre-configured Code Snippets
-  const PRESETS: Record<
-    string,
-    { lang: string; compilerArgs: string; code: string }
-  > = {
-    hello: {
-      lang: "cpp",
-      compilerArgs: "-O2 -std=c++23 -pthread",
-      code: `#include <iostream>
-#include <vector>
-#include <numeric>
-
-int square(int num) {
-    return num * num;
-}
-
-int main() {
-    std::vector<int> numbers = {1, 2, 3, 4, 5};
-    int sum_sq = 0;
-    for (int n : numbers) {
-        sum_sq += square(n);
-    }
-
-    std::cout << "Numbers: ";
-    for (int n : numbers) std::cout << n << " ";
-    std::cout << "\\nSum of squares: " << sum_sq << "\\n";
-    return 0;
-}`,
-    },
-    riscv: {
-      lang: "cpp",
-      compilerArgs: "-O2 -std=c++23 -pthread",
-      code: `// 适合观察 RISC-V 64 汇编指令调度、展开与寄存器分配 (a0, a1, a2)
-#include <stdint.h>
-#include <stdio.h>
-
-void vector_saxpy(const int32_t* a, const int32_t* b, int32_t* c, int32_t scale, int n) {
-    for (int i = 0; i < n; ++i) {
-        c[i] = a[i] * scale + b[i];
-    }
-}
-
-int main() {
-    const int N = 4;
-    int32_t a[N] = {10, 20, 30, 40};
-    int32_t b[N] = {1, 2, 3, 4};
-    int32_t c[N] = {0};
-
-    vector_saxpy(a, b, c, 3, N);
-
-    for (int i = 0; i < N; ++i) {
-        printf("c[%d] = %d (expected %d)\\n", i, c[i], a[i] * 3 + b[i]);
-    }
-    return 0;
-}`,
-    },
-    cpp23: {
-      lang: "cpp",
-      compilerArgs: "-O2 -std=c++23 -pthread",
-      code: `#include <iostream>
-#include <string_view>
-#include <array>
-
-constexpr int factorial(int n) {
-    return (n <= 1) ? 1 : n * factorial(n - 1);
-}
-
-template <typename T>
-void print_info(std::string_view tag, const T& val) {
-    std::cout << "[" << tag << "] Value = " << val 
-              << ", Type size = " << sizeof(T) << " bytes\\n";
-}
-
-int main() {
-    constexpr int fact5 = factorial(5);
-    print_info("Constexpr Factorial 5!", fact5);
-    print_info("Float PI Constant", 3.14159265f);
-    print_info("Char Character", 'Z');
-    return 0;
-}`,
-    },
-    struct: {
-      lang: "c",
-      compilerArgs: "-O2 -std=c23 -lm",
-      code: `#include <stdio.h>
-#include <stddef.h>
-#include <stdint.h>
-
-struct MemoryBlock {
-    char tag;         // 1 byte
-    uint32_t id;      // 4 bytes
-    uint16_t flags;   // 2 bytes
-    double timestamp; // 8 bytes
-};
-
-int main() {
-    printf("=== C23 结构体内存对齐与布局 ===\\n");
-    printf("sizeof(struct MemoryBlock) = %zu bytes\\n", sizeof(struct MemoryBlock));
-    printf("Offset of tag:       %zu bytes\\n", offsetof(struct MemoryBlock, tag));
-    printf("Offset of id:        %zu bytes\\n", offsetof(struct MemoryBlock, id));
-    printf("Offset of flags:     %zu bytes\\n", offsetof(struct MemoryBlock, flags));
-    printf("Offset of timestamp: %zu bytes\\n", offsetof(struct MemoryBlock, timestamp));
-    return 0;
-}`,
-    },
-  };
-
   // Compilers Mapping for Assembly
   const COMPILER_MAP: Record<string, Record<string, string>> = {
     cpp: {
@@ -847,9 +712,6 @@ int main() {
     const langSelect = document.getElementById(
       "lang-select"
     ) as HTMLSelectElement;
-    const presetSelect = document.getElementById(
-      "preset-select"
-    ) as HTMLSelectElement;
     const compilerArgsInput = document.getElementById(
       "compiler-args"
     ) as HTMLInputElement;
@@ -877,9 +739,6 @@ int main() {
     const sourceActiveHighlight = document.getElementById(
       "source-active-highlight"
     ) as HTMLElement;
-    const btnSourceReset = document.getElementById(
-      "btn-source-reset"
-    ) as HTMLButtonElement;
     const btnSourceClear = document.getElementById(
       "btn-source-clear"
     ) as HTMLButtonElement;
@@ -1335,20 +1194,6 @@ int main() {
       }
     });
 
-    // Preset loading
-    function loadPreset(key: string) {
-      const preset = PRESETS[key];
-      if (!preset) return;
-      if (sourceEditor) sourceEditor.value = preset.code;
-      if (langSelect) langSelect.value = preset.lang;
-      if (compilerArgsInput) compilerArgsInput.value = preset.compilerArgs;
-      if (sourceBadge) {
-        sourceBadge.innerText = preset.lang.toUpperCase();
-      }
-      clearAllHighlights();
-      updateSourceGutter();
-    }
-
     // Quick Optimization Pills
     root.querySelectorAll<HTMLButtonElement>(".opt-btn").forEach(btn => {
       btn.addEventListener("click", () => {
@@ -1365,10 +1210,6 @@ int main() {
       });
     });
 
-    presetSelect?.addEventListener("change", () => {
-      loadPreset(presetSelect.value);
-    });
-
     langSelect?.addEventListener("change", () => {
       const lang = langSelect.value;
       if (sourceBadge) sourceBadge.innerText = lang.toUpperCase();
@@ -1382,11 +1223,6 @@ int main() {
     });
 
     // Source Buttons
-    btnSourceReset?.addEventListener("click", () => {
-      loadPreset(presetSelect.value);
-      showToast("已恢复为当前预设代码");
-    });
-
     btnSourceClear?.addEventListener("click", () => {
       if (sourceEditor) {
         sourceEditor.value = "";
@@ -1806,16 +1642,20 @@ int main() {
           sourceBadge.innerText = (state.lang || "cpp").toUpperCase();
         clearAllHighlights();
         updateSourceGutter();
+        if (state.code) {
+          compileAssembly();
+          runExecution();
+        }
       } catch {
-        loadPreset("hello");
+        sourceEditor.value = "";
+        clearAllHighlights();
+        updateSourceGutter();
       }
     } else {
-      loadPreset("hello");
+      sourceEditor.value = "";
+      clearAllHighlights();
+      updateSourceGutter();
     }
-
-    // Auto-compile initial preset so user sees assembly and output immediately
-    compileAssembly();
-    runExecution();
   }
 
   // Support Astro View Transitions
