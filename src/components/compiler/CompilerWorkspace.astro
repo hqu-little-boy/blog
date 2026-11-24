@@ -4,7 +4,7 @@
  * Interactive three-column Compiler Explorer (Godbolt) workspace.
  * Features:
  * - Column 1: Source code editor with line gutter and syntax presets
- * - Column 2: Assembly output viewer with architecture/compiler switching and filters
+ * - Column 2: Assembly output viewer with architecture/compiler switching, filters, and source-to-assembly bidirectional highlighting
  * - Column 3: Terminal execution console with stdout/stderr and stdin support
  */
 ---
@@ -320,22 +320,41 @@
         <!-- Line Numbers Gutter -->
         <div
           id="source-gutter"
-          class="bg-surface-container-low/40 dark:bg-surface-container/30 border-outline-variant/30 text-on-surface-variant/40 h-full w-10 shrink-0 overflow-hidden border-r py-3.5 pr-2 text-right font-mono text-xs leading-relaxed select-none sm:w-11"
+          class="bg-surface-container-low/40 dark:bg-surface-container/30 border-outline-variant/30 text-on-surface-variant/40 h-full w-10 shrink-0 overflow-hidden border-r py-3.5 pr-2 text-right font-mono text-xs leading-6 select-none sm:w-11"
           aria-hidden="true"
         >
-          <div class="leading-relaxed select-none">1</div>
+          <div
+            class="source-gutter-item h-6 leading-6 select-none"
+            data-source-line="1"
+          >
+            1
+          </div>
         </div>
 
-        <!-- Textarea Code Input -->
-        <textarea
-          id="source-editor"
-          class="text-on-surface selection:bg-primary-container selection:text-on-primary-container h-full w-full flex-1 resize-none overflow-y-auto bg-transparent p-3.5 font-mono text-xs leading-relaxed focus:outline-hidden sm:text-sm"
-          spellcheck="false"
-          autocomplete="off"
-          autocapitalize="off"
-          placeholder="在此输入源代码..."
-          style="tab-size: 2; word-break: break-all; white-space: pre-wrap;"
-        ></textarea>
+        <!-- Editor Wrap with Highlight Layer -->
+        <div
+          id="source-editor-wrap"
+          class="relative h-full min-w-0 flex-1 overflow-hidden"
+        >
+          <!-- Active Line Highlight Bar -->
+          <div
+            id="source-active-highlight"
+            class="source-active-line-bar pointer-events-none absolute right-0 left-0 z-0 hidden border-l-2 border-sky-500 bg-sky-500/15 transition-all duration-75 dark:bg-sky-400/20"
+            style="height: 24px; top: 0px;"
+          >
+          </div>
+
+          <!-- Textarea Code Input -->
+          <textarea
+            id="source-editor"
+            class="text-on-surface selection:bg-primary-container selection:text-on-primary-container relative z-10 h-full w-full resize-none overflow-x-auto overflow-y-auto bg-transparent p-3.5 font-mono text-xs leading-6 focus:outline-hidden sm:text-sm"
+            spellcheck="false"
+            autocomplete="off"
+            autocapitalize="off"
+            placeholder="在此输入源代码..."
+            style="tab-size: 2; white-space: pre; word-break: normal; line-height: 24px;"
+          ></textarea>
+        </div>
       </div>
 
       <!-- Editor Footer Status / Shortcuts hint -->
@@ -387,6 +406,14 @@
           <span class="text-on-surface text-xs font-semibold sm:text-sm"
             >目标汇编</span
           >
+          <!-- Link Indicator Badge -->
+          <span
+            id="asm-link-indicator"
+            class="hidden items-center gap-1 rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 font-mono text-[11px] text-sky-400 transition-all"
+          >
+            <span class="size-1.5 rounded-full bg-sky-400"></span>
+            <span id="asm-link-text"></span>
+          </span>
         </div>
 
         <!-- Target Architecture & Compiler Selector -->
@@ -464,16 +491,26 @@
         <!-- Line Numbers Gutter -->
         <div
           id="asm-gutter"
-          class="h-full w-10 shrink-0 overflow-hidden border-r border-[#30363d] py-3.5 pr-2 text-right font-mono text-xs text-[#6e7681] select-none sm:w-11"
+          class="h-full w-10 shrink-0 overflow-hidden border-r border-[#30363d] py-3.5 pr-2 text-right font-mono text-xs leading-6 text-[#6e7681] select-none sm:w-11"
           aria-hidden="true"
         >
-          <div class="leading-relaxed select-none">1</div>
+          <div
+            class="asm-gutter-item h-6 leading-6 select-none"
+            data-asm-line="1"
+          >
+            1
+          </div>
         </div>
 
-        <!-- Assembly Pre/Code Display -->
-        <pre
+        <!-- Assembly Lines Wrapper -->
+        <div
           id="asm-output"
-          class="m-0 h-full w-full flex-1 overflow-x-auto overflow-y-auto p-3.5 font-mono text-xs leading-relaxed whitespace-pre select-text"><span class="text-muted-foreground/60">; 点击顶部“编译并运行”生成目标汇编...</span></pre>
+          class="m-0 h-full w-full flex-1 overflow-x-auto overflow-y-auto py-3.5 font-mono text-xs leading-6 whitespace-pre select-text"
+        >
+          <div class="text-muted-foreground/60 px-3.5 leading-6">
+            ; 点击顶部“编译并运行”生成目标汇编...
+          </div>
+        </div>
       </div>
 
       <!-- Assembly Footer Status -->
@@ -568,7 +605,7 @@
       >
         <pre
           id="terminal-output"
-          class="m-0 w-full font-mono text-xs whitespace-pre-wrap text-[#e6edf3]"><span class="text-muted-foreground/60">$ 控制台就绪。点击“编译并运行”查看输出...</span></pre>
+          class="m-0 w-full font-mono text-xs leading-relaxed whitespace-pre-wrap text-[#e6edf3]"><span class="text-muted-foreground/60">$ 控制台就绪。点击“编译并运行”查看输出...</span></pre>
       </div>
 
       <!-- Execution Footer -->
@@ -774,6 +811,9 @@ int main() {
     ) as HTMLElement;
     const sourceBadge = document.getElementById("source-badge") as HTMLElement;
     const sourceStats = document.getElementById("source-stats") as HTMLElement;
+    const sourceActiveHighlight = document.getElementById(
+      "source-active-highlight"
+    ) as HTMLElement;
     const btnSourceReset = document.getElementById(
       "btn-source-reset"
     ) as HTMLButtonElement;
@@ -803,6 +843,10 @@ int main() {
     const asmGutter = document.getElementById("asm-gutter") as HTMLElement;
     const asmStats = document.getElementById("asm-stats") as HTMLElement;
     const asmTime = document.getElementById("asm-time") as HTMLElement;
+    const asmLinkIndicator = document.getElementById(
+      "asm-link-indicator"
+    ) as HTMLElement;
+    const asmLinkText = document.getElementById("asm-link-text") as HTMLElement;
 
     const btnToggleStdin = document.getElementById(
       "btn-toggle-stdin"
@@ -836,6 +880,13 @@ int main() {
 
     let isCompiling = false;
 
+    // Bidirectional Mapping State
+    const PADDING_TOP = 14; // py-3.5 = 14px
+    const LINE_HEIGHT = 24; // leading-6 = 24px
+    const sourceToAsmMap = new Map<number, number[]>();
+    let currentHighlightedSourceLine: number | null = null;
+    let currentRawAsmText = "";
+
     // Toast helper
     function showToast(msg: string) {
       if (!toast) return;
@@ -854,20 +905,13 @@ int main() {
       const lines = sourceEditor.value.split("\n").length;
       let gutterHtml = "";
       for (let i = 1; i <= lines; i++) {
-        gutterHtml += `<div>${i}</div>`;
+        gutterHtml += `<div class="source-gutter-item h-6 leading-6 cursor-pointer hover:text-sky-500 transition-colors" data-source-line="${i}">${i}</div>`;
       }
       sourceGutter.innerHTML = gutterHtml;
       if (sourceStats) {
         sourceStats.innerText = `${lines} 行, ${sourceEditor.value.length} 字符`;
       }
     }
-
-    // Sync Source Gutter Scroll
-    sourceEditor?.addEventListener("scroll", () => {
-      if (sourceGutter) {
-        sourceGutter.scrollTop = sourceEditor.scrollTop;
-      }
-    });
 
     // Handle Tab & Indentation in Editor
     sourceEditor?.addEventListener("keydown", (e: KeyboardEvent) => {
@@ -880,6 +924,7 @@ int main() {
           "  " +
           sourceEditor.value.substring(end);
         sourceEditor.selectionStart = sourceEditor.selectionEnd = start + 2;
+        clearAllHighlights();
         updateSourceGutter();
       } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
@@ -887,53 +932,10 @@ int main() {
       }
     });
 
-    sourceEditor?.addEventListener("input", updateSourceGutter);
-
-    // Assembly Syntax Formatter (Opcode / Register highlighting)
-    function highlightAssembly(rawAsm: string): string {
-      const lines = rawAsm.split("\n");
-      const formattedLines = lines.map(line => {
-        const trimmed = line.trim();
-        // Comment line
-        if (trimmed.startsWith(";") || trimmed.startsWith("#")) {
-          return `<span class="text-slate-500 italic">${escapeHtml(line)}</span>`;
-        }
-        // Label definition
-        if (/^[a-zA-Z0-9_$.]+:/.test(trimmed)) {
-          return `<span class="text-amber-400 font-bold">${escapeHtml(line)}</span>`;
-        }
-        // Instruction line
-        return line.replace(
-          /^\s*([a-zA-Z0-9_.]+)(\s*)(.*)$/,
-          (_, opcode, space, operands) => {
-            const coloredOpcode = `<span class="text-sky-400 font-semibold">${opcode}</span>`;
-            // Color registers / symbols
-            const coloredOperands = operands.replace(
-              /([a-zA-Z0-9_%$]+)/g,
-              (token: string) => {
-                if (
-                  /^(a[0-7]|sp|ra|fp|gp|tp|t[0-6]|s[0-11]|zero|pc|x[0-9]+)$/.test(
-                    token
-                  ) ||
-                  /^(r[0-9]+|rax|rbx|rcx|rdx|rsi|rdi|rbp|rsp|eax|ebx|ecx|edx|esi|edi)$/i.test(
-                    token
-                  ) ||
-                  /^%[a-z0-9]+/i.test(token)
-                ) {
-                  return `<span class="text-emerald-400">${token}</span>`;
-                }
-                if (/^0x[0-9a-fA-F]+$|^\$?[0-9]+$/.test(token)) {
-                  return `<span class="text-violet-300">${token}</span>`;
-                }
-                return token;
-              }
-            );
-            return `        ${coloredOpcode}${space}${coloredOperands}`;
-          }
-        );
-      });
-      return formattedLines.join("\n");
-    }
+    sourceEditor?.addEventListener("input", () => {
+      clearAllHighlights();
+      updateSourceGutter();
+    });
 
     function escapeHtml(str: string): string {
       return str
@@ -942,15 +944,287 @@ int main() {
         .replace(/>/g, "&gt;");
     }
 
-    // Update Assembly Gutter
-    function updateAsmGutter(count: number) {
-      if (!asmGutter) return;
-      let gutterHtml = "";
-      for (let i = 1; i <= Math.max(1, count); i++) {
-        gutterHtml += `<div>${i}</div>`;
+    // Assembly Syntax Formatter for a single line
+    function highlightAssemblyLine(lineText: string): string {
+      const cleanLine = stripAnsi(lineText);
+      const trimmed = cleanLine.trim();
+
+      // Comment line
+      if (trimmed.startsWith(";") || trimmed.startsWith("#")) {
+        return `<span class="text-slate-500 italic">${escapeHtml(cleanLine)}</span>`;
       }
+      // Label definition
+      if (/^[a-zA-Z0-9_$.]+:/.test(trimmed)) {
+        return `<span class="text-amber-400 font-bold">${escapeHtml(cleanLine)}</span>`;
+      }
+      // Instruction line
+      return cleanLine.replace(
+        /^\s*([a-zA-Z0-9_.]+)(\s*)(.*)$/,
+        (_, opcode, space, operands) => {
+          const coloredOpcode = `<span class="text-sky-400 font-semibold">${opcode}</span>`;
+          // Color registers / symbols
+          const coloredOperands = operands.replace(
+            /([a-zA-Z0-9_%$]+)/g,
+            (token: string) => {
+              if (
+                /^(a[0-7]|sp|ra|fp|gp|tp|t[0-6]|s[0-11]|zero|pc|x[0-9]+)$/.test(
+                  token
+                ) ||
+                /^(r[0-9]+|rax|rbx|rcx|rdx|rsi|rdi|rbp|rsp|eax|ebx|ecx|edx|esi|edi)$/i.test(
+                  token
+                ) ||
+                /^%[a-z0-9]+/i.test(token)
+              ) {
+                return `<span class="text-emerald-400">${token}</span>`;
+              }
+              if (/^0x[0-9a-fA-F]+$|^\$?[0-9]+$/.test(token)) {
+                return `<span class="text-violet-300">${token}</span>`;
+              }
+              return token;
+            }
+          );
+          return `        ${coloredOpcode}${space}${coloredOperands}`;
+        }
+      );
+    }
+
+    // Render assembly with line-by-line source mapping
+    function renderAssemblyWithMapping(items: any[]) {
+      sourceToAsmMap.clear();
+      let html = "";
+      let gutterHtml = "";
+      const rawLines: string[] = [];
+
+      items.forEach((item, idx) => {
+        const lineNum = idx + 1;
+        gutterHtml += `<div class="asm-gutter-item h-6 leading-6 select-none" data-asm-line="${lineNum}">${lineNum}</div>`;
+
+        let sourceLine: number | null = null;
+        if (item.source && typeof item.source.line === "number") {
+          const file = item.source.file;
+          // Check if file is main source or null
+          if (
+            !file ||
+            file === "example.cpp" ||
+            file === "<stdin>" ||
+            !file.includes("/")
+          ) {
+            const lineNumVal: number = item.source.line;
+            sourceLine = lineNumVal;
+            if (!sourceToAsmMap.has(lineNumVal)) {
+              sourceToAsmMap.set(lineNumVal, []);
+            }
+            sourceToAsmMap.get(lineNumVal)!.push(idx);
+          }
+        }
+
+        const lineText = item.text ?? "";
+        rawLines.push(lineText);
+        const coloredContent = highlightAssemblyLine(lineText);
+        const dataAttr = sourceLine ? `data-source-line="${sourceLine}"` : "";
+        const cursorClass = sourceLine ? "cursor-pointer" : "cursor-default";
+
+        html += `<div class="asm-line-item flex items-center min-w-full h-6 leading-6 px-3.5 whitespace-pre select-text ${cursorClass} transition-colors duration-100" data-asm-index="${idx}" ${dataAttr}>${coloredContent}</div>`;
+      });
+
+      currentRawAsmText = rawLines.join("\n");
+      asmOutput.innerHTML = html;
       asmGutter.innerHTML = gutterHtml;
     }
+
+    // Clear all bidirectional highlights
+    function clearAllHighlights() {
+      currentHighlightedSourceLine = null;
+      if (sourceActiveHighlight) {
+        sourceActiveHighlight.classList.add("hidden");
+      }
+      if (asmLinkIndicator) {
+        asmLinkIndicator.classList.add("hidden");
+      }
+      if (root) {
+        root
+          .querySelectorAll(".is-active-line")
+          .forEach(el => el.classList.remove("is-active-line"));
+        root
+          .querySelectorAll(".is-linked-asm-line")
+          .forEach(el => el.classList.remove("is-linked-asm-line"));
+      }
+    }
+
+    // Highlight source and linked assembly lines
+    function highlightLinkedLines(
+      sourceLine: number | null,
+      triggeredBy: "source" | "asm"
+    ) {
+      if (sourceLine === currentHighlightedSourceLine && sourceLine !== null) {
+        return;
+      }
+      clearAllHighlights();
+      if (!sourceLine || sourceLine <= 0) return;
+
+      currentHighlightedSourceLine = sourceLine;
+
+      // 1. Highlight in source editor
+      const totalSourceLines = sourceEditor.value.split("\n").length;
+      if (sourceLine <= totalSourceLines) {
+        const top =
+          PADDING_TOP + (sourceLine - 1) * LINE_HEIGHT - sourceEditor.scrollTop;
+        if (sourceActiveHighlight) {
+          sourceActiveHighlight.style.top = `${top}px`;
+          sourceActiveHighlight.classList.remove("hidden");
+        }
+        const srcGutterItem = sourceGutter.querySelector(
+          `[data-source-line="${sourceLine}"]`
+        );
+        if (srcGutterItem) {
+          srcGutterItem.classList.add("is-active-line");
+        }
+
+        // If triggered by assembly, auto-scroll source editor if out of view
+        if (triggeredBy === "asm") {
+          const lineY = (sourceLine - 1) * LINE_HEIGHT;
+          const viewTop = sourceEditor.scrollTop;
+          const viewBottom =
+            viewTop + sourceEditor.clientHeight - PADDING_TOP * 2;
+          if (lineY < viewTop || lineY > viewBottom - LINE_HEIGHT) {
+            sourceEditor.scrollTo({
+              top: Math.max(0, lineY - LINE_HEIGHT * 3),
+              behavior: "smooth",
+            });
+          }
+        }
+      }
+
+      // 2. Highlight in assembly output
+      const matchingAsmIndices = sourceToAsmMap.get(sourceLine);
+      const asmCount = matchingAsmIndices ? matchingAsmIndices.length : 0;
+
+      if (matchingAsmIndices && matchingAsmIndices.length > 0) {
+        matchingAsmIndices.forEach(idx => {
+          const asmItem = asmOutput.querySelector(`[data-asm-index="${idx}"]`);
+          if (asmItem) {
+            asmItem.classList.add("is-linked-asm-line");
+          }
+          const asmGutterItem = asmGutter.querySelector(
+            `[data-asm-line="${idx + 1}"]`
+          );
+          if (asmGutterItem) {
+            asmGutterItem.classList.add("is-active-line");
+          }
+        });
+
+        // If triggered by source, auto-scroll assembly view to first matching line if out of view
+        if (triggeredBy === "source") {
+          const firstIdx = matchingAsmIndices[0];
+          const firstAsmItem = asmOutput.querySelector(
+            `[data-asm-index="${firstIdx}"]`
+          ) as HTMLElement;
+          if (firstAsmItem) {
+            const itemTop = firstAsmItem.offsetTop - PADDING_TOP;
+            const viewTop = asmOutput.scrollTop;
+            const viewBottom = viewTop + asmOutput.clientHeight;
+            if (itemTop < viewTop || itemTop > viewBottom - LINE_HEIGHT * 2) {
+              asmOutput.scrollTo({
+                top: Math.max(0, itemTop - LINE_HEIGHT * 3),
+                behavior: "smooth",
+              });
+            }
+          }
+        }
+      }
+
+      // 3. Update link indicator badge
+      if (asmLinkIndicator && asmLinkText) {
+        if (asmCount > 0) {
+          asmLinkText.innerText = `源码 L${sourceLine} ↔ 汇编 ${asmCount} 条指令`;
+          asmLinkIndicator.className =
+            "inline-flex items-center gap-1 rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 font-mono text-[11px] text-sky-400";
+        } else {
+          asmLinkText.innerText = `源码 L${sourceLine} (未生成指令 / 优化消除)`;
+          asmLinkIndicator.className =
+            "inline-flex items-center gap-1 rounded-full border border-outline-variant/40 bg-surface-container-high px-2 py-0.5 font-mono text-[11px] text-muted-foreground";
+        }
+      }
+    }
+
+    // Mouse interactions: Source Editor
+    sourceEditor?.addEventListener("mousemove", (e: MouseEvent) => {
+      const rect = sourceEditor.getBoundingClientRect();
+      const relativeY =
+        e.clientY - rect.top + sourceEditor.scrollTop - PADDING_TOP;
+      if (relativeY < 0) {
+        clearAllHighlights();
+        return;
+      }
+      const line = Math.floor(relativeY / LINE_HEIGHT) + 1;
+      const totalLines = sourceEditor.value.split("\n").length;
+      if (line >= 1 && line <= totalLines) {
+        highlightLinkedLines(line, "source");
+      } else {
+        clearAllHighlights();
+      }
+    });
+
+    sourceEditor?.addEventListener("mouseleave", () => {
+      clearAllHighlights();
+    });
+
+    sourceEditor?.addEventListener("scroll", () => {
+      if (sourceGutter) {
+        sourceGutter.scrollTop = sourceEditor.scrollTop;
+      }
+      if (currentHighlightedSourceLine) {
+        const top =
+          PADDING_TOP +
+          (currentHighlightedSourceLine - 1) * LINE_HEIGHT -
+          sourceEditor.scrollTop;
+        if (sourceActiveHighlight) {
+          sourceActiveHighlight.style.top = `${top}px`;
+        }
+      }
+    });
+
+    // Mouse interactions: Source Gutter
+    sourceGutter?.addEventListener("mouseover", (e: MouseEvent) => {
+      const target = (e.target as HTMLElement).closest(
+        ".source-gutter-item"
+      ) as HTMLElement;
+      if (!target) return;
+      const lineStr = target.dataset.sourceLine;
+      if (lineStr) {
+        const line = parseInt(lineStr, 10);
+        if (!isNaN(line) && line > 0) {
+          highlightLinkedLines(line, "source");
+        }
+      }
+    });
+
+    sourceGutter?.addEventListener("mouseleave", () => {
+      clearAllHighlights();
+    });
+
+    // Mouse interactions: Assembly Output
+    asmOutput?.addEventListener("mouseover", (e: MouseEvent) => {
+      const target = (e.target as HTMLElement).closest(
+        ".asm-line-item"
+      ) as HTMLElement;
+      if (!target) return;
+      const srcLineStr = target.dataset.sourceLine;
+      if (srcLineStr) {
+        const line = parseInt(srcLineStr, 10);
+        if (!isNaN(line) && line > 0) {
+          highlightLinkedLines(line, "asm");
+          return;
+        }
+      }
+      // If no source mapping, clear link highlights and highlight this solo asm line
+      clearAllHighlights();
+      target.classList.add("is-linked-asm-line");
+    });
+
+    asmOutput?.addEventListener("mouseleave", () => {
+      clearAllHighlights();
+    });
 
     asmOutput?.addEventListener("scroll", () => {
       if (asmGutter) {
@@ -968,6 +1242,7 @@ int main() {
       if (sourceBadge) {
         sourceBadge.innerText = preset.lang.toUpperCase();
       }
+      clearAllHighlights();
       updateSourceGutter();
     }
 
@@ -976,7 +1251,6 @@ int main() {
       btn.addEventListener("click", () => {
         const opt = btn.dataset.opt || "-O2";
         if (compilerArgsInput) {
-          // Replace existing -O flag or prepend
           let val = compilerArgsInput.value;
           if (/-O[0-3sfastg]/.test(val)) {
             val = val.replace(/-O[0-3sfastg]/, opt);
@@ -1013,6 +1287,7 @@ int main() {
     btnSourceClear?.addEventListener("click", () => {
       if (sourceEditor) {
         sourceEditor.value = "";
+        clearAllHighlights();
         updateSourceGutter();
       }
     });
@@ -1025,7 +1300,7 @@ int main() {
     });
 
     btnAsmCopy?.addEventListener("click", async () => {
-      const text = asmOutput?.innerText || "";
+      const text = currentRawAsmText || asmOutput?.innerText || "";
       if (text) {
         await navigator.clipboard.writeText(text);
         showToast("汇编指令已复制到剪贴板");
@@ -1127,6 +1402,8 @@ int main() {
         return;
       }
 
+      clearAllHighlights();
+
       const lang = langSelect.value;
       const userArguments = compilerArgsInput.value.trim();
       const asmTarget = asmCompilerSelect.value;
@@ -1145,7 +1422,7 @@ int main() {
       asmTime.innerText = "耗时: 编译中...";
 
       terminalOutput.innerHTML = `<span class="text-amber-400/90">$ [Compiler Explorer] 正在提交编译与执行请求...</span>\n`;
-      asmOutput.innerHTML = `<span class="text-amber-400/90">; 正在生成目标汇编 (${actualAsmCompiler})...</span>`;
+      asmOutput.innerHTML = `<div class="px-3.5 leading-6 text-amber-400/90">; 正在生成目标汇编 (${actualAsmCompiler})...</div>`;
 
       const startTime = performance.now();
 
@@ -1233,24 +1510,26 @@ int main() {
             const asmErr = formatLines(
               asmData.buildResult?.stderr || asmData.stderr
             );
-            asmOutput.innerHTML = `<span class="text-rose-400">; 汇编生成失败 (Code ${asmData.code}):\n${escapeHtml(asmErr)}</span>`;
+            asmOutput.innerHTML = `<div class="px-3.5 leading-6 text-rose-400">; 汇编生成失败 (Code ${asmData.code}):\n${escapeHtml(asmErr)}</div>`;
             asmStats.innerText = "编译错误";
             asmTime.innerText = `耗时: ${asmData.execTime ?? totalDuration}ms`;
-            updateAsmGutter(asmErr.split("\n").length);
+            let gutterHtml = "";
+            const errLines = asmErr.split("\n").length;
+            for (let i = 1; i <= errLines; i++) {
+              gutterHtml += `<div class="asm-gutter-item h-6 leading-6 select-none">${i}</div>`;
+            }
+            asmGutter.innerHTML = gutterHtml;
           } else {
-            const rawAsm = formatLines(asmData.asm);
-            if (rawAsm.trim()) {
-              asmOutput.innerHTML = highlightAssembly(rawAsm);
-              const lineCount =
-                asmData.asm?.length || rawAsm.split("\n").length;
+            if (Array.isArray(asmData.asm) && asmData.asm.length > 0) {
+              renderAssemblyWithMapping(asmData.asm);
+              const lineCount = asmData.asm.length;
               asmStats.innerText = `${lineCount} 行指令`;
               asmTime.innerText = `耗时: ${asmData.execTime ?? totalDuration}ms`;
-              updateAsmGutter(lineCount);
             } else {
-              asmOutput.innerHTML = `<span class="text-slate-500">; [未生成汇编代码或优化完全消除]</span>`;
+              asmOutput.innerHTML = `<div class="px-3.5 leading-6 text-slate-500">; [未生成汇编代码或优化完全消除]</div>`;
               asmStats.innerText = "0 行指令";
               asmTime.innerText = `耗时: ${totalDuration}ms`;
-              updateAsmGutter(1);
+              asmGutter.innerHTML = `<div class="asm-gutter-item h-6 leading-6 select-none">1</div>`;
             }
           }
         } else {
@@ -1258,7 +1537,7 @@ int main() {
             asmResResult.status === "rejected"
               ? asmResResult.reason?.message
               : `HTTP ${asmResResult.value.status}`;
-          asmOutput.innerHTML = `<span class="text-rose-400">; 汇编服务请求失败: ${escapeHtml(errReason)}</span>`;
+          asmOutput.innerHTML = `<div class="px-3.5 leading-6 text-rose-400">; 汇编服务请求失败: ${escapeHtml(errReason)}</div>`;
           asmStats.innerText = "请求失败";
         }
 
@@ -1368,7 +1647,7 @@ int main() {
 
     btnRun?.addEventListener("click", compileAndRun);
 
-    // Assembly compiler change -> recompile asm if desired
+    // Assembly compiler change -> recompile asm
     asmCompilerSelect?.addEventListener("change", () => {
       compileAndRun();
     });
@@ -1392,6 +1671,7 @@ int main() {
         if (state.args) compilerArgsInput.value = state.args;
         if (sourceBadge)
           sourceBadge.innerText = (state.lang || "cpp").toUpperCase();
+        clearAllHighlights();
         updateSourceGutter();
       } catch {
         loadPreset("hello");
@@ -1430,5 +1710,34 @@ int main() {
 
   .compiler-fullscreen #columns-container {
     height: calc(100vh - 6rem) !important;
+  }
+
+  /* Interactive Assembly Line Styles */
+  .asm-line-item {
+    box-sizing: border-box;
+    border-left: 3px solid transparent;
+  }
+
+  .asm-line-item.is-linked-asm-line {
+    background-color: rgba(14, 165, 233, 0.22) !important;
+    border-left-color: #38bdf8 !important;
+    color: #ffffff !important;
+  }
+
+  .asm-gutter-item.is-active-line {
+    color: #38bdf8 !important;
+    font-weight: 700 !important;
+    background-color: rgba(56, 189, 248, 0.15) !important;
+  }
+
+  .source-gutter-item.is-active-line {
+    color: #0284c7 !important;
+    font-weight: 700 !important;
+    background-color: rgba(14, 165, 233, 0.15) !important;
+  }
+
+  :global([data-theme="dark"]) .source-gutter-item.is-active-line {
+    color: #38bdf8 !important;
+    background-color: rgba(56, 189, 248, 0.2) !important;
   }
 </style>
