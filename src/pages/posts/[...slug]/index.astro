@@ -213,42 +213,56 @@ const ogImage = ogImageUrl
 
 <script is:inline data-astro-rerun>
   function createProgressBar() {
-    const progressContainer = document.createElement("div");
-    progressContainer.className =
-      "progress-container fixed top-0 z-50 h-1 w-full bg-transparent";
+    let progressContainer = document.querySelector(".progress-container");
+    if (!progressContainer) {
+      progressContainer = document.createElement("div");
+      progressContainer.className =
+        "progress-container fixed top-0 z-50 h-1 w-full bg-transparent";
 
-    const progressBar = document.createElement("div");
-    progressBar.className = "progress-bar h-1 w-0 bg-primary rounded-full";
-    progressBar.id = "myBar";
+      const progressBar = document.createElement("div");
+      progressBar.className = "progress-bar h-1 w-0 bg-primary rounded-full";
+      progressBar.id = "myBar";
 
-    progressContainer.appendChild(progressBar);
-    document.body.appendChild(progressContainer);
+      progressContainer.appendChild(progressBar);
+      document.body.appendChild(progressContainer);
+    }
   }
   createProgressBar();
 
   function updateScrollProgress() {
-    document.addEventListener("scroll", () => {
-      const winScroll =
-        document.body.scrollTop || document.documentElement.scrollTop;
-      const height =
-        document.documentElement.scrollHeight -
-        document.documentElement.clientHeight;
-      const scrolled = (winScroll / height) * 100;
-      if (document) {
-        const myBar = document.getElementById("myBar");
-        if (myBar) {
-          myBar.style.width = scrolled + "%";
+    const myBar = document.getElementById("myBar");
+    if (!myBar) return;
+    let ticking = false;
+    window.addEventListener(
+      "scroll",
+      () => {
+        if (!ticking) {
+          window.requestAnimationFrame(() => {
+            const winScroll =
+              document.body.scrollTop || document.documentElement.scrollTop;
+            const height =
+              document.documentElement.scrollHeight -
+              document.documentElement.clientHeight;
+            const scrolled = height > 0 ? (winScroll / height) * 100 : 0;
+            myBar.style.width = scrolled + "%";
+            ticking = false;
+          });
+          ticking = true;
         }
-      }
-    });
+      },
+      { passive: true }
+    );
   }
   updateScrollProgress();
 
   function addHeadingLinks() {
     const headings = Array.from(
-      document.querySelectorAll("h2, h3, h4, h5, h6")
+      document.querySelectorAll(
+        "article h2, article h3, article h4, article h5, article h6"
+      )
     );
     for (const heading of headings) {
+      if (heading.querySelector(".heading-link")) continue;
       heading.classList.add("group");
       const link = document.createElement("a");
       link.className =
@@ -257,7 +271,7 @@ const ogImage = ogImageUrl
 
       const span = document.createElement("span");
       span.ariaHidden = "true";
-      span.innerText = "#";
+      span.textContent = "#";
       link.appendChild(span);
       heading.appendChild(link);
     }
@@ -277,12 +291,24 @@ const ogImage = ogImageUrl
     for (const codeBlock of codeBlocks) {
       if (codeBlock.querySelector(".copy-code")) continue;
 
-      const wrapper = document.createElement("div");
-      wrapper.style.position = "relative";
+      let wrapper = codeBlock.parentElement;
+      const isAlreadyWrapped =
+        wrapper &&
+        (wrapper.classList.contains("code-block-wrapper") ||
+          wrapper.style.position === "relative");
 
-      const computedStyle = getComputedStyle(codeBlock);
+      if (!isAlreadyWrapped || !wrapper) {
+        wrapper = document.createElement("div");
+        wrapper.className = "code-block-wrapper relative";
+        codeBlock.parentNode?.insertBefore(wrapper, codeBlock);
+        wrapper.appendChild(codeBlock);
+      }
+
+      // Read inline CSS variables directly without forcing layout reflow via getComputedStyle
+      const inlineStyle = codeBlock.getAttribute("style") || "";
       const hasFileNameOffset =
-        computedStyle.getPropertyValue("--file-name-offset").trim() !== "";
+        codeBlock.style.getPropertyValue("--file-name-offset").trim() !== "" ||
+        inlineStyle.includes("--file-name-offset");
 
       const topClass = hasFileNameOffset
         ? "top-(--file-name-offset)"
@@ -294,9 +320,6 @@ const ogImage = ogImageUrl
       codeBlock.setAttribute("tabindex", "0");
       codeBlock.appendChild(copyButton);
 
-      codeBlock?.parentNode?.insertBefore(wrapper, codeBlock);
-      wrapper.appendChild(codeBlock);
-
       copyButton.addEventListener("click", async () => {
         await copyCode(codeBlock, copyButton);
       });
@@ -304,9 +327,9 @@ const ogImage = ogImageUrl
 
     async function copyCode(block, button) {
       const code = block.querySelector("code");
-      const text = code?.innerText;
+      const text = code?.textContent ?? "";
 
-      await navigator.clipboard.writeText(text ?? "");
+      await navigator.clipboard.writeText(text);
 
       button.innerHTML = `${checkIcon}<span class="text-accent">${copiedLabel}</span>`;
 

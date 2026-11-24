@@ -99,6 +99,25 @@ const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
     });
 
     let ticking = false;
+    let activeSlug = "";
+
+    // Map links by slug for O(1) active class toggling
+    const linksBySlug = new Map<string, HTMLAnchorElement[]>();
+    for (const link of links) {
+      const slug = link.dataset.slug;
+      if (slug) {
+        let group = linksBySlug.get(slug);
+        if (!group) {
+          group = [];
+          linksBySlug.set(slug, group);
+        }
+        group.push(link);
+      }
+    }
+
+    const desktopSidebar = document.querySelector<HTMLElement>(
+      ".toc-desktop-sidebar"
+    );
 
     function updateActiveHeading() {
       const threshold = 110; // Under sticky header
@@ -123,59 +142,65 @@ const toc = headings.filter(h => h.depth >= 2 && h.depth <= 4);
         }
       }
 
-      links.forEach(link => {
-        const slug = link.dataset.slug;
-        const isActive = slug === currentSlug;
+      if (currentSlug === activeSlug) return;
 
-        if (isActive) {
-          link.classList.add(
-            "bg-accent/15",
-            "text-accent",
-            "font-semibold",
-            "border-accent"
-          );
-          link.classList.remove("border-transparent");
-        } else {
-          link.classList.remove(
-            "bg-accent/15",
-            "text-accent",
-            "font-semibold",
-            "border-accent"
-          );
-          link.classList.add("border-transparent");
+      // Deactivate previous active links
+      if (activeSlug) {
+        const prevLinks = linksBySlug.get(activeSlug);
+        if (prevLinks) {
+          for (const link of prevLinks) {
+            link.classList.remove(
+              "bg-accent/15",
+              "text-accent",
+              "font-semibold",
+              "border-accent"
+            );
+            link.classList.add("border-transparent");
+          }
         }
-      });
+      }
+
+      // Activate new active links
+      if (currentSlug) {
+        const nextLinks = linksBySlug.get(currentSlug);
+        if (nextLinks) {
+          for (const link of nextLinks) {
+            link.classList.add(
+              "bg-accent/15",
+              "text-accent",
+              "font-semibold",
+              "border-accent"
+            );
+            link.classList.remove("border-transparent");
+          }
+        }
+      }
+
+      activeSlug = currentSlug;
 
       // Keep active heading visible inside the desktop floating sidebar's scroll container ONLY.
-      // Under no circumstances call scrollIntoView() on elements, because that scrolls the entire
-      // window / document and causes the page to snap back to the mobile inline TOC when scrolling down.
-      if (currentSlug) {
-        const desktopSidebar = document.querySelector<HTMLElement>(
-          ".toc-desktop-sidebar"
-        );
-        if (
-          desktopSidebar &&
-          window.getComputedStyle(desktopSidebar).display !== "none"
-        ) {
-          const activeDesktopLink =
-            desktopSidebar.querySelector<HTMLAnchorElement>(
-              `.toc-link[data-slug="${currentSlug}"]`
-            );
-          if (activeDesktopLink) {
-            const scrollContainer =
-              activeDesktopLink.closest<HTMLElement>("ul");
-            if (scrollContainer) {
-              const containerRect = scrollContainer.getBoundingClientRect();
-              const linkRect = activeDesktopLink.getBoundingClientRect();
+      if (
+        currentSlug &&
+        desktopSidebar &&
+        desktopSidebar.offsetParent !== null
+      ) {
+        const activeDesktopLink =
+          desktopSidebar.querySelector<HTMLAnchorElement>(
+            `.toc-link[data-slug="${currentSlug}"]`
+          );
+        if (activeDesktopLink) {
+          const scrollContainer = activeDesktopLink.closest<HTMLElement>("ul");
+          if (scrollContainer) {
+            const containerRect = scrollContainer.getBoundingClientRect();
+            const linkRect = activeDesktopLink.getBoundingClientRect();
 
-              const offsetTop = linkRect.top - containerRect.top;
-              const offsetBottom = linkRect.bottom - containerRect.bottom;
+            const offsetTop = linkRect.top - containerRect.top;
+            const offsetBottom = linkRect.bottom - containerRect.bottom;
 
-              if (offsetTop < 0) {
-                scrollContainer.scrollTop += offsetTop - 12;
-              } else if (offsetBottom > 0) {
-                scrollContainer.scrollTop += offsetBottom + 12;
-              }
+            if (offsetTop < 0) {
+              scrollContainer.scrollTop += offsetTop - 12;
+            } else if (offsetBottom > 0) {
+              scrollContainer.scrollTop += offsetBottom + 12;
             }
           }
         }
