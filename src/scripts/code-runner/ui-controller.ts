@@ -1,4 +1,4 @@
-import { runPythonCode } from "./pyodide-engine";
+import { runPythonCode, getPyodide } from "./pyodide-engine";
 import { runCppCode, compileCppToAssembly } from "./compiler-explorer-engine";
 import type { SupportedLanguage, RunnerStatus } from "./types";
 
@@ -381,6 +381,16 @@ export function setupInteractiveCodeBlocks() {
         runBtn.disabled = false;
       }
     };
+
+    if (lang === "python") {
+      runBtn.addEventListener(
+        "mouseenter",
+        () => {
+          getPyodide().catch(() => {});
+        },
+        { once: true }
+      );
+    }
 
     runBtn.addEventListener("click", handleRun);
     asmBtn?.addEventListener("click", handleAsm);

@@ -15,3 +15,8 @@
 
 # Ignore MDX files
 *.mdx
+
+# Vendor & generated assets in public
+public/vendor/**
+public/pagefind/**
+public/sw.js

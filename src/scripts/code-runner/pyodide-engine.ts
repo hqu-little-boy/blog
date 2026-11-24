@@ -12,11 +12,37 @@ interface PyodideInterface {
 let pyodideInstance: PyodideInterface | null = null;
 let pyodideLoadingPromise: Promise<PyodideInterface> | null = null;
 
-const PYODIDE_CDN_VERSION = "0.27.2";
-const PYODIDE_BASE_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_CDN_VERSION}/full/`;
+const PYODIDE_VERSION = "0.27.2";
+const baseRoot = (import.meta.env.BASE_URL || "/").replace(/\/+$/, "");
+const PYODIDE_LOCAL_URL = `${baseRoot}/vendor/pyodide/`;
+const PYODIDE_CDN_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+
+/**
+ * Dynamically inject a script tag and wait for it to load.
+ */
+function loadScriptTag(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () =>
+        reject(new Error(`Failed to load ${src}`))
+      );
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error(`Failed to load script: ${src}`));
+    document.head.appendChild(script);
+  });
+}
 
 /**
  * Lazily load and initialize the Pyodide WebAssembly runtime.
+ * Prioritizes self-hosted local assets with CacheStorage, falling back to CDN.
  */
 export async function getPyodide(
   options?: EngineRunOptions
@@ -32,36 +58,23 @@ export async function getPyodide(
   pyodideLoadingPromise = (async () => {
     options?.onStatusChange?.(
       "loading_engine",
-      `正在按需加载 Pyodide v${PYODIDE_CDN_VERSION} (WebAssembly CPython)...`
+      `正在加载 Pyodide v${PYODIDE_VERSION} (WebAssembly CPython)...`
     );
 
-    // Check if script tag is already present or inject it
-    if (!(window as any).loadPyodide) {
-      await new Promise<void>((resolve, reject) => {
-        const existingScript = document.querySelector(
-          `script[src*="pyodide.js"]`
-        );
-        if (existingScript) {
-          existingScript.addEventListener("load", () => resolve());
-          existingScript.addEventListener("error", () =>
-            reject(new Error("Pyodide 资源脚本加载失败"))
-          );
-          return;
-        }
+    let activeBaseUrl = PYODIDE_LOCAL_URL;
 
-        const script = document.createElement("script");
-        script.src = `${PYODIDE_BASE_URL}pyodide.js`;
-        script.async = true;
-        script.crossOrigin = "anonymous";
-        script.onload = () => resolve();
-        script.onerror = () =>
-          reject(
-            new Error(
-              "Pyodide CDN 加载失败，请检查网络连接或 CDN 可用性。"
-            )
-          );
-        document.head.appendChild(script);
-      });
+    // Check if script tag is already present or load local first, fallback to CDN
+    if (!(window as any).loadPyodide) {
+      try {
+        await loadScriptTag(`${PYODIDE_LOCAL_URL}pyodide.js`);
+      } catch {
+        options?.onStatusChange?.(
+          "loading_engine",
+          "本地 Pyodide 脚本未命中，正在连接 CDN..."
+        );
+        activeBaseUrl = PYODIDE_CDN_URL;
+        await loadScriptTag(`${PYODIDE_CDN_URL}pyodide.js`);
+      }
     }
 
     options?.onStatusChange?.(
@@ -70,9 +83,25 @@ export async function getPyodide(
     );
 
     const loadPyodideFn = (window as any).loadPyodide;
-    const pyodide = await loadPyodideFn({
-      indexURL: PYODIDE_BASE_URL,
-    });
+    let pyodide: PyodideInterface;
+
+    try {
+      pyodide = await loadPyodideFn({
+        indexURL: activeBaseUrl,
+      });
+    } catch {
+      if (activeBaseUrl !== PYODIDE_CDN_URL) {
+        options?.onStatusChange?.(
+          "loading_engine",
+          "本地运行时初始化异常，正在降级连接 CDN..."
+        );
+        pyodide = await loadPyodideFn({
+          indexURL: PYODIDE_CDN_URL,
+        });
+      } else {
+        throw new Error("Pyodide 运行时加载失败，请检查网络或刷新重试。");
+      }
+    }
 
     pyodideInstance = pyodide;
     return pyodide;
@@ -147,17 +176,14 @@ export async function runPythonCode(
     }
 
     const durationMs = Math.round(performance.now() - startTime);
-    options.onStatusChange?.(
-      "success",
-      `执行成功 (耗时 ${durationMs}ms)`
-    );
+    options.onStatusChange?.("success", `执行成功 (耗时 ${durationMs}ms)`);
 
     return {
       success: true,
       stdout: stdoutAccumulator,
       stderr: stderrAccumulator,
       durationMs,
-      engineName: `Pyodide v${PYODIDE_CDN_VERSION} (WASM)`,
+      engineName: `Pyodide v${PYODIDE_VERSION} (WASM)`,
       exitCode: 0,
     };
   } catch (error: any) {
@@ -171,7 +197,7 @@ export async function runPythonCode(
       stdout: stdoutAccumulator,
       stderr: stderrAccumulator,
       durationMs,
-      engineName: `Pyodide v${PYODIDE_CDN_VERSION} (WASM)`,
+      engineName: `Pyodide v${PYODIDE_VERSION} (WASM)`,
       error: errorMsg,
       exitCode: 1,
     };
