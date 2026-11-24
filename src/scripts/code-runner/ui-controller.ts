@@ -1,9 +1,10 @@
 import { runPythonCode } from "./pyodide-engine";
-import { runCppCode } from "./compiler-explorer-engine";
+import { runCppCode, compileCppToAssembly } from "./compiler-explorer-engine";
 import type { SupportedLanguage, RunnerStatus } from "./types";
 
 const PLAY_ICON = `<svg class="size-3.5 inline-block me-1 text-emerald-500 dark:text-emerald-400" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
 const SPINNER_ICON = `<svg class="size-3.5 inline-block me-1 animate-spin text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>`;
+const ASM_ICON = `<svg class="size-3.5 inline-block me-1 text-sky-500 dark:text-sky-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"/></svg>`;
 
 /**
  * Determine supported language from codeblock metadata or class.
@@ -51,7 +52,7 @@ function getCodeText(codeBlock: HTMLElement): string {
   // Clone to avoid picking up auxiliary tags
   const clone = codeEl.cloneNode(true) as HTMLElement;
   const auxElements = clone.querySelectorAll(
-    ".copy-code, .run-code-btn, .code-runner-console, .file-name, .lang-tag"
+    ".copy-code, .run-code-btn, .asm-code-btn, .code-runner-actions, .code-runner-console, .file-name, .lang-tag"
   );
   auxElements.forEach(el => el.remove());
 
@@ -59,7 +60,7 @@ function getCodeText(codeBlock: HTMLElement): string {
 }
 
 /**
- * Mount runner button and terminal console to eligible code blocks.
+ * Mount runner/assembly buttons and terminal console to eligible code blocks.
  */
 export function setupInteractiveCodeBlocks() {
   const codeBlocks = Array.from(
@@ -101,15 +102,32 @@ export function setupInteractiveCodeBlocks() {
       ? "top-(--file-name-offset)"
       : "-top-3.5";
 
-    // Create Runner Button
+    // Create Action Buttons Container
+    const actionsContainer = document.createElement("div");
+    actionsContainer.className = `code-runner-actions absolute end-20 ${topClass} flex items-center gap-1.5 z-10`;
+
+    const isCppOrC = lang === "cpp" || lang === "c";
+    let asmBtn: HTMLButtonElement | null = null;
+
+    if (isCppOrC) {
+      asmBtn = document.createElement("button");
+      asmBtn.type = "button";
+      asmBtn.className =
+        "asm-code-btn rounded-full border border-sky-500/50 bg-surface/95 dark:bg-surface px-2.5 py-0.5 text-xs font-medium text-sky-600 dark:text-sky-400 shadow-xs hover:bg-sky-500/15 hover:border-sky-500 transition-all duration-200 inline-flex items-center select-none cursor-pointer";
+      asmBtn.innerHTML = `${ASM_ICON}<span class="hidden sm:inline">展示汇编 (RISC-V 64)</span><span class="sm:hidden">汇编</span>`;
+      actionsContainer.appendChild(asmBtn);
+    }
+
     const runBtn = document.createElement("button");
     runBtn.type = "button";
-    runBtn.className = `run-code-btn absolute end-20 ${topClass} rounded-full border border-emerald-500/50 bg-surface/95 dark:bg-surface px-2.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 shadow-xs hover:bg-emerald-500/15 hover:border-emerald-500 transition-all duration-200 inline-flex items-center select-none cursor-pointer z-10`;
+    runBtn.className =
+      "run-code-btn rounded-full border border-emerald-500/50 bg-surface/95 dark:bg-surface px-2.5 py-0.5 text-xs font-medium text-emerald-600 dark:text-emerald-400 shadow-xs hover:bg-emerald-500/15 hover:border-emerald-500 transition-all duration-200 inline-flex items-center select-none cursor-pointer";
 
-    const labelText =
-      lang === "python" ? "运行 (Pyodide)" : "运行 (Compiler Explorer)";
+    const labelText = lang === "python" ? "运行 (Pyodide)" : "运行 (RISC-V 64)";
     runBtn.innerHTML = `${PLAY_ICON}<span class="hidden sm:inline">${labelText}</span><span class="sm:hidden">运行</span>`;
-    codeBlock.appendChild(runBtn);
+    actionsContainer.appendChild(runBtn);
+
+    codeBlock.appendChild(actionsContainer);
 
     // Create Interactive Console Container
     const consoleContainer = document.createElement("div");
@@ -122,7 +140,7 @@ export function setupInteractiveCodeBlocks() {
           <span class="status-indicator size-2.5 rounded-full bg-emerald-500 inline-block transition-colors"></span>
           <span class="status-text font-medium text-foreground/90">控制台就绪</span>
           <span class="engine-badge rounded-md px-1.5 py-0.5 text-[10px] font-mono font-semibold tracking-wider text-muted-foreground bg-muted/60">
-            ${lang === "python" ? "Pyodide WASM (客户端算力)" : "Compiler Explorer (云端编译器)"}
+            ${lang === "python" ? "Pyodide WASM (客户端算力)" : "Compiler Explorer (RISC-V 64)"}
           </span>
         </div>
         <div class="flex items-center gap-1.5 text-xs">
@@ -230,6 +248,42 @@ export function setupInteractiveCodeBlocks() {
       if (statusText) statusText.innerText = "代码已还原";
     });
 
+    const onStatusChange = (status: RunnerStatus, msg: string) => {
+      statusText.innerText = msg;
+      if (status === "loading_engine" || status === "running") {
+        statusIndicator.className =
+          "status-indicator size-2.5 rounded-full bg-amber-500 animate-pulse inline-block";
+      } else if (status === "success") {
+        statusIndicator.className =
+          "status-indicator size-2.5 rounded-full bg-emerald-500 inline-block";
+      } else if (status === "error") {
+        statusIndicator.className =
+          "status-indicator size-2.5 rounded-full bg-rose-500 inline-block";
+      }
+    };
+
+    const appendStdout = (chunk: string) => {
+      const span = document.createElement("span");
+      span.className = "text-[#e3e2e6]";
+      span.textContent = chunk;
+      terminalOutput.appendChild(span);
+      terminalOutput.parentElement?.scrollTo({
+        top: terminalOutput.parentElement.scrollHeight,
+        behavior: "smooth",
+      });
+    };
+
+    const appendStderr = (chunk: string) => {
+      const span = document.createElement("span");
+      span.className = "text-rose-400 font-semibold";
+      span.textContent = chunk;
+      terminalOutput.appendChild(span);
+      terminalOutput.parentElement?.scrollTo({
+        top: terminalOutput.parentElement.scrollHeight,
+        behavior: "smooth",
+      });
+    };
+
     // Execute code handler
     const handleRun = async () => {
       if (isRunning) return;
@@ -238,6 +292,7 @@ export function setupInteractiveCodeBlocks() {
       consoleContainer.classList.remove("hidden");
       runBtn.innerHTML = `${SPINNER_ICON}<span>执行中...</span>`;
       runBtn.disabled = true;
+      if (asmBtn) asmBtn.disabled = true;
 
       statusIndicator.className =
         "status-indicator size-2.5 rounded-full bg-amber-500 animate-pulse inline-block";
@@ -246,42 +301,6 @@ export function setupInteractiveCodeBlocks() {
       terminalOutput.innerHTML = `<span class="text-muted-foreground/70">$ [${lang.toUpperCase()}] 启动执行...</span>\n`;
 
       const currentCode = getCodeText(codeBlock);
-
-      const onStatusChange = (status: RunnerStatus, msg: string) => {
-        statusText.innerText = msg;
-        if (status === "loading_engine" || status === "running") {
-          statusIndicator.className =
-            "status-indicator size-2.5 rounded-full bg-amber-500 animate-pulse inline-block";
-        } else if (status === "success") {
-          statusIndicator.className =
-            "status-indicator size-2.5 rounded-full bg-emerald-500 inline-block";
-        } else if (status === "error") {
-          statusIndicator.className =
-            "status-indicator size-2.5 rounded-full bg-rose-500 inline-block";
-        }
-      };
-
-      const appendStdout = (chunk: string) => {
-        const span = document.createElement("span");
-        span.className = "text-[#e3e2e6]";
-        span.textContent = chunk;
-        terminalOutput.appendChild(span);
-        terminalOutput.parentElement?.scrollTo({
-          top: terminalOutput.parentElement.scrollHeight,
-          behavior: "smooth",
-        });
-      };
-
-      const appendStderr = (chunk: string) => {
-        const span = document.createElement("span");
-        span.className = "text-rose-400 font-semibold";
-        span.textContent = chunk;
-        terminalOutput.appendChild(span);
-        terminalOutput.parentElement?.scrollTo({
-          top: terminalOutput.parentElement.scrollHeight,
-          behavior: "smooth",
-        });
-      };
 
       try {
         if (lang === "python") {
@@ -302,11 +321,54 @@ export function setupInteractiveCodeBlocks() {
         appendStderr("\n执行出现未捕获异常: " + (err?.message || String(err)));
       } finally {
         isRunning = false;
-        runBtn.innerHTML = `${PLAY_ICON}<span>${labelText}</span>`;
+        runBtn.innerHTML = `${PLAY_ICON}<span class="hidden sm:inline">${labelText}</span><span class="sm:hidden">运行</span>`;
+        runBtn.disabled = false;
+        if (asmBtn) asmBtn.disabled = false;
+      }
+    };
+
+    // Assembly compilation handler
+    const handleAsm = async () => {
+      if (isRunning) return;
+      isRunning = true;
+
+      consoleContainer.classList.remove("hidden");
+      if (asmBtn) {
+        asmBtn.innerHTML = `${SPINNER_ICON}<span>生成中...</span>`;
+        asmBtn.disabled = true;
+      }
+      runBtn.disabled = true;
+
+      statusIndicator.className =
+        "status-indicator size-2.5 rounded-full bg-amber-500 animate-pulse inline-block";
+      statusText.innerText = "正在请求生成 RISC-V 64 汇编...";
+
+      terminalOutput.innerHTML = `<span class="text-muted-foreground/70">$ [RISC-V 64 ASM] 正在编译目标汇编代码...</span>\n\n`;
+
+      const currentCode = getCodeText(codeBlock);
+
+      try {
+        const targetLang: "c" | "cpp" = lang === "c" ? "c" : "cpp";
+        await compileCppToAssembly(currentCode, targetLang, {
+          onStdout: appendStdout,
+          onStderr: appendStderr,
+          onStatusChange,
+        });
+      } catch (err: any) {
+        appendStderr(
+          "\n生成汇编出现未捕获异常: " + (err?.message || String(err))
+        );
+      } finally {
+        isRunning = false;
+        if (asmBtn) {
+          asmBtn.innerHTML = `${ASM_ICON}<span class="hidden sm:inline">展示汇编 (RISC-V 64)</span><span class="sm:hidden">汇编</span>`;
+          asmBtn.disabled = false;
+        }
         runBtn.disabled = false;
       }
     };
 
     runBtn.addEventListener("click", handleRun);
+    asmBtn?.addEventListener("click", handleAsm);
   }
 }

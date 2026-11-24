@@ -15,6 +15,7 @@ export interface ExecutionResult {
   engineName: string;
   exitCode?: number;
   error?: string;
+  asm?: string;
 }
 
 export interface EngineRunOptions {
