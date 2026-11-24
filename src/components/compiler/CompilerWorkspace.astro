@@ -170,7 +170,52 @@
         <span class="hidden sm:inline">分享</span>
       </button>
 
-      <!-- Primary Run & Compile Button -->
+      <!-- Assembly Button -->
+      <button
+        id="btn-asm"
+        type="button"
+        class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-sky-500/40 bg-sky-50 px-3.5 py-1.5 text-xs font-semibold text-sky-700 shadow-xs transition-all duration-200 hover:border-sky-500/60 hover:bg-sky-100 active:scale-95 sm:text-sm dark:border-sky-500/30 dark:bg-sky-500/15 dark:text-sky-300 dark:hover:bg-sky-500/25"
+        title="快捷键：Alt + Enter"
+      >
+        <svg
+          id="asm-btn-icon"
+          class="size-4 text-sky-600 dark:text-sky-400"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+          <rect x="9" y="9" width="6" height="6"></rect>
+          <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"
+          ></path>
+        </svg>
+        <svg
+          id="asm-spin-icon"
+          class="hidden size-4 animate-spin text-sky-600 dark:text-sky-400"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+        >
+          <circle
+            class="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"></circle>
+          <path
+            class="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          ></path>
+        </svg>
+        <span>生成汇编</span>
+      </button>
+
+      <!-- Primary Run Button -->
       <button
         id="btn-run"
         type="button"
@@ -205,7 +250,7 @@
             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
           ></path>
         </svg>
-        <span>编译并运行</span>
+        <span>运行</span>
       </button>
     </div>
   </div>
@@ -364,17 +409,32 @@
         <div class="flex items-center gap-2">
           <span id="source-stats">0 行, 0 字符</span>
         </div>
-        <div class="flex items-center gap-1">
-          <kbd
-            class="bg-surface-container-high dark:bg-surface-container-highest/60 rounded px-1.5 py-0.5 font-mono text-[10px]"
-            >Ctrl</kbd
-          >
-          <span>+</span>
-          <kbd
-            class="bg-surface-container-high dark:bg-surface-container-highest/60 rounded px-1.5 py-0.5 font-mono text-[10px]"
-            >Enter</kbd
-          >
-          <span>编译运行</span>
+        <div class="flex items-center gap-2">
+          <div class="flex items-center gap-1">
+            <kbd
+              class="bg-surface-container-high dark:bg-surface-container-highest/60 rounded px-1.5 py-0.5 font-mono text-[10px]"
+              >Alt</kbd
+            >
+            <span>+</span>
+            <kbd
+              class="bg-surface-container-high dark:bg-surface-container-highest/60 rounded px-1.5 py-0.5 font-mono text-[10px]"
+              >Enter</kbd
+            >
+            <span>汇编</span>
+          </div>
+          <span class="text-outline-variant/60">·</span>
+          <div class="flex items-center gap-1">
+            <kbd
+              class="bg-surface-container-high dark:bg-surface-container-highest/60 rounded px-1.5 py-0.5 font-mono text-[10px]"
+              >Ctrl</kbd
+            >
+            <span>+</span>
+            <kbd
+              class="bg-surface-container-high dark:bg-surface-container-highest/60 rounded px-1.5 py-0.5 font-mono text-[10px]"
+              >Enter</kbd
+            >
+            <span>运行</span>
+          </div>
         </div>
       </div>
     </div>
@@ -793,6 +853,9 @@ int main() {
     const compilerArgsInput = document.getElementById(
       "compiler-args"
     ) as HTMLInputElement;
+    const btnAsm = document.getElementById("btn-asm") as HTMLButtonElement;
+    const asmBtnIcon = document.getElementById("asm-btn-icon") as HTMLElement;
+    const asmSpinIcon = document.getElementById("asm-spin-icon") as HTMLElement;
     const btnRun = document.getElementById("btn-run") as HTMLButtonElement;
     const runPlayIcon = document.getElementById("run-play-icon") as HTMLElement;
     const runSpinIcon = document.getElementById("run-spin-icon") as HTMLElement;
@@ -878,7 +941,8 @@ int main() {
     ) as HTMLElement;
     const toast = document.getElementById("compiler-toast") as HTMLElement;
 
-    let isCompiling = false;
+    let isCompilingAsm = false;
+    let isRunningExec = false;
 
     // Bidirectional Mapping State
     const PADDING_TOP = 14; // py-3.5 = 14px
@@ -928,7 +992,10 @@ int main() {
         updateSourceGutter();
       } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
-        compileAndRun();
+        runExecution();
+      } else if (e.key === "Enter" && e.altKey) {
+        e.preventDefault();
+        compileAssembly();
       }
     });
 
@@ -1426,43 +1493,32 @@ int main() {
         });
       });
 
-    // Main Compilation & Execution Logic
-    async function compileAndRun() {
-      if (isCompiling) return;
-      isCompiling = true;
-
+    // 1. Generate Assembly Logic
+    async function compileAssembly() {
+      if (isCompilingAsm) return;
       const code = sourceEditor.value.trim();
       if (!code) {
-        showToast("请输入源码后再运行！");
-        isCompiling = false;
+        showToast("请输入源码后再生成汇编！");
         return;
       }
 
+      isCompilingAsm = true;
       clearAllHighlights();
 
       const lang = langSelect.value;
       const userArguments = compilerArgsInput.value.trim();
       const asmTarget = asmCompilerSelect.value;
       const actualAsmCompiler = COMPILER_MAP[lang]?.[asmTarget] || asmTarget;
-      const actualExecCompiler = EXEC_COMPILER_MAP[lang] || "g142";
 
-      // UI state -> running
-      btnRun.disabled = true;
-      runPlayIcon.classList.add("hidden");
-      runSpinIcon.classList.remove("hidden");
-
-      execStatusDot.className =
-        "size-1.5 rounded-full bg-amber-500 animate-pulse";
-      execStatusText.innerText = "编译运行中...";
-      execDuration.innerText = "耗时: 运行中...";
+      // UI state -> compiling assembly
+      btnAsm.disabled = true;
+      asmBtnIcon.classList.add("hidden");
+      asmSpinIcon.classList.remove("hidden");
       asmTime.innerText = "耗时: 编译中...";
-
-      terminalOutput.innerHTML = `<span class="text-amber-400/90">$ [Compiler Explorer] 正在提交编译与执行请求...</span>\n`;
       asmOutput.innerHTML = `<div class="px-3.5 leading-6 text-amber-400/90">; 正在生成目标汇编 (${actualAsmCompiler})...</div>`;
 
       const startTime = performance.now();
 
-      // 1. Prepare Assembly Request Payload
       const asmPayload = {
         source: code,
         compiler: actualAsmCompiler,
@@ -1484,36 +1540,13 @@ int main() {
         bypassCache: 0,
       };
 
-      // 2. Prepare Execution Sandbox Payload
-      const execPayload = {
-        source: code,
-        compiler: actualExecCompiler,
-        options: {
-          userArguments,
-          executeParameters: {
-            args: [],
-            stdin: stdinInput?.value || "",
-          },
-          compilerOptions: {
-            executorRequest: true,
-          },
-          filters: {
-            execute: true,
-          },
-          tools: [],
-          libraries: [],
-        },
-        lang: lang === "c" ? "c" : lang === "rust" ? "rust" : "c++",
-        bypassCache: 0,
-      };
-
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 25000);
 
       try {
-        // Parallel requests for Assembly and Execution
-        const [asmResResult, execResResult] = await Promise.allSettled([
-          fetch(`${CE_BASE_URL}/api/compiler/${actualAsmCompiler}/compile`, {
+        const res = await fetch(
+          `${CE_BASE_URL}/api/compiler/${actualAsmCompiler}/compile`,
+          {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -1521,24 +1554,14 @@ int main() {
             },
             body: JSON.stringify(asmPayload),
             signal: controller.signal,
-          }),
-          fetch(`${CE_BASE_URL}/api/compiler/${actualExecCompiler}/compile`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Accept: "application/json",
-            },
-            body: JSON.stringify(execPayload),
-            signal: controller.signal,
-          }),
-        ]);
+          }
+        );
 
         clearTimeout(timeoutId);
         const totalDuration = Math.round(performance.now() - startTime);
 
-        // --- Handle Assembly Result ---
-        if (asmResResult.status === "fulfilled" && asmResResult.value.ok) {
-          const asmData = await asmResResult.value.json();
+        if (res.ok) {
+          const asmData = await res.json();
           if (
             asmData.code !== 0 &&
             (!asmData.asm || asmData.asm.length === 0)
@@ -1569,17 +1592,94 @@ int main() {
             }
           }
         } else {
-          const errReason =
-            asmResResult.status === "rejected"
-              ? asmResResult.reason?.message
-              : `HTTP ${asmResResult.value.status}`;
-          asmOutput.innerHTML = `<div class="px-3.5 leading-6 text-rose-400">; 汇编服务请求失败: ${escapeHtml(errReason)}</div>`;
+          asmOutput.innerHTML = `<div class="px-3.5 leading-6 text-rose-400">; 汇编服务请求失败: HTTP ${res.status}</div>`;
           asmStats.innerText = "请求失败";
         }
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        asmOutput.innerHTML = `<div class="px-3.5 leading-6 text-rose-400">; 汇编生成异常: ${escapeHtml(err?.message || String(err))}</div>`;
+        asmStats.innerText = "异常";
+      } finally {
+        isCompilingAsm = false;
+        btnAsm.disabled = false;
+        asmBtnIcon.classList.remove("hidden");
+        asmSpinIcon.classList.add("hidden");
+      }
+    }
 
-        // --- Handle Execution Sandbox Result ---
-        if (execResResult.status === "fulfilled" && execResResult.value.ok) {
-          const execData = await execResResult.value.json();
+    // 2. Run Execution Sandbox Logic
+    async function runExecution() {
+      if (isRunningExec) return;
+      const code = sourceEditor.value.trim();
+      if (!code) {
+        showToast("请输入源码后再运行！");
+        return;
+      }
+
+      isRunningExec = true;
+
+      const lang = langSelect.value;
+      const userArguments = compilerArgsInput.value.trim();
+      const actualExecCompiler = EXEC_COMPILER_MAP[lang] || "g142";
+
+      // UI state -> running
+      btnRun.disabled = true;
+      runPlayIcon.classList.add("hidden");
+      runSpinIcon.classList.remove("hidden");
+
+      execStatusDot.className =
+        "size-1.5 rounded-full bg-amber-500 animate-pulse";
+      execStatusText.innerText = "编译运行中...";
+      execDuration.innerText = "耗时: 运行中...";
+
+      terminalOutput.innerHTML = `<span class="text-amber-400/90">$ [Compiler Explorer] 正在提交运行请求...</span>\n`;
+
+      const startTime = performance.now();
+
+      const execPayload = {
+        source: code,
+        compiler: actualExecCompiler,
+        options: {
+          userArguments,
+          executeParameters: {
+            args: [],
+            stdin: stdinInput?.value || "",
+          },
+          compilerOptions: {
+            executorRequest: true,
+          },
+          filters: {
+            execute: true,
+          },
+          tools: [],
+          libraries: [],
+        },
+        lang: lang === "c" ? "c" : lang === "rust" ? "rust" : "c++",
+        bypassCache: 0,
+      };
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+      try {
+        const res = await fetch(
+          `${CE_BASE_URL}/api/compiler/${actualExecCompiler}/compile`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify(execPayload),
+            signal: controller.signal,
+          }
+        );
+
+        clearTimeout(timeoutId);
+        const totalDuration = Math.round(performance.now() - startTime);
+
+        if (res.ok) {
+          const execData = await res.json();
           let outHtml = "";
 
           // Check Build Failure
@@ -1655,13 +1755,9 @@ int main() {
           execDuration.innerText = `耗时: ${execData.execTime ?? totalDuration}ms`;
           execEngineInfo.innerText = `云端沙箱 (${actualExecCompiler.toUpperCase()} / amd64)`;
         } else {
-          const errReason =
-            execResResult.status === "rejected"
-              ? execResResult.reason?.message
-              : `HTTP ${execResResult.value.status}`;
           execStatusDot.className = "size-1.5 rounded-full bg-rose-500";
           execStatusText.innerText = "网络异常";
-          terminalOutput.innerHTML = `<span class="text-rose-400">[网络或服务异常] 请求沙箱失败: ${escapeHtml(errReason)}</span>\n`;
+          terminalOutput.innerHTML = `<span class="text-rose-400">[网络或服务异常] 请求沙箱失败: HTTP ${res.status}</span>\n`;
         }
 
         terminalContainer.scrollTo({
@@ -1674,23 +1770,24 @@ int main() {
         execStatusText.innerText = "异常";
         terminalOutput.innerHTML = `<span class="text-rose-400">[未捕获异常]: ${escapeHtml(err?.message || String(err))}</span>\n`;
       } finally {
-        isCompiling = false;
+        isRunningExec = false;
         btnRun.disabled = false;
         runPlayIcon.classList.remove("hidden");
         runSpinIcon.classList.add("hidden");
       }
     }
 
-    btnRun?.addEventListener("click", compileAndRun);
+    btnAsm?.addEventListener("click", compileAssembly);
+    btnRun?.addEventListener("click", runExecution);
 
     // Assembly compiler change -> recompile asm
     asmCompilerSelect?.addEventListener("change", () => {
-      compileAndRun();
+      compileAssembly();
     });
 
     [filterDirectives, filterComments, filterDemangle].forEach(checkbox => {
       checkbox?.addEventListener("change", () => {
-        compileAndRun();
+        compileAssembly();
       });
     });
 
@@ -1717,7 +1814,8 @@ int main() {
     }
 
     // Auto-compile initial preset so user sees assembly and output immediately
-    compileAndRun();
+    compileAssembly();
+    runExecution();
   }
 
   // Support Astro View Transitions
