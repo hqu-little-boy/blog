@@ -1,0 +1,1434 @@
+---
+/**
+ * CompilerWorkspace.astro
+ * Interactive three-column Compiler Explorer (Godbolt) workspace.
+ * Features:
+ * - Column 1: Source code editor with line gutter and syntax presets
+ * - Column 2: Assembly output viewer with architecture/compiler switching and filters
+ * - Column 3: Terminal execution console with stdout/stderr and stdin support
+ */
+---
+
+<div
+  id="compiler-root"
+  class="compiler-workspace relative flex w-full flex-col gap-4"
+>
+  <!-- TOP TOOLBAR -->
+  <div
+    class="bg-surface-container-low dark:bg-surface-container border-outline-variant/60 flex flex-wrap items-center justify-between gap-3 rounded-3xl border p-3 shadow-xs"
+  >
+    <!-- Left: Language & Presets -->
+    <div class="flex flex-wrap items-center gap-2">
+      <!-- Language Selector -->
+      <div class="flex items-center gap-1.5">
+        <label
+          for="lang-select"
+          class="text-on-surface-variant text-xs font-medium sm:text-sm"
+        >
+          语言:
+        </label>
+        <select
+          id="lang-select"
+          class="bg-surface-container-high dark:bg-surface-container-highest text-on-surface border-outline-variant/60 focus-visible:ring-primary/40 cursor-pointer rounded-xl border px-2.5 py-1 text-xs font-semibold shadow-xs transition-colors sm:text-sm"
+        >
+          <option value="cpp" selected>C++ (C++23)</option>
+          <option value="c">C (C23)</option>
+          <option value="rust">Rust (1.83)</option>
+        </select>
+      </div>
+
+      <!-- Presets Selector -->
+      <div class="flex items-center gap-1.5">
+        <label
+          for="preset-select"
+          class="text-on-surface-variant text-xs font-medium sm:text-sm"
+        >
+          预设:
+        </label>
+        <select
+          id="preset-select"
+          class="bg-surface-container-high dark:bg-surface-container-highest text-on-surface border-outline-variant/60 focus-visible:ring-primary/40 max-w-[170px] cursor-pointer truncate rounded-xl border px-2.5 py-1 text-xs font-medium shadow-xs transition-colors sm:max-w-[210px] sm:text-sm"
+        >
+          <option value="hello">1. 基础打印与数值计算</option>
+          <option value="riscv">2. RISC-V 循环与向量算子</option>
+          <option value="cpp23">3. 现代 C++23 与泛型</option>
+          <option value="struct">4. C23 结构体内存对齐</option>
+        </select>
+      </div>
+
+      <!-- Compiler Arguments Input & Quick Flags -->
+      <div class="flex items-center gap-1.5">
+        <label
+          for="compiler-args"
+          class="text-on-surface-variant text-xs font-medium sm:text-sm"
+        >
+          参数:
+        </label>
+        <input
+          id="compiler-args"
+          type="text"
+          value="-O2 -std=c++23 -pthread"
+          placeholder="例如 -O2 -std=c++23"
+          class="bg-surface-container-high dark:bg-surface-container-highest text-on-surface border-outline-variant/60 focus-visible:ring-primary/40 w-32 rounded-xl border px-2.5 py-1 font-mono text-xs shadow-xs transition-colors sm:w-44"
+        />
+        <!-- Quick Optimization Pills -->
+        <div class="hidden items-center gap-1 sm:flex">
+          <button
+            type="button"
+            data-opt="-O0"
+            class="opt-btn bg-surface-container-high hover:bg-secondary-container hover:text-on-secondary-container text-on-surface-variant rounded-lg px-1.5 py-0.5 font-mono text-[11px] transition-colors"
+          >
+            -O0
+          </button>
+          <button
+            type="button"
+            data-opt="-O2"
+            class="opt-btn bg-surface-container-high hover:bg-secondary-container hover:text-on-secondary-container text-on-surface-variant rounded-lg px-1.5 py-0.5 font-mono text-[11px] transition-colors"
+          >
+            -O2
+          </button>
+          <button
+            type="button"
+            data-opt="-O3"
+            class="opt-btn bg-surface-container-high hover:bg-secondary-container hover:text-on-secondary-container text-on-surface-variant rounded-lg px-1.5 py-0.5 font-mono text-[11px] transition-colors"
+          >
+            -O3
+          </button>
+          <button
+            type="button"
+            data-opt="-Os"
+            class="opt-btn bg-surface-container-high hover:bg-secondary-container hover:text-on-secondary-container text-on-surface-variant rounded-lg px-1.5 py-0.5 font-mono text-[11px] transition-colors"
+          >
+            -Os
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Primary Actions & Utilities -->
+    <div class="ms-auto flex items-center gap-2">
+      <!-- Fullscreen Toggle -->
+      <button
+        id="btn-fullscreen"
+        type="button"
+        class="bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant hover:text-on-surface cursor-pointer rounded-xl p-1.5 transition-colors"
+        title="全屏切换"
+        aria-label="全屏切换"
+      >
+        <svg
+          id="icon-fs-enter"
+          class="size-4"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path
+            d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"
+          ></path>
+        </svg>
+        <svg
+          id="icon-fs-exit"
+          class="hidden size-4"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <path
+            d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"
+          ></path>
+        </svg>
+      </button>
+
+      <!-- Share / Copy Link -->
+      <button
+        id="btn-share"
+        type="button"
+        class="bg-surface-container-high dark:bg-surface-container-highest text-on-surface-variant hover:text-on-surface inline-flex cursor-pointer items-center gap-1 rounded-xl px-2.5 py-1 text-xs font-medium transition-colors"
+        title="分享并复制永久链接"
+      >
+        <svg
+          class="size-3.5"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        >
+          <circle cx="18" cy="5" r="3"></circle>
+          <circle cx="6" cy="12" r="3"></circle>
+          <circle cx="18" cy="19" r="3"></circle>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+        </svg>
+        <span class="hidden sm:inline">分享</span>
+      </button>
+
+      <!-- Primary Run & Compile Button -->
+      <button
+        id="btn-run"
+        type="button"
+        class="bg-primary text-on-primary hover:bg-primary/90 focus-visible:ring-primary inline-flex cursor-pointer items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold shadow-sm transition-all duration-200 active:scale-95 sm:text-sm"
+        title="快捷键：Ctrl + Enter"
+      >
+        <svg
+          id="run-play-icon"
+          class="size-4"
+          viewBox="0 0 24 24"
+          fill="currentColor"
+        >
+          <path d="M8 5v14l11-7z"></path>
+        </svg>
+        <svg
+          id="run-spin-icon"
+          class="hidden size-4 animate-spin"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2.5"
+        >
+          <circle
+            class="opacity-25"
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"></circle>
+          <path
+            class="opacity-75"
+            fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          ></path>
+        </svg>
+        <span>编译并运行</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- MOBILE TAB CONTROLLER (Visible only on < lg screens) -->
+  <div class="flex items-center justify-center lg:hidden">
+    <div
+      class="bg-surface-container-low dark:bg-surface-container border-outline-variant/60 inline-flex w-full max-w-md rounded-2xl border p-1 shadow-xs"
+      role="tablist"
+      aria-label="视图选择"
+    >
+      <button
+        type="button"
+        role="tab"
+        data-mobile-view="source"
+        class="mobile-view-btn bg-secondary-container text-on-secondary-container flex-1 rounded-xl py-1.5 text-center text-xs font-medium shadow-xs transition-all active:scale-95"
+      >
+        1. 源码
+      </button>
+      <button
+        type="button"
+        role="tab"
+        data-mobile-view="asm"
+        class="mobile-view-btn text-on-surface-variant hover:text-on-surface flex-1 rounded-xl py-1.5 text-center text-xs font-medium transition-all active:scale-95"
+      >
+        2. 汇编
+      </button>
+      <button
+        type="button"
+        role="tab"
+        data-mobile-view="exec"
+        class="mobile-view-btn text-on-surface-variant hover:text-on-surface flex-1 rounded-xl py-1.5 text-center text-xs font-medium transition-all active:scale-95"
+      >
+        3. 执行结果
+      </button>
+    </div>
+  </div>
+
+  <!-- THREE-COLUMN MAIN WORKSPACE -->
+  <div
+    id="columns-container"
+    class="grid h-[650px] grid-cols-1 gap-4 sm:h-[700px] lg:h-[750px] lg:grid-cols-3 xl:h-[780px]"
+  >
+    <!-- ==================== COLUMN 1: SOURCE CODE ==================== -->
+    <div
+      id="col-source"
+      class="bg-surface-container-lowest dark:bg-surface-container-low border-outline-variant/60 flex h-full flex-col overflow-hidden rounded-3xl border shadow-xs transition-all duration-200"
+    >
+      <!-- Source Header -->
+      <div
+        class="bg-surface-container-low/70 dark:bg-surface-container/60 border-outline-variant/50 flex shrink-0 items-center justify-between border-b px-4 py-2.5"
+      >
+        <div class="flex items-center gap-2">
+          <svg
+            class="text-primary size-4"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="16 18 22 12 16 6"></polyline>
+            <polyline points="8 6 2 12 8 18"></polyline>
+          </svg>
+          <span class="text-on-surface text-xs font-semibold sm:text-sm"
+            >源码编辑</span
+          >
+          <span
+            id="source-badge"
+            class="bg-primary/10 text-primary rounded-md px-1.5 py-0.5 font-mono text-[10px] font-medium"
+          >
+            C++23
+          </span>
+        </div>
+
+        <div class="flex items-center gap-1.5 text-xs">
+          <!-- Reset button -->
+          <button
+            id="btn-source-reset"
+            type="button"
+            class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high cursor-pointer rounded-lg px-2 py-1 transition-colors"
+            title="还原为当前预设"
+          >
+            还原
+          </button>
+          <!-- Clear button -->
+          <button
+            id="btn-source-clear"
+            type="button"
+            class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high cursor-pointer rounded-lg px-2 py-1 transition-colors"
+            title="清空源码"
+          >
+            清空
+          </button>
+          <!-- Copy Source -->
+          <button
+            id="btn-source-copy"
+            type="button"
+            class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high cursor-pointer rounded-lg px-2 py-1 transition-colors"
+            title="复制源码"
+          >
+            复制
+          </button>
+        </div>
+      </div>
+
+      <!-- Editor Body with Line Numbers Gutter -->
+      <div
+        class="bg-surface-container-lowest dark:bg-surface-container-low relative flex min-h-0 flex-1 overflow-hidden"
+      >
+        <!-- Line Numbers Gutter -->
+        <div
+          id="source-gutter"
+          class="bg-surface-container-low/40 dark:bg-surface-container/30 border-outline-variant/30 text-on-surface-variant/40 h-full w-10 shrink-0 overflow-hidden border-r py-3.5 pr-2 text-right font-mono text-xs leading-relaxed select-none sm:w-11"
+          aria-hidden="true"
+        >
+          <div class="leading-relaxed select-none">1</div>
+        </div>
+
+        <!-- Textarea Code Input -->
+        <textarea
+          id="source-editor"
+          class="text-on-surface selection:bg-primary-container selection:text-on-primary-container h-full w-full flex-1 resize-none overflow-y-auto bg-transparent p-3.5 font-mono text-xs leading-relaxed focus:outline-hidden sm:text-sm"
+          spellcheck="false"
+          autocomplete="off"
+          autocapitalize="off"
+          placeholder="在此输入源代码..."
+          style="tab-size: 2; word-break: break-all; white-space: pre-wrap;"
+        ></textarea>
+      </div>
+
+      <!-- Editor Footer Status / Shortcuts hint -->
+      <div
+        class="bg-surface-container-low/40 dark:bg-surface-container/30 border-outline-variant/40 text-on-surface-variant/60 flex shrink-0 items-center justify-between border-t px-4 py-2 text-[11px] select-none"
+      >
+        <div class="flex items-center gap-2">
+          <span id="source-stats">0 行, 0 字符</span>
+        </div>
+        <div class="flex items-center gap-1">
+          <kbd
+            class="bg-surface-container-high dark:bg-surface-container-highest/60 rounded px-1.5 py-0.5 font-mono text-[10px]"
+            >Ctrl</kbd
+          >
+          <span>+</span>
+          <kbd
+            class="bg-surface-container-high dark:bg-surface-container-highest/60 rounded px-1.5 py-0.5 font-mono text-[10px]"
+            >Enter</kbd
+          >
+          <span>编译运行</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== COLUMN 2: ASSEMBLY OUTPUT ==================== -->
+    <div
+      id="col-asm"
+      class="bg-surface-container-lowest dark:bg-surface-container-low border-outline-variant/60 flex h-full flex-col overflow-hidden rounded-3xl border shadow-xs transition-all duration-200"
+    >
+      <!-- Assembly Header -->
+      <div
+        class="bg-surface-container-low/70 dark:bg-surface-container/60 border-outline-variant/50 flex shrink-0 flex-wrap items-center justify-between gap-2 border-b px-4 py-2"
+      >
+        <div class="flex items-center gap-2">
+          <svg
+            class="size-4 text-sky-500"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+            <rect x="9" y="9" width="6" height="6"></rect>
+            <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3"
+            ></path>
+          </svg>
+          <span class="text-on-surface text-xs font-semibold sm:text-sm"
+            >目标汇编</span
+          >
+        </div>
+
+        <!-- Target Architecture & Compiler Selector -->
+        <div class="flex items-center gap-1.5">
+          <select
+            id="asm-compiler-select"
+            class="bg-surface-container-high dark:bg-surface-container-highest text-on-surface border-outline-variant/60 focus-visible:ring-primary/40 max-w-[170px] cursor-pointer truncate rounded-xl border px-2 py-0.5 text-xs font-medium shadow-xs transition-colors"
+            title="选择汇编目标编译器与指令集"
+          >
+            <option value="rv64-gcc1420" selected>RISC-V 64 (GCC 14.2)</option>
+            <option value="g142">x86-64 (GCC 14.2)</option>
+            <option value="clang1910">x86-64 (Clang 19.1)</option>
+            <option value="aarch64-gcc1420">ARM64 (GCC 14.2)</option>
+          </select>
+
+          <!-- Copy Assembly Button -->
+          <button
+            id="btn-asm-copy"
+            type="button"
+            class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high cursor-pointer rounded-lg px-2 py-1 text-xs transition-colors"
+            title="复制生成的汇编代码"
+          >
+            复制
+          </button>
+        </div>
+      </div>
+
+      <!-- Assembly Filter Options Bar -->
+      <div
+        class="bg-surface-container-low/30 dark:bg-surface-container/20 border-outline-variant/40 flex items-center justify-between border-b px-4 py-1.5 text-[11px]"
+      >
+        <span class="text-on-surface-variant/70 font-medium">汇编过滤选项:</span
+        >
+        <div class="flex items-center gap-3">
+          <label
+            class="text-on-surface-variant flex cursor-pointer items-center gap-1 select-none"
+          >
+            <input
+              id="filter-directives"
+              type="checkbox"
+              checked
+              class="accent-primary size-3 cursor-pointer rounded"
+            />
+            <span>过滤伪指令</span>
+          </label>
+          <label
+            class="text-on-surface-variant flex cursor-pointer items-center gap-1 select-none"
+          >
+            <input
+              id="filter-comments"
+              type="checkbox"
+              checked
+              class="accent-primary size-3 cursor-pointer rounded"
+            />
+            <span>过滤注释</span>
+          </label>
+          <label
+            class="text-on-surface-variant flex cursor-pointer items-center gap-1 select-none"
+          >
+            <input
+              id="filter-demangle"
+              type="checkbox"
+              checked
+              class="accent-primary size-3 cursor-pointer rounded"
+            />
+            <span>符号反重整</span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Assembly Content Area -->
+      <div
+        class="relative flex min-h-0 flex-1 overflow-hidden bg-[#0d1117] text-[#c9d1d9]"
+      >
+        <!-- Line Numbers Gutter -->
+        <div
+          id="asm-gutter"
+          class="h-full w-10 shrink-0 overflow-hidden border-r border-[#30363d] py-3.5 pr-2 text-right font-mono text-xs text-[#6e7681] select-none sm:w-11"
+          aria-hidden="true"
+        >
+          <div class="leading-relaxed select-none">1</div>
+        </div>
+
+        <!-- Assembly Pre/Code Display -->
+        <pre
+          id="asm-output"
+          class="m-0 h-full w-full flex-1 overflow-x-auto overflow-y-auto p-3.5 font-mono text-xs leading-relaxed whitespace-pre select-text"><span class="text-muted-foreground/60">; 点击顶部“编译并运行”生成目标汇编...</span></pre>
+      </div>
+
+      <!-- Assembly Footer Status -->
+      <div
+        class="bg-surface-container-low/40 dark:bg-surface-container/30 border-outline-variant/40 text-on-surface-variant/60 flex shrink-0 items-center justify-between border-t px-4 py-2 text-[11px] select-none"
+      >
+        <span id="asm-stats">0 行指令</span>
+        <span id="asm-time">耗时: -</span>
+      </div>
+    </div>
+
+    <!-- ==================== COLUMN 3: EXECUTION RESULTS ==================== -->
+    <div
+      id="col-exec"
+      class="bg-surface-container-lowest dark:bg-surface-container-low border-outline-variant/60 flex h-full flex-col overflow-hidden rounded-3xl border shadow-xs transition-all duration-200"
+    >
+      <!-- Execution Header -->
+      <div
+        class="bg-surface-container-low/70 dark:bg-surface-container/60 border-outline-variant/50 flex shrink-0 items-center justify-between border-b px-4 py-2.5"
+      >
+        <div class="flex items-center gap-2">
+          <svg
+            class="size-4 text-emerald-500"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <polyline points="4 17 10 11 4 5"></polyline>
+            <line x1="12" y1="19" x2="20" y2="19"></line>
+          </svg>
+          <span class="text-on-surface text-xs font-semibold sm:text-sm"
+            >执行结果</span
+          >
+          <!-- Status Badge -->
+          <div
+            id="exec-status-badge"
+            class="bg-surface-container-high text-muted-foreground inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium"
+          >
+            <span
+              id="exec-status-dot"
+              class="size-1.5 rounded-full bg-slate-400"></span>
+            <span id="exec-status-text">就绪</span>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-1.5 text-xs">
+          <!-- Stdin Toggle -->
+          <button
+            id="btn-toggle-stdin"
+            type="button"
+            class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high cursor-pointer rounded-lg px-2 py-1 transition-colors"
+            title="配置标准输入 (Stdin)"
+          >
+            标准输入
+          </button>
+          <!-- Clear Console -->
+          <button
+            id="btn-exec-clear"
+            type="button"
+            class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high cursor-pointer rounded-lg px-2 py-1 transition-colors"
+            title="清空输出控制台"
+          >
+            清空
+          </button>
+        </div>
+      </div>
+
+      <!-- Collapsible Stdin Section -->
+      <div
+        id="stdin-panel"
+        class="bg-surface-container-low/50 dark:bg-surface-container/40 border-outline-variant/40 hidden border-b p-2 transition-all"
+      >
+        <div
+          class="text-on-surface-variant mb-1 flex items-center justify-between px-1 text-[11px]"
+        >
+          <span>标准输入 (Stdin 数据):</span>
+          <span class="opacity-60">程序从 cin / scanf 读取的内容</span>
+        </div>
+        <textarea
+          id="stdin-input"
+          class="bg-surface-container-high/60 dark:bg-surface-container-highest/40 text-on-surface border-outline-variant/50 focus-visible:ring-primary/40 h-16 w-full resize-none rounded-xl border p-2 font-mono text-xs leading-normal"
+          placeholder="在此输入标准输入流数据 (换行分隔)..."></textarea>
+      </div>
+
+      <!-- Terminal Output Body -->
+      <div
+        id="terminal-container"
+        class="relative flex min-h-0 flex-1 overflow-y-auto bg-[#0a0d12] p-4 font-mono text-xs leading-relaxed text-[#e6edf3] selection:bg-emerald-500/30"
+      >
+        <pre
+          id="terminal-output"
+          class="m-0 w-full font-mono text-xs whitespace-pre-wrap text-[#e6edf3]"><span class="text-muted-foreground/60">$ 控制台就绪。点击“编译并运行”查看输出...</span></pre>
+      </div>
+
+      <!-- Execution Footer -->
+      <div
+        class="bg-surface-container-low/40 dark:bg-surface-container/30 border-outline-variant/40 text-on-surface-variant/60 flex shrink-0 items-center justify-between border-t px-4 py-2 text-[11px] select-none"
+      >
+        <span id="exec-engine-info">云端沙箱 (amd64 GCC 14.2)</span>
+        <span id="exec-duration">耗时: -</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div
+    id="compiler-toast"
+    class="pointer-events-none fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-full bg-slate-900/90 px-4 py-2 text-xs font-medium text-slate-100 opacity-0 shadow-lg backdrop-blur-md transition-all duration-300"
+    role="status"
+    aria-live="polite"
+  >
+  </div>
+</div>
+
+<script>
+  /**
+   * Client-side Logic for Interactive Godbolt Workspace.
+   */
+  const CE_BASE_URL = "https://godbolt.org";
+
+  // Pre-configured Code Snippets
+  const PRESETS: Record<
+    string,
+    { lang: string; compilerArgs: string; code: string }
+  > = {
+    hello: {
+      lang: "cpp",
+      compilerArgs: "-O2 -std=c++23 -pthread",
+      code: `#include <iostream>
+#include <vector>
+#include <numeric>
+
+int square(int num) {
+    return num * num;
+}
+
+int main() {
+    std::vector<int> numbers = {1, 2, 3, 4, 5};
+    int sum_sq = 0;
+    for (int n : numbers) {
+        sum_sq += square(n);
+    }
+
+    std::cout << "Numbers: ";
+    for (int n : numbers) std::cout << n << " ";
+    std::cout << "\\nSum of squares: " << sum_sq << "\\n";
+    return 0;
+}`,
+    },
+    riscv: {
+      lang: "cpp",
+      compilerArgs: "-O2 -std=c++23 -pthread",
+      code: `// 适合观察 RISC-V 64 汇编指令调度、展开与寄存器分配 (a0, a1, a2)
+#include <stdint.h>
+#include <stdio.h>
+
+void vector_saxpy(const int32_t* a, const int32_t* b, int32_t* c, int32_t scale, int n) {
+    for (int i = 0; i < n; ++i) {
+        c[i] = a[i] * scale + b[i];
+    }
+}
+
+int main() {
+    const int N = 4;
+    int32_t a[N] = {10, 20, 30, 40};
+    int32_t b[N] = {1, 2, 3, 4};
+    int32_t c[N] = {0};
+
+    vector_saxpy(a, b, c, 3, N);
+
+    for (int i = 0; i < N; ++i) {
+        printf("c[%d] = %d (expected %d)\\n", i, c[i], a[i] * 3 + b[i]);
+    }
+    return 0;
+}`,
+    },
+    cpp23: {
+      lang: "cpp",
+      compilerArgs: "-O2 -std=c++23 -pthread",
+      code: `#include <iostream>
+#include <string_view>
+#include <array>
+
+constexpr int factorial(int n) {
+    return (n <= 1) ? 1 : n * factorial(n - 1);
+}
+
+template <typename T>
+void print_info(std::string_view tag, const T& val) {
+    std::cout << "[" << tag << "] Value = " << val 
+              << ", Type size = " << sizeof(T) << " bytes\\n";
+}
+
+int main() {
+    constexpr int fact5 = factorial(5);
+    print_info("Constexpr Factorial 5!", fact5);
+    print_info("Float PI Constant", 3.14159265f);
+    print_info("Char Character", 'Z');
+    return 0;
+}`,
+    },
+    struct: {
+      lang: "c",
+      compilerArgs: "-O2 -std=c23 -lm",
+      code: `#include <stdio.h>
+#include <stddef.h>
+#include <stdint.h>
+
+struct MemoryBlock {
+    char tag;         // 1 byte
+    uint32_t id;      // 4 bytes
+    uint16_t flags;   // 2 bytes
+    double timestamp; // 8 bytes
+};
+
+int main() {
+    printf("=== C23 结构体内存对齐与布局 ===\\n");
+    printf("sizeof(struct MemoryBlock) = %zu bytes\\n", sizeof(struct MemoryBlock));
+    printf("Offset of tag:       %zu bytes\\n", offsetof(struct MemoryBlock, tag));
+    printf("Offset of id:        %zu bytes\\n", offsetof(struct MemoryBlock, id));
+    printf("Offset of flags:     %zu bytes\\n", offsetof(struct MemoryBlock, flags));
+    printf("Offset of timestamp: %zu bytes\\n", offsetof(struct MemoryBlock, timestamp));
+    return 0;
+}`,
+    },
+  };
+
+  // Compilers Mapping for Assembly
+  const COMPILER_MAP: Record<string, Record<string, string>> = {
+    cpp: {
+      "rv64-gcc1420": "rv64-gcc1420",
+      g142: "g142",
+      clang1910: "clang1910",
+      "aarch64-gcc1420": "aarch64-gcc1420",
+    },
+    c: {
+      "rv64-gcc1420": "rv64-cgcc1420",
+      g142: "cg142",
+      clang1910: "cclang1910",
+      "aarch64-gcc1420": "aarch64-cgcc1420",
+    },
+    rust: {
+      "rv64-gcc1420": "r1830",
+      g142: "r1830",
+      clang1910: "r1830",
+      "aarch64-gcc1420": "r1830",
+    },
+  };
+
+  // Compilers for Execution Sandbox (amd64 runnable)
+  const EXEC_COMPILER_MAP: Record<string, string> = {
+    cpp: "g142",
+    c: "cg142",
+    rust: "r1830",
+  };
+
+  function stripAnsi(str: string): string {
+    return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
+  }
+
+  function formatLines(lines?: any[]): string {
+    if (!lines || !Array.isArray(lines)) return "";
+    return lines.map(line => stripAnsi(line.text ?? "")).join("\n");
+  }
+
+  function initCompilerWorkspace() {
+    const root = document.getElementById("compiler-root");
+    if (!root) return;
+
+    // Elements
+    const langSelect = document.getElementById(
+      "lang-select"
+    ) as HTMLSelectElement;
+    const presetSelect = document.getElementById(
+      "preset-select"
+    ) as HTMLSelectElement;
+    const compilerArgsInput = document.getElementById(
+      "compiler-args"
+    ) as HTMLInputElement;
+    const btnRun = document.getElementById("btn-run") as HTMLButtonElement;
+    const runPlayIcon = document.getElementById("run-play-icon") as HTMLElement;
+    const runSpinIcon = document.getElementById("run-spin-icon") as HTMLElement;
+    const btnShare = document.getElementById("btn-share") as HTMLButtonElement;
+    const btnFullscreen = document.getElementById(
+      "btn-fullscreen"
+    ) as HTMLButtonElement;
+    const iconFsEnter = document.getElementById("icon-fs-enter") as HTMLElement;
+    const iconFsExit = document.getElementById("icon-fs-exit") as HTMLElement;
+
+    const sourceEditor = document.getElementById(
+      "source-editor"
+    ) as HTMLTextAreaElement;
+    const sourceGutter = document.getElementById(
+      "source-gutter"
+    ) as HTMLElement;
+    const sourceBadge = document.getElementById("source-badge") as HTMLElement;
+    const sourceStats = document.getElementById("source-stats") as HTMLElement;
+    const btnSourceReset = document.getElementById(
+      "btn-source-reset"
+    ) as HTMLButtonElement;
+    const btnSourceClear = document.getElementById(
+      "btn-source-clear"
+    ) as HTMLButtonElement;
+    const btnSourceCopy = document.getElementById(
+      "btn-source-copy"
+    ) as HTMLButtonElement;
+
+    const asmCompilerSelect = document.getElementById(
+      "asm-compiler-select"
+    ) as HTMLSelectElement;
+    const btnAsmCopy = document.getElementById(
+      "btn-asm-copy"
+    ) as HTMLButtonElement;
+    const filterDirectives = document.getElementById(
+      "filter-directives"
+    ) as HTMLInputElement;
+    const filterComments = document.getElementById(
+      "filter-comments"
+    ) as HTMLInputElement;
+    const filterDemangle = document.getElementById(
+      "filter-demangle"
+    ) as HTMLInputElement;
+    const asmOutput = document.getElementById("asm-output") as HTMLElement;
+    const asmGutter = document.getElementById("asm-gutter") as HTMLElement;
+    const asmStats = document.getElementById("asm-stats") as HTMLElement;
+    const asmTime = document.getElementById("asm-time") as HTMLElement;
+
+    const btnToggleStdin = document.getElementById(
+      "btn-toggle-stdin"
+    ) as HTMLButtonElement;
+    const stdinPanel = document.getElementById("stdin-panel") as HTMLElement;
+    const stdinInput = document.getElementById(
+      "stdin-input"
+    ) as HTMLTextAreaElement;
+    const btnExecClear = document.getElementById(
+      "btn-exec-clear"
+    ) as HTMLButtonElement;
+    const terminalOutput = document.getElementById(
+      "terminal-output"
+    ) as HTMLElement;
+    const terminalContainer = document.getElementById(
+      "terminal-container"
+    ) as HTMLElement;
+    const execStatusDot = document.getElementById(
+      "exec-status-dot"
+    ) as HTMLElement;
+    const execStatusText = document.getElementById(
+      "exec-status-text"
+    ) as HTMLElement;
+    const execEngineInfo = document.getElementById(
+      "exec-engine-info"
+    ) as HTMLElement;
+    const execDuration = document.getElementById(
+      "exec-duration"
+    ) as HTMLElement;
+    const toast = document.getElementById("compiler-toast") as HTMLElement;
+
+    let isCompiling = false;
+
+    // Toast helper
+    function showToast(msg: string) {
+      if (!toast) return;
+      toast.innerText = msg;
+      toast.classList.remove("opacity-0", "pointer-events-none");
+      toast.classList.add("opacity-100");
+      setTimeout(() => {
+        toast.classList.remove("opacity-100");
+        toast.classList.add("opacity-0", "pointer-events-none");
+      }, 2200);
+    }
+
+    // Update Source Gutter Line Numbers
+    function updateSourceGutter() {
+      if (!sourceEditor || !sourceGutter) return;
+      const lines = sourceEditor.value.split("\n").length;
+      let gutterHtml = "";
+      for (let i = 1; i <= lines; i++) {
+        gutterHtml += `<div>${i}</div>`;
+      }
+      sourceGutter.innerHTML = gutterHtml;
+      if (sourceStats) {
+        sourceStats.innerText = `${lines} 行, ${sourceEditor.value.length} 字符`;
+      }
+    }
+
+    // Sync Source Gutter Scroll
+    sourceEditor?.addEventListener("scroll", () => {
+      if (sourceGutter) {
+        sourceGutter.scrollTop = sourceEditor.scrollTop;
+      }
+    });
+
+    // Handle Tab & Indentation in Editor
+    sourceEditor?.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const start = sourceEditor.selectionStart;
+        const end = sourceEditor.selectionEnd;
+        sourceEditor.value =
+          sourceEditor.value.substring(0, start) +
+          "  " +
+          sourceEditor.value.substring(end);
+        sourceEditor.selectionStart = sourceEditor.selectionEnd = start + 2;
+        updateSourceGutter();
+      } else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        compileAndRun();
+      }
+    });
+
+    sourceEditor?.addEventListener("input", updateSourceGutter);
+
+    // Assembly Syntax Formatter (Opcode / Register highlighting)
+    function highlightAssembly(rawAsm: string): string {
+      const lines = rawAsm.split("\n");
+      const formattedLines = lines.map(line => {
+        const trimmed = line.trim();
+        // Comment line
+        if (trimmed.startsWith(";") || trimmed.startsWith("#")) {
+          return `<span class="text-slate-500 italic">${escapeHtml(line)}</span>`;
+        }
+        // Label definition
+        if (/^[a-zA-Z0-9_$.]+:/.test(trimmed)) {
+          return `<span class="text-amber-400 font-bold">${escapeHtml(line)}</span>`;
+        }
+        // Instruction line
+        return line.replace(
+          /^\s*([a-zA-Z0-9_.]+)(\s*)(.*)$/,
+          (_, opcode, space, operands) => {
+            const coloredOpcode = `<span class="text-sky-400 font-semibold">${opcode}</span>`;
+            // Color registers / symbols
+            const coloredOperands = operands.replace(
+              /([a-zA-Z0-9_%$]+)/g,
+              (token: string) => {
+                if (
+                  /^(a[0-7]|sp|ra|fp|gp|tp|t[0-6]|s[0-11]|zero|pc|x[0-9]+)$/.test(
+                    token
+                  ) ||
+                  /^(r[0-9]+|rax|rbx|rcx|rdx|rsi|rdi|rbp|rsp|eax|ebx|ecx|edx|esi|edi)$/i.test(
+                    token
+                  ) ||
+                  /^%[a-z0-9]+/i.test(token)
+                ) {
+                  return `<span class="text-emerald-400">${token}</span>`;
+                }
+                if (/^0x[0-9a-fA-F]+$|^\$?[0-9]+$/.test(token)) {
+                  return `<span class="text-violet-300">${token}</span>`;
+                }
+                return token;
+              }
+            );
+            return `        ${coloredOpcode}${space}${coloredOperands}`;
+          }
+        );
+      });
+      return formattedLines.join("\n");
+    }
+
+    function escapeHtml(str: string): string {
+      return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    // Update Assembly Gutter
+    function updateAsmGutter(count: number) {
+      if (!asmGutter) return;
+      let gutterHtml = "";
+      for (let i = 1; i <= Math.max(1, count); i++) {
+        gutterHtml += `<div>${i}</div>`;
+      }
+      asmGutter.innerHTML = gutterHtml;
+    }
+
+    asmOutput?.addEventListener("scroll", () => {
+      if (asmGutter) {
+        asmGutter.scrollTop = asmOutput.scrollTop;
+      }
+    });
+
+    // Preset loading
+    function loadPreset(key: string) {
+      const preset = PRESETS[key];
+      if (!preset) return;
+      if (sourceEditor) sourceEditor.value = preset.code;
+      if (langSelect) langSelect.value = preset.lang;
+      if (compilerArgsInput) compilerArgsInput.value = preset.compilerArgs;
+      if (sourceBadge) {
+        sourceBadge.innerText = preset.lang.toUpperCase();
+      }
+      updateSourceGutter();
+    }
+
+    // Quick Optimization Pills
+    root.querySelectorAll<HTMLButtonElement>(".opt-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const opt = btn.dataset.opt || "-O2";
+        if (compilerArgsInput) {
+          // Replace existing -O flag or prepend
+          let val = compilerArgsInput.value;
+          if (/-O[0-3sfastg]/.test(val)) {
+            val = val.replace(/-O[0-3sfastg]/, opt);
+          } else {
+            val = `${opt} ${val}`.trim();
+          }
+          compilerArgsInput.value = val;
+        }
+      });
+    });
+
+    presetSelect?.addEventListener("change", () => {
+      loadPreset(presetSelect.value);
+    });
+
+    langSelect?.addEventListener("change", () => {
+      const lang = langSelect.value;
+      if (sourceBadge) sourceBadge.innerText = lang.toUpperCase();
+      if (lang === "cpp") {
+        compilerArgsInput.value = "-O2 -std=c++23 -pthread";
+      } else if (lang === "c") {
+        compilerArgsInput.value = "-O2 -std=c23 -lm";
+      } else if (lang === "rust") {
+        compilerArgsInput.value = "-O";
+      }
+    });
+
+    // Source Buttons
+    btnSourceReset?.addEventListener("click", () => {
+      loadPreset(presetSelect.value);
+      showToast("已恢复为当前预设代码");
+    });
+
+    btnSourceClear?.addEventListener("click", () => {
+      if (sourceEditor) {
+        sourceEditor.value = "";
+        updateSourceGutter();
+      }
+    });
+
+    btnSourceCopy?.addEventListener("click", async () => {
+      if (sourceEditor?.value) {
+        await navigator.clipboard.writeText(sourceEditor.value);
+        showToast("源码已复制到剪贴板");
+      }
+    });
+
+    btnAsmCopy?.addEventListener("click", async () => {
+      const text = asmOutput?.innerText || "";
+      if (text) {
+        await navigator.clipboard.writeText(text);
+        showToast("汇编指令已复制到剪贴板");
+      }
+    });
+
+    btnExecClear?.addEventListener("click", () => {
+      if (terminalOutput) {
+        terminalOutput.innerHTML = `<span class="text-muted-foreground/60">$ 控制台已清空。</span>\n`;
+      }
+    });
+
+    btnToggleStdin?.addEventListener("click", () => {
+      stdinPanel.classList.toggle("hidden");
+    });
+
+    // Fullscreen Toggle
+    btnFullscreen?.addEventListener("click", () => {
+      root.classList.toggle("compiler-fullscreen");
+      iconFsEnter.classList.toggle("hidden");
+      iconFsExit.classList.toggle("hidden");
+      if (root.classList.contains("compiler-fullscreen")) {
+        document.body.style.overflow = "hidden";
+      } else {
+        document.body.style.overflow = "";
+      }
+    });
+
+    // Share / Copy Link
+    btnShare?.addEventListener("click", async () => {
+      const state = {
+        code: sourceEditor.value,
+        lang: langSelect.value,
+        asmComp: asmCompilerSelect.value,
+        args: compilerArgsInput.value,
+      };
+      try {
+        const hash = encodeURIComponent(JSON.stringify(state));
+        window.location.hash = `state=${hash}`;
+        await navigator.clipboard.writeText(window.location.href);
+        showToast("分享链接已复制到剪贴板！");
+      } catch {
+        showToast("生成分享链接失败");
+      }
+    });
+
+    // Mobile View Switcher
+    root
+      .querySelectorAll<HTMLButtonElement>(".mobile-view-btn")
+      .forEach(btn => {
+        btn.addEventListener("click", () => {
+          const targetView = btn.dataset.mobileView;
+          root.querySelectorAll(".mobile-view-btn").forEach(b => {
+            b.classList.remove(
+              "bg-secondary-container",
+              "text-on-secondary-container",
+              "shadow-xs"
+            );
+            b.classList.add("text-on-surface-variant");
+          });
+          btn.classList.add(
+            "bg-secondary-container",
+            "text-on-secondary-container",
+            "shadow-xs"
+          );
+          btn.classList.remove("text-on-surface-variant");
+
+          const colSource = document.getElementById("col-source");
+          const colAsm = document.getElementById("col-asm");
+          const colExec = document.getElementById("col-exec");
+
+          if (colSource && colAsm && colExec) {
+            if (targetView === "source") {
+              colSource.classList.remove("hidden");
+              colAsm.classList.add("hidden");
+              colExec.classList.add("hidden");
+            } else if (targetView === "asm") {
+              colSource.classList.add("hidden");
+              colAsm.classList.remove("hidden");
+              colExec.classList.add("hidden");
+            } else if (targetView === "exec") {
+              colSource.classList.add("hidden");
+              colAsm.classList.add("hidden");
+              colExec.classList.remove("hidden");
+            }
+          }
+        });
+      });
+
+    // Main Compilation & Execution Logic
+    async function compileAndRun() {
+      if (isCompiling) return;
+      isCompiling = true;
+
+      const code = sourceEditor.value.trim();
+      if (!code) {
+        showToast("请输入源码后再运行！");
+        isCompiling = false;
+        return;
+      }
+
+      const lang = langSelect.value;
+      const userArguments = compilerArgsInput.value.trim();
+      const asmTarget = asmCompilerSelect.value;
+      const actualAsmCompiler = COMPILER_MAP[lang]?.[asmTarget] || asmTarget;
+      const actualExecCompiler = EXEC_COMPILER_MAP[lang] || "g142";
+
+      // UI state -> running
+      btnRun.disabled = true;
+      runPlayIcon.classList.add("hidden");
+      runSpinIcon.classList.remove("hidden");
+
+      execStatusDot.className =
+        "size-1.5 rounded-full bg-amber-500 animate-pulse";
+      execStatusText.innerText = "编译运行中...";
+      execDuration.innerText = "耗时: 运行中...";
+      asmTime.innerText = "耗时: 编译中...";
+
+      terminalOutput.innerHTML = `<span class="text-amber-400/90">$ [Compiler Explorer] 正在提交编译与执行请求...</span>\n`;
+      asmOutput.innerHTML = `<span class="text-amber-400/90">; 正在生成目标汇编 (${actualAsmCompiler})...</span>`;
+
+      const startTime = performance.now();
+
+      // 1. Prepare Assembly Request Payload
+      const asmPayload = {
+        source: code,
+        compiler: actualAsmCompiler,
+        options: {
+          userArguments,
+          filters: {
+            binary: false,
+            execute: false,
+            demangle: filterDemangle.checked,
+            directives: filterDirectives.checked,
+            comments: filterComments.checked,
+            labels: true,
+            trim: true,
+          },
+          tools: [],
+          libraries: [],
+        },
+        lang: lang === "c" ? "c" : lang === "rust" ? "rust" : "c++",
+        bypassCache: 0,
+      };
+
+      // 2. Prepare Execution Sandbox Payload
+      const execPayload = {
+        source: code,
+        compiler: actualExecCompiler,
+        options: {
+          userArguments,
+          executeParameters: {
+            args: [],
+            stdin: stdinInput?.value || "",
+          },
+          compilerOptions: {
+            executorRequest: true,
+          },
+          filters: {
+            execute: true,
+          },
+          tools: [],
+          libraries: [],
+        },
+        lang: lang === "c" ? "c" : lang === "rust" ? "rust" : "c++",
+        bypassCache: 0,
+      };
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+      try {
+        // Parallel requests for Assembly and Execution
+        const [asmResResult, execResResult] = await Promise.allSettled([
+          fetch(`${CE_BASE_URL}/api/compiler/${actualAsmCompiler}/compile`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify(asmPayload),
+            signal: controller.signal,
+          }),
+          fetch(`${CE_BASE_URL}/api/compiler/${actualExecCompiler}/compile`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Accept: "application/json",
+            },
+            body: JSON.stringify(execPayload),
+            signal: controller.signal,
+          }),
+        ]);
+
+        clearTimeout(timeoutId);
+        const totalDuration = Math.round(performance.now() - startTime);
+
+        // --- Handle Assembly Result ---
+        if (asmResResult.status === "fulfilled" && asmResResult.value.ok) {
+          const asmData = await asmResResult.value.json();
+          if (
+            asmData.code !== 0 &&
+            (!asmData.asm || asmData.asm.length === 0)
+          ) {
+            const asmErr = formatLines(
+              asmData.buildResult?.stderr || asmData.stderr
+            );
+            asmOutput.innerHTML = `<span class="text-rose-400">; 汇编生成失败 (Code ${asmData.code}):\n${escapeHtml(asmErr)}</span>`;
+            asmStats.innerText = "编译错误";
+            asmTime.innerText = `耗时: ${asmData.execTime ?? totalDuration}ms`;
+            updateAsmGutter(asmErr.split("\n").length);
+          } else {
+            const rawAsm = formatLines(asmData.asm);
+            if (rawAsm.trim()) {
+              asmOutput.innerHTML = highlightAssembly(rawAsm);
+              const lineCount =
+                asmData.asm?.length || rawAsm.split("\n").length;
+              asmStats.innerText = `${lineCount} 行指令`;
+              asmTime.innerText = `耗时: ${asmData.execTime ?? totalDuration}ms`;
+              updateAsmGutter(lineCount);
+            } else {
+              asmOutput.innerHTML = `<span class="text-slate-500">; [未生成汇编代码或优化完全消除]</span>`;
+              asmStats.innerText = "0 行指令";
+              asmTime.innerText = `耗时: ${totalDuration}ms`;
+              updateAsmGutter(1);
+            }
+          }
+        } else {
+          const errReason =
+            asmResResult.status === "rejected"
+              ? asmResResult.reason?.message
+              : `HTTP ${asmResResult.value.status}`;
+          asmOutput.innerHTML = `<span class="text-rose-400">; 汇编服务请求失败: ${escapeHtml(errReason)}</span>`;
+          asmStats.innerText = "请求失败";
+        }
+
+        // --- Handle Execution Sandbox Result ---
+        if (execResResult.status === "fulfilled" && execResResult.value.ok) {
+          const execData = await execResResult.value.json();
+          let outHtml = "";
+
+          // Check Build Failure
+          const buildResult = execData.buildResult;
+          const buildCode = buildResult
+            ? buildResult.code
+            : execData.didExecute
+              ? 0
+              : execData.code;
+
+          if (buildCode !== 0) {
+            const buildErr = formatLines(
+              buildResult?.stderr || execData.stderr
+            );
+            const buildOut = formatLines(buildResult?.stdout);
+            execStatusDot.className = "size-1.5 rounded-full bg-rose-500";
+            execStatusText.innerText = `编译错误 (${buildCode})`;
+
+            outHtml += `<span class="text-rose-400 font-bold">[编译构建失败 (Exit Code: ${buildCode})]</span>\n`;
+            if (buildErr)
+              outHtml += `<span class="text-rose-400">${escapeHtml(buildErr)}</span>\n`;
+            if (buildOut)
+              outHtml += `<span class="text-[#c9d1d9]">${escapeHtml(buildOut)}</span>\n`;
+
+            if (
+              buildErr.includes("undefined reference to `main'") ||
+              buildErr.includes("undefined reference to 'main'")
+            ) {
+              outHtml += `\n<span class="text-amber-400/90">[提示] 代码中未检测到 main() 入口函数。如需独立运行请补充 main()，或在中间栏查看生成的汇编代码。</span>\n`;
+            }
+          } else {
+            // Build Succeeded, Process Execution
+            if (buildResult?.stderr?.length) {
+              const warnings = formatLines(buildResult.stderr);
+              if (warnings.trim()) {
+                outHtml += `<span class="text-amber-400/80">[编译告警]\n${escapeHtml(warnings)}</span>\n\n`;
+              }
+            }
+
+            if (execData.didExecute) {
+              const execStdout = formatLines(execData.stdout);
+              const execStderr = formatLines(execData.stderr);
+
+              if (execStdout)
+                outHtml += `<span class="text-[#e6edf3]">${escapeHtml(execStdout)}</span>\n`;
+              if (execStderr)
+                outHtml += `<span class="text-rose-400 font-semibold">${escapeHtml(execStderr)}</span>\n`;
+
+              if (execData.timedOut) {
+                outHtml += `\n<span class="text-rose-400 font-bold">[执行超时] 程序超出沙箱时间上限。</span>\n`;
+              }
+
+              if (execData.code !== 0) {
+                execStatusDot.className = "size-1.5 rounded-full bg-rose-500";
+                execStatusText.innerText = `异常退出 (${execData.code})`;
+                outHtml += `\n<span class="text-rose-400">[程序异常退出，退出码: ${execData.code}]</span>\n`;
+              } else {
+                execStatusDot.className =
+                  "size-1.5 rounded-full bg-emerald-500";
+                execStatusText.innerText = "成功 (Exit 0)";
+                if (!execStdout && !execStderr) {
+                  outHtml += `<span class="text-emerald-400/80">[程序执行成功，无标准输出 (Exit 0)]</span>\n`;
+                }
+              }
+            } else {
+              execStatusDot.className = "size-1.5 rounded-full bg-emerald-500";
+              execStatusText.innerText = "构建完成";
+              outHtml += `<span class="text-emerald-400/80">[程序编译构建成功]</span>\n`;
+            }
+          }
+
+          terminalOutput.innerHTML = outHtml;
+          execDuration.innerText = `耗时: ${execData.execTime ?? totalDuration}ms`;
+          execEngineInfo.innerText = `云端沙箱 (${actualExecCompiler.toUpperCase()} / amd64)`;
+        } else {
+          const errReason =
+            execResResult.status === "rejected"
+              ? execResResult.reason?.message
+              : `HTTP ${execResResult.value.status}`;
+          execStatusDot.className = "size-1.5 rounded-full bg-rose-500";
+          execStatusText.innerText = "网络异常";
+          terminalOutput.innerHTML = `<span class="text-rose-400">[网络或服务异常] 请求沙箱失败: ${escapeHtml(errReason)}</span>\n`;
+        }
+
+        terminalContainer.scrollTo({
+          top: terminalContainer.scrollHeight,
+          behavior: "smooth",
+        });
+      } catch (err: any) {
+        clearTimeout(timeoutId);
+        execStatusDot.className = "size-1.5 rounded-full bg-rose-500";
+        execStatusText.innerText = "异常";
+        terminalOutput.innerHTML = `<span class="text-rose-400">[未捕获异常]: ${escapeHtml(err?.message || String(err))}</span>\n`;
+      } finally {
+        isCompiling = false;
+        btnRun.disabled = false;
+        runPlayIcon.classList.remove("hidden");
+        runSpinIcon.classList.add("hidden");
+      }
+    }
+
+    btnRun?.addEventListener("click", compileAndRun);
+
+    // Assembly compiler change -> recompile asm if desired
+    asmCompilerSelect?.addEventListener("change", () => {
+      compileAndRun();
+    });
+
+    [filterDirectives, filterComments, filterDemangle].forEach(checkbox => {
+      checkbox?.addEventListener("change", () => {
+        compileAndRun();
+      });
+    });
+
+    // Restore state from hash if present
+    if (window.location.hash.startsWith("#state=")) {
+      try {
+        const rawJson = decodeURIComponent(
+          window.location.hash.replace("#state=", "")
+        );
+        const state = JSON.parse(rawJson);
+        if (state.code) sourceEditor.value = state.code;
+        if (state.lang) langSelect.value = state.lang;
+        if (state.asmComp) asmCompilerSelect.value = state.asmComp;
+        if (state.args) compilerArgsInput.value = state.args;
+        if (sourceBadge)
+          sourceBadge.innerText = (state.lang || "cpp").toUpperCase();
+        updateSourceGutter();
+      } catch {
+        loadPreset("hello");
+      }
+    } else {
+      loadPreset("hello");
+    }
+  }
+
+  // Support Astro View Transitions
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initCompilerWorkspace);
+  } else {
+    initCompilerWorkspace();
+  }
+  document.addEventListener("astro:page-load", initCompilerWorkspace);
+</script>
+
+<style>
+  /* Fullscreen Workspace Overlay */
+  .compiler-fullscreen {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 100 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: 100vw !important;
+    padding: 1rem !important;
+    background-color: var(--md-surface, #ffffff);
+    overflow: hidden !important;
+  }
+
+  :global([data-theme="dark"]) .compiler-fullscreen {
+    background-color: var(--md-surface, #111418);
+  }
+
+  .compiler-fullscreen #columns-container {
+    height: calc(100vh - 6rem) !important;
+  }
+</style>

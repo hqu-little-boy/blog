@@ -7,6 +7,7 @@ export default {
     tags: "Tags",
     about: "About",
     tools: "Render",
+    compile: "Compile",
     archives: "Archives",
     search: "Search",
   },
@@ -62,6 +63,10 @@ export default {
     toolsTitle: "Online Rendering Tools",
     toolsDesc:
       "Real-time dual-column renderer for LaTeX, Graphviz, Mermaid, HTML, and SVG.",
+
+    compileTitle: "Online Compiler",
+    compileDesc:
+      "Interactive three-column compiler explorer powered by Godbolt API for C/C++/Rust assembly inspection and cloud execution.",
 
     searchTitle: "Search",
     searchDesc: "Search any article ...",
