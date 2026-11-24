@@ -1,0 +1,310 @@
+---
+author: hqu-little-boy
+pubDatetime: 2026-11-23T10:24:00Z
+title: 设计模式沉思录（第25讲）：解释器模式（Interpreter Pattern）
+featured: false
+draft: false
+tags:
+  - 设计模式
+  - C++
+  - 面向对象
+  - 架构设计
+description: 为特定领域语言（DSL）或文法规则构建抽象语法树，实现递归求值与数值对齐。
+---
+
+# 设计模式沉思录（第25讲）：解释器模式（Interpreter Pattern）
+
+> [!NOTE] 专栏导读
+> 本文是 **《侯捷 C++ 设计模式沉思录》** 系列专栏的第 **25** 讲。
+> - **上一讲**：[上一讲：第24讲 访问者模式（Visitor Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-24-visitor.md)
+> - **下一讲**：[下一讲：第26讲 设计模式总结与重构心法](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-26-summary.md)
+> - **架构进阶**：[异构计算与 AI 编译器设计模式全景实践指南](file:///home/ubuntu/git/blog/src/content/posts/heterogeneous-computing-and-ai-compiler-design-patterns-guide.md)
+
+
+## 一、模式概述
+
+**Interpreter（解析器/解释器）模式**属于**规则模式**（Rule Pattern）。
+
+### 核心思想
+
+当需求频繁变化时，如果能把变化**抽象总结为规律**（语法规则），就可以用解析器来解释符合规则的句子，从而将"变化"转化为"规则内的自由度"——只要符合语法规则，解析器永远可以正确解释。
+
+### 适用场景
+
+使用解析器模式需要满足以下条件：
+
+1. **业务规则频繁变化**：问题的表达式/句子有多种组合可能
+2. **类似结构不断重复出现**：例如 `A+B` 的结果再与 `C` 进行运算，结构层层嵌套重复
+3. **容易抽象为语法规则**：能用文法（Grammar）描述问题的结构
+
+典型应用：
+- 简单的四则运算表达式解析
+- 人民币大写转数字（如"叁佰伍拾陆"→356）
+- 简单的布尔表达式求值
+- 自定义配置文件/DSL（领域特定语言）解析
+
+---
+
+## 二、模式结构
+
+### 类图层次
+
+```
+        ┌──────────────────┐
+        │ AbstractExpression│  ← 抽象表达式基类
+        │  + interpret()    │
+        └────────┬─────────┘
+                 │
+        ┌────────┴────────┐
+        │                 │
+┌───────┴───────┐  ┌──────┴──────────┐
+│ VarExpression │  │SymbolExpression │  ← 非终结符表达式
+│ （终结符/叶子） │  │ +left, +right   │
+│  key→value    │  └──────┬──────────┘
+└───────────────┘         │
+                   ┌──────┴──────┐
+                   │             │
+            ┌──────┴───┐  ┌─────┴──────┐
+            │AddExpression│ │SubExpression│
+            │ left + right │ │ left - right│
+            └────────────┘  └────────────┘
+```
+
+### 两类表达式
+
+| 类型 | 说明 | 示例 |
+|------|------|------|
+| **终结符表达式**（Terminal Expression） | 叶子节点，直接返回值 | `VarExpression`：通过 key 查找变量值 |
+| **非终结符表达式**（Non-terminal Expression） | 中间节点，组合子表达式 | `AddExpression`、`SubExpression`：组合左右子树 |
+
+---
+
+## 三、工作原理——以 `A+B-C+D` 为例
+
+### 1. 表达式树的构建过程
+
+给定表达式字符串 `A+B-C+D`，变量映射：A=5, B=2, C=1, D=6
+
+使用栈（Stack）逐步构建表达式树：
+
+```
+步骤1: 遇到 'A' → push VarExpression(A)
+栈: [Var(A)]
+
+步骤2: 遇到 '+' → pop栈顶为left=Var(A), 读取下一个字符 right=Var(B)
+       构建 AddExpression(Var(A), Var(B)) → push
+栈: [Add(Var(A), Var(B))]        ← 对应 A+B
+
+步骤3: 遇到 '-' → pop栈顶为left=Add(A,B), 读取下一个字符 right=Var(C)
+       构建 SubExpression(Add(A,B), Var(C)) → push
+栈: [Sub(Add(A,B), Var(C))]      ← 对应 (A+B)-C
+
+步骤4: 遇到 '+' → pop栈顶为left=Sub(...), 读取下一个字符 right=Var(D)
+       构建 AddExpression(Sub(...), Var(D)) → push
+栈: [Add(Sub(Add(A,B),C), D)]    ← 对应 ((A+B)-C)+D
+```
+
+最终栈顶元素即为整个表达式树的根节点。
+
+### 2. 表达式树的解释过程（递归求值）
+
+```
+         Add(+)          ← 根节点：left.interpret() + right.interpret()
+        /      \
+     Sub(-)    Var(D)    ← D=6，直接返回6
+    /     \
+ Add(+)  Var(C)          ← C=1，直接返回1
+ /    \
+Var(A) Var(B)            ← A=5, B=2
+```
+
+递归调用链：
+1. 根节点 `Add` 调用 `left->interpret()` + `right->interpret()`
+2. `right` 是 `Var(D)` → 返回 6
+3. `left` 是 `Sub` → 调用其 `left->interpret()` - `right->interpret()`
+4. `Sub` 的 `right` 是 `Var(C)` → 返回 1
+5. `Sub` 的 `left` 是 `Add` → 调用其左右子树
+6. `Add(A,B)` → 5 + 2 = 7
+7. 回溯：`Sub` → 7 - 1 = 6
+8. 最终：`Add` → 6 + 6 = **12**
+
+---
+
+## 四、完整示例代码
+
+```cpp
+#include <iostream>
+#include <string>
+#include <map>
+#include <stack>
+#include <stdexcept>
+
+// ==================== 抽象表达式基类 ====================
+class Expression {
+public:
+    virtual int interpret(const std::map<char, int>& var) = 0;
+    virtual ~Expression() {}
+};
+
+// ==================== 终结符表达式（叶子节点） ====================
+// 变量表达式：通过 key 在映射表中查找对应的值
+class VarExpression : public Expression {
+    char key;
+public:
+    explicit VarExpression(char key) : key(key) {}
+
+    int interpret(const std::map<char, int>& var) override {
+        auto it = var.find(key);
+        if (it == var.end()) {
+            throw std::runtime_error(std::string("未定义的变量: ") + key);
+        }
+        return it->second;
+    }
+};
+
+// ==================== 非终结符表达式（中间节点） ====================
+// 符号表达式：持有左、右两个子表达式
+class SymbolExpression : public Expression {
+protected:
+    Expression* left;
+    Expression* right;
+public:
+    SymbolExpression(Expression* left, Expression* right)
+        : left(left), right(right) {}
+
+    ~SymbolExpression() {
+        delete left;
+        delete right;
+    }
+};
+
+// 加法表达式
+class AddExpression : public SymbolExpression {
+public:
+    AddExpression(Expression* left, Expression* right)
+        : SymbolExpression(left, right) {}
+
+    int interpret(const std::map<char, int>& var) override {
+        return left->interpret(var) + right->interpret(var);
+    }
+};
+
+// 减法表达式
+class SubExpression : public SymbolExpression {
+public:
+    SubExpression(Expression* left, Expression* right)
+        : SymbolExpression(left, right) {}
+
+    int interpret(const std::map<char, int>& var) override {
+        return left->interpret(var) - right->interpret(var);
+    }
+};
+
+// ==================== 解析器：构建表达式树 ====================
+// 输入格式："A+B-C+D"，每个字符是一个操作数或运算符
+Expression* analyse(const std::string& str) {
+    std::stack<Expression*> expStack;
+    Expression* left = nullptr;
+    Expression* right = nullptr;
+
+    for (size_t i = 0; i < str.size(); ++i) {
+        switch (str[i]) {
+            case '+':
+                left = expStack.top();
+                right = new VarExpression(str[++i]);
+                expStack.push(new AddExpression(left, right));
+                break;
+            case '-':
+                left = expStack.top();
+                right = new VarExpression(str[++i]);
+                expStack.push(new SubExpression(left, right));
+                break;
+            default:
+                // 非运算符字符，作为变量压栈
+                expStack.push(new VarExpression(str[i]));
+                break;
+        }
+    }
+
+    return expStack.top();
+}
+
+// ==================== 测试 ====================
+int main() {
+    // 表达式：A+B-C+D
+    std::string expStr = "A+B-C+D";
+    std::map<char, int> var;
+    var['A'] = 5;
+    var['B'] = 2;
+    var['C'] = 1;
+    var['D'] = 6;
+
+    Expression* expression = analyse(expStr);
+    int result = expression->interpret(var);
+    // 验证: (5+2)=7, 7-1=6, 6+6=12
+    std::cout << expStr << " = " << result << std::endl;
+    delete expression;
+
+    // 扩展：再减一个E，验证模式的可扩展性
+    expStr = "A+B-C+D-E";
+    var['E'] = 10;
+    expression = analyse(expStr);
+    result = expression->interpret(var);
+    // 验证: 12-10=2
+    std::cout << expStr << " = " << result << std::endl;
+    delete expression;
+
+    return 0;
+}
+```
+
+**运行结果：**
+```
+A+B-C+D = 12
+A+B-C+D-E = 2
+```
+
+---
+
+## 五、扩展讨论
+
+### 如何支持乘法和除法
+
+基础示例只处理加减法，从左到右依次计算。若要支持乘除法，需要考虑**运算优先级**：
+
+- 先扫描整个表达式，找到 `*` 和 `/` 运算，优先解析这些子表达式
+- 再处理 `+` 和 `-` 运算
+- 如需支持括号 `()`，解析规则进一步变化：遇到括号时递归解析括号内的子表达式
+
+### 设计要点
+
+1. **利用多态**：`Expression*` 指针指向不同的具体表达式，`interpret()` 通过虚函数实现动态绑定，实现递归求值
+2. **递归结构**：非终结符表达式的 `interpret()` 递归调用子表达式的 `interpret()`，天然适合树形结构的遍历
+3. **内存管理**：本示例通过 `SymbolExpression` 的析构函数递归释放子树（C++中也可使用智能指针）
+
+---
+
+## 六、模式总结
+
+### 优点
+- 将语法规则映射为面向对象的类层次结构，易于扩展新的运算（如新增乘法只需增加 `MulExpression` 类）
+- 利用多态和递归，表达式求值逻辑清晰
+
+### 缺点与局限
+- **类层次结构膨胀**：文法规则越复杂，需要的类越多，管理困难
+- **性能问题**：大量虚函数调用，复杂文法下性能较差
+- **调试困难**：类层次深、递归调用链长，出错时难以定位
+
+### 适用边界
+- 适合**小规模、简单**的文法（如简单四则运算、大写数字转换）
+- 对于复杂文法（如 SQL 解析），应使用成熟的**语法分析生成器**工具（如 ANTLR、Yacc/Bison 等），而非面向对象的手工解析器模式
+- 最重要的能力是**识别场景**：何时需要引入文法规则化的解决方案
+
+
+---
+
+## 专栏导航与全景索引
+
+- [上一讲：第24讲 访问者模式（Visitor Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-24-visitor.md)
+- [下一讲：第26讲 设计模式总结与重构心法](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-26-summary.md)
+- 架构进阶：[异构计算与 AI 编译器设计模式全景实践指南](file:///home/ubuntu/git/blog/src/content/posts/heterogeneous-computing-and-ai-compiler-design-patterns-guide.md)

@@ -1,0 +1,565 @@
+---
+author: hqu-little-boy
+pubDatetime: 2026-11-23T10:16:00Z
+title: 设计模式沉思录（第17讲）：中介者模式（Mediator Pattern）
+featured: false
+draft: false
+tags:
+  - 设计模式
+  - C++
+  - 面向对象
+  - 架构设计
+description: 用中介对象封装多个对象之间的网状复杂交互，将网状耦合降为星形拓扑。
+---
+
+# 设计模式沉思录（第17讲）：中介者模式（Mediator Pattern）
+
+> [!NOTE] 专栏导读
+> 本文是 **《侯捷 C++ 设计模式沉思录》** 系列专栏的第 **17** 讲。
+> - **上一讲**：[上一讲：第16讲 适配器模式（Adapter Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-16-adapter.md)
+> - **下一讲**：[下一讲：第18讲 状态模式（State Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-18-state.md)
+> - **架构进阶**：[异构计算与 AI 编译器设计模式全景实践指南](file:///home/ubuntu/git/blog/src/content/posts/heterogeneous-computing-and-ai-compiler-design-patterns-guide.md)
+
+
+## 1. 问题背景：对象间的复杂引用关系
+
+对象之间常常会维持一种比较复杂的引用关系。当遇到需求变更时，这种直接的引用关系将面临不断的变化。
+
+**典型场景：界面与数据模型的双向依赖**
+
+- 界面上有大量的**控件**（文本框、下拉框、按钮等）
+- 更改界面控件的状态时，希望背后的 **Data Model** 也跟着更改
+- 反过来，更改 Data Model 时，也希望界面控件跟着更新
+- 这就导致了**双向的直接依赖关系**
+
+**问题**：如果更换界面元素，改动成本非常高——因为界面元素和数据对象之间存在紧耦合。
+
+## 2. 中介者模式的核心思想
+
+> 用一个**中介对象**来封装一系列对象的交互。中介者使得各个对象不需要**显式地**引用彼此，从而使其**松散耦合**，可以独立地改变它们之间的交互。
+
+### 2.1 关键词：封装变化
+
+中介者模式的核心是**封装变化**——将对象之间的交互逻辑封装到中介者中。
+
+### 2.2 编译时依赖 → 运行时依赖
+
+这是一个非常重要的设计技巧：
+
+| 类型 | 含义 | 特点 |
+|------|------|------|
+| **编译时依赖** | A 在编译期直接引用 B | 耦合度高，变更成本大 |
+| **运行时依赖** | A 在运行期通过某种机制与 B 交互 | 耦合度低，灵活可变 |
+
+依赖总是存在的（A 的行为确实会导致 B 的变化），但我们可以把**编译时依赖**转化为**运行时依赖**。这正是**依赖倒置原则**的核心思想：
+
+```
+// 依赖倒置原则
+// 原来：A 直接依赖 B
+// 转化后：A 依赖 IB（接口），B 依赖 IB
+// 运行时 A 和 B 仍然产生依赖关系，但已从编译时转到运行时
+```
+
+中介者模式是依赖倒置原则在**多个对象场景**中的一种扩展形式。
+
+## 3. GOF 结构图分析
+
+### 3.1 角色定义
+
+| 角色 | 说明 |
+|------|------|
+| **Mediator（中介者接口）** | 定义中介者的公共接口 |
+| **ConcreteMediator（具体中介者）** | 实现中介者接口，持有所有 Colleague 的引用，协调它们的交互 |
+| **Colleague（同事类基类）** | 定义同事类的公共接口，持有 Mediator 的引用 |
+| **ConcreteColleague（具体同事类）** | 实现具体的业务逻辑，通过 Mediator 与其他同事通信 |
+
+### 3.2 核心依赖关系
+
+```
+┌─────────────────┐         ┌─────────────────┐
+│ ConcreteColleague│         │ ConcreteColleague│
+│      ①          │         │      ②          │
+│                 │         │                 │
+│  ┌───────────┐  │         │  ┌───────────┐  │
+│  │ Mediator* │──┼────┐    │  │ Mediator* │──┼────┐
+│  └───────────┘  │    │    │  └───────────┘  │    │
+└─────────────────┘    │    └─────────────────┘    │
+                       ▼                           │
+              ┌────────────────────┐               │
+              │ ConcreteMediator   │               │
+              │                    │               │
+              │ ┌────────────────┐ │               │
+              │ │Colleague①* ───┼─┼───────────────┘
+              │ ├────────────────┤ │
+              │ │Colleague②*    │ │
+              │ └────────────────┘ │
+              └────────────────────┘
+
+  ① 和 ② 之间：无直接依赖
+  ① 和 Mediator：双向依赖
+  ② 和 Mediator：双向依赖
+```
+
+**关键关系**：
+- **Colleague 之间没有依赖关系**——这是模式的核心目的
+- Colleague → Mediator：持有指针，通知中介者
+- Mediator → Colleague：持有指针，协调各同事类
+
+## 4. 应用场景：数据绑定
+
+在 GUI 系统中，**数据绑定**是中介者模式的典型应用：
+
+```
+┌──────────────┐    ┌──────────────────┐    ┌──────────────┐
+│   UI 控件     │◄──►│   数据绑定模块    │◄──►│  数据模型     │
+│ (TextBox等)   │    │   (Mediator)     │    │ (DataModel)  │
+└──────────────┘    └──────────────────┘    └──────────────┘
+```
+
+数据绑定模块（中介者）会：
+1. 同时依赖界面元素和数据模型
+2. 结合**观察者模式**：数据模型变更时自动触发通知
+3. 定义一套**绑定协议**：包括对象 ID、属性名、属性值等参数
+
+## 5. 适用条件
+
+中介者模式适用于：
+- 系统中出现**大量对象之间复杂的、多对多的交互**
+- 对象之间的引用关系呈现网状结构
+- 需要频繁变更对象之间的交互逻辑
+
+**不适用**的情况：如果只有一两个对象的简单交互，没有必要引入中介者，否则反而增加复杂度。
+
+## 6. 与其他模式的对比
+
+| 模式 | 隔离方向 | 说明 |
+|------|---------|------|
+| **Facade** | 系统外 ↔ 系统内 | 为子系统提供统一的高层接口 |
+| **Proxy** | 两个对象之间 | 由于性能、安全、分布式等原因，在 A 和 B 之间加入代理 |
+| **Adapter** | 老接口 ↔ 新接口 | 将不匹配的旧接口转换为新接口 |
+| **Mediator** | 系统内多个对象之间 | 将多对多的网状依赖转为星形（一对多）依赖 |
+
+> **共同点**：这四个模式都是在不同方向、不同角度上对**接口隔离**这一核心思想的应用。
+
+## 7. 总结
+
+- Mediator 模式将多个对象间**复杂的关联关系解耦**
+- 将控制逻辑**集中管理**到中介者中
+- 变多个对象互相直接关联为**多个对象和一个中介者关联**
+- 简化了系统的维护，抵御了可能的变化
+- 随着控制逻辑的复杂化，中介者对象可能变得臃肿，可对其进行**分解处理**
+
+---
+
+## 8. 示例代码
+
+### 示例 1：表单控件与数据模型的双向绑定
+
+```cpp
+#include <iostream>
+#include <string>
+#include <map>
+
+// ============================================================
+// 中介者模式 (Mediator Pattern) 示例
+// 场景：UI控件与数据模型之间的双向绑定
+// ============================================================
+
+class Colleague;
+
+// 中介者接口
+class Mediator {
+public:
+    virtual ~Mediator() = default;
+    virtual void notify(Colleague* sender, const std::string& event) = 0;
+};
+
+// 同事类基类
+class Colleague {
+protected:
+    Mediator* mediator_;
+    std::string name_;
+public:
+    Colleague(Mediator* mediator, const std::string& name)
+        : mediator_(mediator), name_(name) {}
+    virtual ~Colleague() = default;
+    std::string getName() const { return name_; }
+};
+
+// 数据模型
+class DataModel {
+    std::map<std::string, std::string> data_;
+public:
+    void setValue(const std::string& key, const std::string& value) {
+        std::cout << "  [DataModel] " << key << " = \"" << value << "\"" << std::endl;
+        data_[key] = value;
+    }
+    std::string getValue(const std::string& key) const {
+        auto it = data_.find(key);
+        return it != data_.end() ? it->second : "";
+    }
+};
+
+// 具体同事类：文本框
+class TextBox : public Colleague {
+    std::string text_;
+public:
+    TextBox(Mediator* mediator, const std::string& name)
+        : Colleague(mediator, name) {}
+    void setText(const std::string& text) {
+        std::cout << "  [" << name_ << "] setText: \"" << text << "\"" << std::endl;
+        text_ = text;
+        mediator_->notify(this, "textChanged");
+    }
+    std::string getText() const { return text_; }
+    void updateFromModel(const std::string& value) {
+        std::cout << "  [" << name_ << "] 从模型同步更新: \"" << value << "\"" << std::endl;
+        text_ = value;
+    }
+};
+
+// 具体同事类：下拉框
+class ComboBox : public Colleague {
+    std::string selected_;
+    std::string options_[3];
+public:
+    ComboBox(Mediator* mediator, const std::string& name,
+             const std::string& opt1, const std::string& opt2, const std::string& opt3)
+        : Colleague(mediator, name) {
+        options_[0] = opt1; options_[1] = opt2; options_[2] = opt3;
+        selected_ = opt1;
+    }
+    void select(int index) {
+        if (index >= 0 && index < 3) {
+            selected_ = options_[index];
+            std::cout << "  [" << name_ << "] select: \"" << selected_ << "\"" << std::endl;
+            mediator_->notify(this, "selectionChanged");
+        }
+    }
+    std::string getSelected() const { return selected_; }
+    void updateFromModel(const std::string& value) {
+        std::cout << "  [" << name_ << "] 从模型同步更新: \"" << value << "\"" << std::endl;
+        selected_ = value;
+    }
+};
+
+// 具体同事类：按钮
+class Button : public Colleague {
+    bool enabled_;
+public:
+    Button(Mediator* mediator, const std::string& name)
+        : Colleague(mediator, name), enabled_(true) {}
+    void click() {
+        if (enabled_) {
+            std::cout << "  [" << name_ << "] 被点击" << std::endl;
+            mediator_->notify(this, "buttonClicked");
+        } else {
+            std::cout << "  [" << name_ << "] 被禁用，无法点击" << std::endl;
+        }
+    }
+    void setEnabled(bool enabled) {
+        enabled_ = enabled;
+        std::cout << "  [" << name_ << "] " << (enabled ? "启用" : "禁用") << std::endl;
+    }
+};
+
+// 具体中介者：表单中介者
+// 封装了所有UI控件和数据模型之间的交互逻辑
+class FormMediator : public Mediator {
+    TextBox* nameBox_;
+    ComboBox* cityCombo_;
+    Button* submitBtn_;
+    DataModel* model_;
+public:
+    FormMediator() : nameBox_(nullptr), cityCombo_(nullptr),
+                     submitBtn_(nullptr), model_(nullptr) {}
+    void setNameBox(TextBox* w) { nameBox_ = w; }
+    void setCityCombo(ComboBox* w) { cityCombo_ = w; }
+    void setSubmitBtn(Button* w) { submitBtn_ = w; }
+    void setModel(DataModel* m) { model_ = m; }
+
+    void notify(Colleague* sender, const std::string& event) override {
+        if (sender == nameBox_ && event == "textChanged") {
+            std::cout << "  [Mediator] 文本框变更，同步到数据模型..." << std::endl;
+            model_->setValue("name", nameBox_->getText());
+        }
+        else if (sender == cityCombo_ && event == "selectionChanged") {
+            std::cout << "  [Mediator] 下拉框变更，同步到数据模型..." << std::endl;
+            model_->setValue("city", cityCombo_->getSelected());
+        }
+        else if (sender == submitBtn_ && event == "buttonClicked") {
+            std::cout << "  [Mediator] 提交按钮被点击，读取数据模型:" << std::endl;
+            std::cout << "    姓名: " << model_->getValue("name") << std::endl;
+            std::cout << "    城市: " << model_->getValue("city") << std::endl;
+        }
+    }
+
+    // 数据模型反向变更 → 同步到UI控件
+    void modelChanged(const std::string& key) {
+        std::cout << "  [Mediator] 数据模型 \"" << key << "\" 变更，反向同步到UI..." << std::endl;
+        if (key == "name" && nameBox_)
+            nameBox_->updateFromModel(model_->getValue("name"));
+        else if (key == "city" && cityCombo_)
+            cityCombo_->updateFromModel(model_->getValue("city"));
+    }
+};
+
+int main() {
+    std::cout << "============================================" << std::endl;
+    std::cout << "  中介者模式 (Mediator Pattern) 演示" << std::endl;
+    std::cout << "============================================" << std::endl;
+    std::cout << std::endl;
+
+    FormMediator mediator;
+    DataModel model;
+    mediator.setModel(&model);
+
+    TextBox nameBox(&mediator, "姓名输入框");
+    ComboBox cityCombo(&mediator, "城市下拉框", "北京", "上海", "深圳");
+    Button submitBtn(&mediator, "提交按钮");
+
+    mediator.setNameBox(&nameBox);
+    mediator.setCityCombo(&cityCombo);
+    mediator.setSubmitBtn(&submitBtn);
+
+    // 场景1：用户输入姓名 → 自动同步到数据模型
+    std::cout << "--- 场景1：用户输入姓名 ---" << std::endl;
+    nameBox.setText("张三");
+    std::cout << std::endl;
+
+    // 场景2：用户选择城市 → 自动同步到数据模型
+    std::cout << "--- 场景2：用户选择城市 ---" << std::endl;
+    cityCombo.select(2);
+    std::cout << std::endl;
+
+    // 场景3：用户点击提交 → 从数据模型读取
+    std::cout << "--- 场景3：用户点击提交 ---" << std::endl;
+    submitBtn.click();
+    std::cout << std::endl;
+
+    // 场景4：数据模型反向变更 → 同步到UI
+    std::cout << "--- 场景4：数据模型反向变更 ---" << std::endl;
+    model.setValue("name", "李四");
+    mediator.modelChanged("name");
+    std::cout << std::endl;
+
+    // 场景5：禁用按钮
+    std::cout << "--- 场景5：禁用提交按钮 ---" << std::endl;
+    submitBtn.setEnabled(false);
+    submitBtn.click();
+    std::cout << std::endl;
+
+    std::cout << "============================================" << std::endl;
+    std::cout << "  演示结束：控件之间无直接依赖，" << std::endl;
+    std::cout << "  所有交互均通过 Mediator 协调。" << std::endl;
+    std::cout << "============================================" << std::endl;
+
+    return 0;
+}
+```
+
+**运行结果**：
+```
+============================================
+  中介者模式 (Mediator Pattern) 演示
+============================================
+
+--- 场景1：用户输入姓名 ---
+  [姓名输入框] setText: "张三"
+  [Mediator] 文本框变更，同步到数据模型...
+  [DataModel] name = "张三"
+
+--- 场景2：用户选择城市 ---
+  [城市下拉框] select: "深圳"
+  [Mediator] 下拉框变更，同步到数据模型...
+  [DataModel] city = "深圳"
+
+--- 场景3：用户点击提交 ---
+  [提交按钮] 被点击
+  [Mediator] 提交按钮被点击，读取数据模型:
+    姓名: 张三
+    城市: 深圳
+
+--- 场景4：数据模型反向变更 ---
+  [DataModel] name = "李四"
+  [Mediator] 数据模型 "name" 变更，反向同步到UI...
+  [姓名输入框] 从模型同步更新: "李四"
+
+--- 场景5：禁用提交按钮 ---
+  [提交按钮] 禁用
+  [提交按钮] 被禁用，无法点击
+
+============================================
+  演示结束：控件之间无直接依赖，
+  所有交互均通过 Mediator 协调。
+============================================
+```
+
+### 示例 2：聊天室 (ChatRoom)
+
+```cpp
+#include <iostream>
+#include <string>
+#include <map>
+
+// ============================================================
+// 中介者模式示例2：聊天室
+// 用户之间不直接通信，全部通过聊天室（中介者）转发
+// ============================================================
+
+class ChatRoom;
+
+// 同事类：用户
+class User {
+    std::string name_;
+    ChatRoom* chatRoom_;
+public:
+    User(const std::string& name, ChatRoom* room)
+        : name_(name), chatRoom_(room) {}
+    std::string getName() const { return name_; }
+    ChatRoom* getChatRoom() const { return chatRoom_; }
+    void send(const std::string& message) const;
+    void receive(const std::string& from, const std::string& message) const;
+};
+
+// 中介者接口：聊天室
+class ChatRoom {
+public:
+    virtual ~ChatRoom() = default;
+    virtual void registerUser(User* user) = 0;
+    virtual void relay(const std::string& from, const std::string& message) = 0;
+    virtual void directMessage(const std::string& from,
+                               const std::string& to,
+                               const std::string& message) = 0;
+};
+
+// 具体中介者：文本聊天室
+class TextChatRoom : public ChatRoom {
+    std::map<std::string, User*> users_;
+public:
+    void registerUser(User* user) override {
+        users_[user->getName()] = user;
+        std::cout << "  [聊天室] " << user->getName() << " 加入聊天室" << std::endl;
+    }
+    void relay(const std::string& from, const std::string& message) override {
+        for (auto& pair : users_) {
+            if (pair.first != from)
+                pair.second->receive(from, message);
+        }
+    }
+    void directMessage(const std::string& from, const std::string& to,
+                       const std::string& message) override {
+        auto it = users_.find(to);
+        if (it != users_.end()) {
+            it->second->receive(from, message);
+        } else {
+            std::cout << "  [聊天室] 用户 \"" << to << "\" 不在线" << std::endl;
+        }
+    }
+};
+
+void User::send(const std::string& message) const {
+    std::cout << "  [" << name_ << "] 发送: " << message << std::endl;
+    chatRoom_->relay(name_, message);
+}
+
+void User::receive(const std::string& from, const std::string& message) const {
+    std::cout << "  [" << name_ << "] 收到来自 " << from
+              << " 的消息: " << message << std::endl;
+}
+
+int main() {
+    std::cout << "============================================" << std::endl;
+    std::cout << "  中介者模式示例：聊天室" << std::endl;
+    std::cout << "============================================" << std::endl;
+    std::cout << std::endl;
+
+    TextChatRoom chatRoom;
+    User alice("Alice", &chatRoom);
+    User bob("Bob", &chatRoom);
+    User charlie("Charlie", &chatRoom);
+
+    chatRoom.registerUser(&alice);
+    chatRoom.registerUser(&bob);
+    chatRoom.registerUser(&charlie);
+    std::cout << std::endl;
+
+    std::cout << "--- 场景1：Alice 广播消息 ---" << std::endl;
+    alice.send("大家好！");
+    std::cout << std::endl;
+
+    std::cout << "--- 场景2：Bob 广播消息 ---" << std::endl;
+    bob.send("今天天气不错");
+    std::cout << std::endl;
+
+    std::cout << "--- 场景3：Charlie 私聊 Alice ---" << std::endl;
+    std::cout << "  [Charlie] 私聊发送: Alice, 你好！" << std::endl;
+    chatRoom.directMessage("Charlie", "Alice", "Alice, 你好！");
+    std::cout << std::endl;
+
+    std::cout << "--- 场景4：尝试私聊不在线用户 ---" << std::endl;
+    chatRoom.directMessage("Alice", "Dave", "你在吗？");
+
+    return 0;
+}
+```
+
+**运行结果**：
+```
+============================================
+  中介者模式示例：聊天室
+============================================
+
+  [聊天室] Alice 加入聊天室
+  [聊天室] Bob 加入聊天室
+  [聊天室] Charlie 加入聊天室
+
+--- 场景1：Alice 广播消息 ---
+  [Alice] 发送: 大家好！
+  [Bob] 收到来自 Alice 的消息: 大家好！
+  [Charlie] 收到来自 Alice 的消息: 大家好！
+
+--- 场景2：Bob 广播消息 ---
+  [Bob] 发送: 今天天气不错
+  [Alice] 收到来自 Bob 的消息: 今天天气不错
+  [Charlie] 收到来自 Bob 的消息: 今天天气不错
+
+--- 场景3：Charlie 私聊 Alice ---
+  [Charlie] 私聊发送: Alice, 你好！
+  [Alice] 收到来自 Charlie 的消息: Alice, 你好！
+
+--- 场景4：尝试私聊不在线用户 ---
+  [聊天室] 用户 "Dave" 不在线
+```
+
+---
+
+## 9. AI 识别错误勘误表
+
+原始语音转录文本中存在以下明显的 AI 识别错误，已在笔记中修正：
+
+| 原文（错误） | 修正 | 说明 |
+|-------------|------|------|
+| 空间 | 控件 | UI 控件（如文本框、按钮） |
+| 简有和 | 紧耦合 | tight coupling |
+| GIF / GUF | GOF | Gang of Four（四人帮） |
+| college | Colleague | 设计模式中的同事类 |
+| FACED / Fascade | Façade | 外观模式 |
+| MadeEater | Mediator | 中介者模式 |
+| 依赖导致原则 | 依赖倒置原则 | Dependency Inversion Principle |
+| 显示的引用 | 显式的引用 | explicit reference |
+| 编译式依赖 / 运行式依赖 | 编译时依赖 / 运行时依赖 | compile-time / runtime dependency |
+| 松散偶合 | 松散耦合 | loose coupling |
+| 解偶 | 解耦 | decouple |
+| 结有 | 解耦 | 同上 |
+| 揭露 | 解耦/隔离 | 根据上下文修正 |
+| 异量 | 双向 | bidirectional |
+
+
+---
+
+## 专栏导航与全景索引
+
+- [上一讲：第16讲 适配器模式（Adapter Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-16-adapter.md)
+- [下一讲：第18讲 状态模式（State Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-18-state.md)
+- 架构进阶：[异构计算与 AI 编译器设计模式全景实践指南](file:///home/ubuntu/git/blog/src/content/posts/heterogeneous-computing-and-ai-compiler-design-patterns-guide.md)

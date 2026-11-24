@@ -1,0 +1,641 @@
+---
+author: hqu-little-boy
+pubDatetime: 2026-11-23T10:01:00Z
+title: 设计模式沉思录（第02讲）：面向对象八大设计原则深度解析
+featured: true
+draft: false
+tags:
+  - 设计模式
+  - C++
+  - 面向对象
+  - 架构设计
+description: 深入剖析单一职责（SRP）、开闭原则（OCP）、依赖倒置（DIP）等八大核心设计原则。
+---
+
+# 设计模式沉思录（第02讲）：面向对象八大设计原则深度解析
+
+> [!NOTE] 专栏导读
+> 本文是 **《侯捷 C++ 设计模式沉思录》** 系列专栏的第 **02** 讲。
+> - **上一讲**：[上一讲：第01讲 设计模式简介与面向对象思维转变](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-01-introduction.md)
+> - **下一讲**：[下一讲：第03讲 模板方法模式（Template Method）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-03-template-method.md)
+> - **架构进阶**：[异构计算与 AI 编译器设计模式全景实践指南](file:///home/ubuntu/git/blog/src/content/posts/heterogeneous-computing-and-ai-compiler-design-patterns-guide.md)
+
+
+## 一、重新认识面向对象
+
+### 1.1 底层思维 vs 抽象思维
+
+| 层面 | 理解 |
+|------|------|
+| **底层思维** | 封装、继承、多态（语言机制层面） |
+| **抽象思维** | 隔离变化、适应软件变化（设计层面） |
+
+### 1.2 面向对象的核心优势
+
+**抵御变化**：不是说完全不做任何改变就能应对变化，而是能够**将变化的范围降到最小**。
+
+- **宏观层面**：面向对象的构建方式更能适应软件的变化，能将变化所带来的影响减为最小。
+- **微观层面**：面向对象的方式更强调**各个类的责任**。由于需求变化导致的新增类型，不会影响原来类型的实现——各负其责。
+
+### 1.3 对象的三重理解
+
+| 层面 | 含义 |
+|------|------|
+| **语言实现层面** | 对象封装了代码和数据 |
+| **规格层面** | 对象是一系列可以被使用的公共接口 |
+| **概念层面** | 对象是**拥有某种责任的抽象体** |
+
+> **关键理解**：对象是一个拥有独立责任的抽象体。
+
+---
+
+## 二、面向对象设计八大原则
+
+> 设计原则比具体的设计模式更重要。模式可能会过时或被语言机制替代，但设计原则是推导所有模式的基础。违反设计原则的模式就是错误的。
+
+学习设计模式，不要只看代码的调用流程，而要回到设计原则上。两段非常相似的代码可能表达完全不同的设计模式；两段千差万别的代码可能表达同一个模式——评判标准就是设计原则。
+
+---
+
+### 原则一：依赖倒置原则（Dependency Inversion Principle, DIP）
+
+**核心表述**：
+1. 高层模块不应该依赖于低层模块，二者都应该依赖于**抽象**。
+2. 抽象不应该依赖于实现细节，实现细节应该依赖于抽象。
+
+**关键词**：
+- 高层模块 → 相对**稳定**
+- 低层模块 → 容易**变化**
+- 抽象 → **稳定**
+
+**问题分析**：
+
+以绘图程序为例，第一版设计中 `MainForm`（高层模块）直接依赖 `Line`、`Rectangle`（低层模块）。由于低层模块容易变化，一个稳定的东西依赖一个变化的东西，稳定的东西也会变得不稳定。
+
+**解决方案**：引入抽象层 `Shape`，让 `MainForm` 依赖 `Shape`（稳定），`Line`、`Rectangle` 也依赖 `Shape`（稳定）。变化被隔离在低层实现中，不影响高层模块。
+
+**代码示例**：
+
+```cpp
+#include <iostream>
+#include <memory>
+#include <vector>
+
+// 抽象层 —— 稳定
+class Shape {
+public:
+    virtual void draw() = 0;
+    virtual ~Shape() = default;
+};
+
+// 低层实现 —— 可变
+class Line : public Shape {
+public:
+    void draw() override { std::cout << "画直线" << std::endl; }
+};
+
+class Rectangle : public Shape {
+public:
+    void draw() override { std::cout << "画矩形" << std::endl; }
+};
+
+// 新增类型无需修改 MainForm
+class Circle : public Shape {
+public:
+    void draw() override { std::cout << "画圆形" << std::endl; }
+};
+
+// 高层模块只依赖抽象
+class MainForm {
+    std::vector<std::unique_ptr<Shape>> shapes;
+public:
+    void addShape(std::unique_ptr<Shape> s) {
+        shapes.push_back(std::move(s));
+    }
+    void paint() {
+        for (auto& s : shapes) s->draw();
+    }
+};
+
+int main() {
+    MainForm form;
+    form.addShape(std::make_unique<Line>());
+    form.addShape(std::make_unique<Rectangle>());
+    form.addShape(std::make_unique<Circle>());
+    form.paint();
+    return 0;
+}
+```
+
+> 依赖倒置原则贯穿于几乎所有设计模式，是最重要的设计原则之一。
+
+---
+
+### 原则二：开闭原则（Open-Closed Principle, OCP）
+
+**核心表述**：对扩展开放，对更改封闭。类模块应该是**可扩展的**，但是**不可修改的**。
+
+**现实类比**：
+
+假设木器加工厂接到做桌椅板凳的需求，做到一半发现消防规定要求家具达到阻燃标准：
+- **做法一**（更改）：把已做好的全部扔掉重来——代价巨大。
+- **做法二**（扩展）：在已有家具上刷一层防火涂料——仅增加一层，不改已有成果。
+
+**代码中的体现**：
+- **更改**：在已有类中修改代码 → 需要重新编译、测试、部署，代价高。
+- **扩展**：新增一个类来应对新需求 → 原有代码保持不变，绝大多数代码不需要重新编译。
+
+**代码示例**：
+
+```cpp
+#include <iostream>
+#include <memory>
+#include <vector>
+
+class Shape {
+public:
+    virtual void draw() = 0;
+    virtual ~Shape() = default;
+};
+
+class Line : public Shape {
+public:
+    void draw() override { std::cout << "画直线" << std::endl; }
+};
+
+class Rectangle : public Shape {
+public:
+    void draw() override { std::cout << "画矩形" << std::endl; }
+};
+
+// 扩展：新增形状，无需修改已有类
+class Circle : public Shape {
+public:
+    void draw() override { std::cout << "画圆形" << std::endl; }
+};
+
+class Triangle : public Shape {
+public:
+    void draw() override { std::cout << "画三角形" << std::endl; }
+};
+
+class MainForm {
+    std::vector<std::unique_ptr<Shape>> shapes;
+public:
+    void addShape(std::unique_ptr<Shape> s) {
+        shapes.push_back(std::move(s));
+    }
+    void paint() {
+        for (auto& s : shapes) s->draw();
+    }
+};
+
+int main() {
+    MainForm form;
+    form.addShape(std::make_unique<Line>());
+    form.addShape(std::make_unique<Rectangle>());
+    form.addShape(std::make_unique<Circle>());
+    form.addShape(std::make_unique<Triangle>());
+    form.paint();
+    return 0;
+}
+```
+
+> 当需求变更时，不要想着到处去改，应该想着增加一些东西来应对新的需求变化。
+
+---
+
+### 原则三：单一职责原则（Single Responsibility Principle, SRP）
+
+**核心表述**：一个类应该仅有一个引起它变化的原因。
+
+变化方向中隐含着类的责任。如果一个类写了七八十个方法、放了太多的成员和功能，说明它隐含了多个责任。多个责任会把类往不同方向拉扯，导致维护困难。
+
+**代码示例**：
+
+```cpp
+#include <iostream>
+#include <string>
+
+class Employee {
+    std::string name_;
+    double salary_;
+public:
+    Employee(const std::string& n, double s) : name_(n), salary_(s) {}
+    const std::string& name() const { return name_; }
+    double salary() const { return salary_; }
+};
+
+// 薪资计算职责
+class PayCalculator {
+public:
+    double calculate(const Employee& emp) {
+        return emp.salary();
+    }
+};
+
+// 持久化职责
+class EmployeeRepository {
+public:
+    void save(const Employee& emp) {
+        std::cout << "保存员工 " << emp.name() << " 到数据库" << std::endl;
+    }
+};
+
+// 报表生成职责
+class ReportGenerator {
+public:
+    void generate(const Employee& emp) {
+        std::cout << "生成员工 " << emp.name() << " 的报表" << std::endl;
+    }
+};
+
+int main() {
+    Employee emp("张三", 10000);
+    EmployeeRepository repo;
+    ReportGenerator reporter;
+    repo.save(emp);
+    reporter.generate(emp);
+    return 0;
+}
+```
+
+> 在 Bridge 模式、Decorator 模式中，类的责任划分尤为重要。
+
+---
+
+### 原则四：里氏替换原则（Liskov Substitution Principle, LSP）
+
+**核心表述**：子类必须能够替换它们的基类。
+
+即 `is-a` 关系：如果你是父类的子类，所有需要父类的地方，子类的对象都可以传过去使用。
+
+**常见违反场景**：在子类中对父类的某些方法直接 `throw exception`——这说明子类不应该是父类的子类，或者应该是组合关系而非继承关系。
+
+**经典错误示例**：正方形继承长方形
+
+```cpp
+#include <iostream>
+
+class Rectangle {
+protected:
+    int width_, height_;
+public:
+    virtual ~Rectangle() = default;
+    virtual void setWidth(int w) { width_ = w; }
+    virtual void setHeight(int h) { height_ = h; }
+    int width() const { return width_; }
+    int height() const { return height_; }
+    int area() const { return width_ * height_; }
+};
+
+// 正方形继承长方形：强制 width == height，打破了父类的行为契约
+class Square : public Rectangle {
+public:
+    void setWidth(int w) override { width_ = height_ = w; }
+    void setHeight(int h) override { width_ = height_ = h; }
+};
+
+void process(Rectangle& r) {
+    r.setWidth(5);
+    r.setHeight(4);
+    // 期望 area == 20，但对 Square 结果是 16
+    std::cout << "期望面积 20，实际面积: " << r.area() << std::endl;
+}
+
+int main() {
+    Rectangle r;
+    process(r);   // 正常：20
+    Square s;
+    process(s);   // 异常：16
+    return 0;
+}
+```
+
+**正确做法**：正方形和长方形都继承自 `Shape`，各自独立实现，而非通过继承强行建立 `is-a` 关系。
+
+---
+
+### 原则五：接口隔离原则（Interface Segregation Principle, ISP）
+
+**核心表述**：不应该强迫客户程序依赖它们不用的方法。
+
+另一种说法：**接口应该小而完备**。
+
+- 不必要的方法不要 `public`，能 `private` 就 `private`，能 `protected` 就 `protected`。
+- 只有真正有必要暴露时才做成 `public`。
+- 无节制地做成 `public` 会让外部程序（客户程序）产生不必要的依赖，接口一旦被依赖就需要保持稳定。
+
+**代码示例**：
+
+```cpp
+#include <iostream>
+
+// 小而完备的角色接口
+class IPrinter {
+public:
+    virtual ~IPrinter() = default;
+    virtual void print() = 0;
+};
+
+class IScanner {
+public:
+    virtual ~IScanner() = default;
+    virtual void scan() = 0;
+};
+
+// 简单打印机只实现需要的接口
+class SimplePrinter : public IPrinter {
+public:
+    void print() override { std::cout << "简单打印机：打印中..." << std::endl; }
+};
+
+// 多功能一体机实现多个接口
+class AllInOnePrinter : public IPrinter, public IScanner {
+public:
+    void print() override { std::cout << "一体机：打印中..." << std::endl; }
+    void scan() override { std::cout << "一体机：扫描中..." << std::endl; }
+};
+
+// 客户程序只依赖它需要的接口
+void doPrint(IPrinter& printer) { printer.print(); }
+void doScan(IScanner& scanner) { scanner.scan(); }
+
+int main() {
+    SimplePrinter sp;
+    AllInOnePrinter aio;
+    doPrint(sp);
+    doPrint(aio);
+    doScan(aio);
+    return 0;
+}
+```
+
+---
+
+### 原则六：优先使用对象组合，而不是类继承
+
+**核心表述**：Composition over Inheritance。
+
+在面向对象初期（80年代末90年代初），类继承非常受推崇。很多人觉得继承才是面向对象的"正宗门派"，甚至因为"子类/父类"的叫法类似人类繁衍关系而对继承有莫名好感——这种类比是错误的。
+
+**继承的准确定义**是**类属关系**：
+- 动物继承自生物，人类继承自动物
+- 汽车继承自交通工具，SUV 继承自汽车
+
+不是很多类型都适合建立继承关系，误用继承的情况很常见。
+
+**继承的问题**：
+- 继承在某种程度上破坏了封装性——父类给子类暴露的实现细节过多
+- 子类与父类耦合度过高
+
+**组合的优势**：
+- 只要求被组合的对象具有良好定义的外部接口
+- 耦合度相对更低
+
+**代码示例**：
+
+```cpp
+#include <iostream>
+#include <memory>
+
+class Engine {
+public:
+    virtual void start() { std::cout << "引擎启动" << std::endl; }
+    virtual ~Engine() = default;
+};
+
+class GasEngine : public Engine {
+public:
+    void start() override { std::cout << "燃油引擎启动" << std::endl; }
+};
+
+class ElectricEngine : public Engine {
+public:
+    void start() override { std::cout << "电动引擎启动" << std::endl; }
+};
+
+// 通过组合持有 Engine —— 依赖接口，不依赖实现
+// 可以灵活替换引擎类型，无需修改 Car
+class Car {
+    std::unique_ptr<Engine> engine_;
+public:
+    explicit Car(std::unique_ptr<Engine> e) : engine_(std::move(e)) {}
+    void drive() {
+        engine_->start();
+        std::cout << "汽车行驶" << std::endl;
+    }
+};
+
+int main() {
+    Car car1(std::make_unique<GasEngine>());
+    car1.drive();
+
+    Car car2(std::make_unique<ElectricEngine>());
+    car2.drive();
+    return 0;
+}
+```
+
+> 当发现继承关系不对时，把它变成组合，整个设计关系往往就理顺了。
+
+---
+
+### 原则七：封装变化点
+
+**核心表述**：使用封装来创建对象之间的分界层，让设计者可以在分界层的一侧进行修改，而不会对另一侧产生不良影响。
+
+封装的更高层次理解：**封装变化点**——一侧变化，一侧稳定。
+
+**代码示例**：
+
+```cpp
+#include <iostream>
+#include <memory>
+#include <vector>
+#include <string>
+
+class IParser {
+public:
+    virtual ~IParser() = default;
+    virtual std::string parse(const std::string& data) = 0;
+};
+
+class JsonParser : public IParser {
+public:
+    std::string parse(const std::string& data) override {
+        return "解析 JSON: " + data;
+    }
+};
+
+class XmlParser : public IParser {
+public:
+    std::string parse(const std::string& data) override {
+        return "解析 XML: " + data;
+    }
+};
+
+// 新增格式只需新增类
+class YamlParser : public IParser {
+public:
+    std::string parse(const std::string& data) override {
+        return "解析 YAML: " + data;
+    }
+};
+
+// DataProcessor 依赖抽象，变化被隔离在具体 Parser 中
+class DataProcessor {
+    std::vector<std::unique_ptr<IParser>> parsers_;
+public:
+    void addParser(std::unique_ptr<IParser> p) {
+        parsers_.push_back(std::move(p));
+    }
+    void process(const std::string& data) {
+        for (auto& p : parsers_) {
+            std::cout << p->parse(data) << std::endl;
+        }
+    }
+};
+
+int main() {
+    DataProcessor processor;
+    processor.addParser(std::make_unique<JsonParser>());
+    processor.addParser(std::make_unique<XmlParser>());
+    processor.addParser(std::make_unique<YamlParser>());
+    processor.process("sample_data");
+    return 0;
+}
+```
+
+---
+
+### 原则八：针对接口编程，而不是针对实现编程
+
+**核心表述**：
+1. 不将变量类型声明为某个特定的具体类，而是声明为某个接口。
+2. 客户程序无需获知对象的具体类型，只需要知道对象所具有的接口。
+3. 减少系统各部分的依赖关系，实现高内聚、低耦合。
+
+> 注：不能绝对化。标准库中的 `std::vector`、`std::deque` 等是具体类型，这没问题。主要是业务类型应该声明为接口。
+
+**与依赖倒置的关系**：这两个原则相辅相成。违反依赖倒置原则，往往也违反了针对接口编程的原则；反之亦然。很多设计原则是从不同角度看同一个问题。
+
+**代码示例**：
+
+```cpp
+#include <iostream>
+#include <memory>
+#include <vector>
+
+class Shape {
+public:
+    virtual void draw() = 0;
+    virtual ~Shape() = default;
+};
+
+class Line : public Shape {
+public:
+    void draw() override { std::cout << "画直线" << std::endl; }
+};
+
+class Rectangle : public Shape {
+public:
+    void draw() override { std::cout << "画矩形" << std::endl; }
+};
+
+class Circle : public Shape {
+public:
+    void draw() override { std::cout << "画圆形" << std::endl; }
+};
+
+// 变量声明为接口类型 Shape*，而非具体类型
+class MainForm {
+    std::vector<std::unique_ptr<Shape>> shapes;
+public:
+    void addShape(std::unique_ptr<Shape> s) {
+        shapes.push_back(std::move(s));
+    }
+    void paint() {
+        for (auto& s : shapes) {
+            s->draw();  // 多态调用，无需知道具体类型
+        }
+    }
+};
+
+int main() {
+    MainForm form;
+    form.addShape(std::make_unique<Line>());
+    form.addShape(std::make_unique<Rectangle>());
+    form.addShape(std::make_unique<Circle>());
+    form.paint();
+    return 0;
+}
+```
+
+---
+
+## 三、面向接口设计——产业强盛的标志
+
+接口标准化就是一个产业强盛的核心标志。接口标准化的本质是**分工协作**，通过分工协作实现复用性。
+
+### 3.1 秦国统一六国的技术视角
+
+据史书记载和考古发现，秦国的兵器（剑、戈、弩机、弩体、箭头）不论东西南北出土地点，都有**统一的接口标准**。而其他六国甚至同一国家内部，东边兵器厂和西边兵器厂做出来的兵器都不一样。
+
+接口不统一带来的问题：
+- 训练方式不统一
+- 战场上物资调配混乱，剑和鞘不能搭配
+- 装配、存储等所有环节都无法标准化
+
+秦国在兵器接口标准化上快速胜出六国。此外，秦始皇还统一了**度量衡**、**钱币**等，都是面向接口设计的体现。
+
+### 3.2 毕昇的活字印刷
+
+**雕版印刷**（紧耦合）：
+- 要印"设计模式"，工匠在一块板上刻这四个字
+- 要印"模式设计"，又得拿一块板重新刻——内容相同只是顺序不同，却要全部重做
+
+**活字印刷**（松耦合 / 面向接口）：
+- 先制作统一规格的字模（定义接口：宽度、深度一致）
+- 在每个字模上单独刻字
+- 需要"设计模式"就按这个顺序排列，需要"模式设计"就换个排列
+
+字和板分离了，它们之间的关系靠**字模的接口**来定义——这就是面向接口的设计。毕昇本质上是一位松耦合设计大师。
+
+> 人类在雕版印刷上用了几百年甚至上千年，才意识到可以改进。回头看我们的代码，很多时候也像雕版印刷一样，很长时间没有意识到问题。
+
+### 3.3 其他行业的启示
+
+- **汽车制造业**：高度流水线化，很多接口标准掌握在核心公司手中
+- **飞机制造业**：空客、波音制定了大量接口标准，才得以将生产分配到全球各个工厂实现高度协作
+
+面向接口设计是传统行业的智慧，逐步借鉴到软件行业。
+
+---
+
+## 四、设计经验的三个层次
+
+| 层次 | 说明 | 举例 |
+|------|------|------|
+| **设计习语（Idioms）** | 与特定编程语言相关的低层模式、技巧、惯用法 | Effective C++、Effective Java 等 |
+| **设计模式（Design Patterns）** | 描述类与相互通信的对象之间的组织关系、角色、责任、协作，解决变化中的复用性问题 | GoF 23种设计模式 |
+| **架构模式（Architectural Patterns）** | 系统级的子系统划分、责任与协作关系 | MVC、微服务等 |
+
+---
+
+## 五、总结
+
+1. 设计原则比具体模式更重要——有了原则可以发明自己的模式
+2. 不要把模式当算法来学，要理解背后的设计原则
+3. 八大设计原则相辅相成，违反一个往往也违反其他
+4. 面向接口设计是分工协作的基础，是产业强盛的标志
+5. 学习设计模式，不要只看代码调用流程，要回到设计原则上
+
+
+---
+
+## 专栏导航与全景索引
+
+- [上一讲：第01讲 设计模式简介与面向对象思维转变](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-01-introduction.md)
+- [下一讲：第03讲 模板方法模式（Template Method）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-03-template-method.md)
+- 架构进阶：[异构计算与 AI 编译器设计模式全景实践指南](file:///home/ubuntu/git/blog/src/content/posts/heterogeneous-computing-and-ai-compiler-design-patterns-guide.md)

@@ -1,0 +1,599 @@
+---
+author: hqu-little-boy
+pubDatetime: 2026-11-23T10:18:00Z
+title: 设计模式沉思录（第19讲）：备忘录模式（Memento Pattern）
+featured: false
+draft: false
+tags:
+  - 设计模式
+  - C++
+  - 面向对象
+  - 架构设计
+description: 在不破坏对象封装性的前提下捕获内部状态快照，支持秒级安全撤销与回滚。
+---
+
+# 设计模式沉思录（第19讲）：备忘录模式（Memento Pattern）
+
+> [!NOTE] 专栏导读
+> 本文是 **《侯捷 C++ 设计模式沉思录》** 系列专栏的第 **19** 讲。
+> - **上一讲**：[上一讲：第18讲 状态模式（State Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-18-state.md)
+> - **下一讲**：[下一讲：第20讲 组合模式（Composite Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-20-composite.md)
+> - **架构进阶**：[异构计算与 AI 编译器设计模式全景实践指南](file:///home/ubuntu/git/blog/src/content/posts/heterogeneous-computing-and-ai-compiler-design-patterns-guide.md)
+
+
+## 一、概述
+
+备忘录模式（Memento Pattern）是一种**行为型设计模式**，属于"状态变化"相关的模式类别（与 State 模式归为同一类）。
+
+**核心定义**：在不破坏封装性的前提下，捕获一个对象的内部状态，并在该对象之外保存这个状态，以便以后可以将该对象恢复到原先保存的状态。
+
+---
+
+## 二、解决的问题
+
+在软件构建过程中，某些对象的状态在转换过程中，可能由于某种需要，要求程序能够**回溯**到对象之前处于某个点的状态。典型场景包括：
+
+- 对象级的 **Undo / Redo** 操作
+- 游戏中的**存档/读档**功能
+- 事务处理中的**回滚**操作
+- 编辑器中的**撤销/重做**
+
+如果使用公共接口让其他对象获取该对象的状态，会**暴露对象的实现细节**，破坏封装性。备忘录模式正是在维持封装性的前提下，实现对象状态的保存与恢复。
+
+---
+
+## 三、模式结构
+
+### 三个核心角色
+
+| 角色 | 英文名 | 职责 |
+|------|--------|------|
+| **备忘录** | Memento | 存储原发器的内部状态快照，对外不暴露实现细节 |
+| **原发器** | Originator | 需要保存状态的对象；负责创建备忘录和从备忘录恢复状态 |
+| **管理者** | Caretaker | 负责保存备忘录对象，但**不检查**备忘录的内容 |
+
+### UML 类图
+
+```
+┌─────────────────────┐         ┌───────────────────┐
+│     Originator      │         │     Memento        │
+│─────────────────────│         │───────────────────│
+│ - state             │────────>│ - state            │
+│─────────────────────│ creates │───────────────────│
+│ + setState()        │         │ + getState()       │
+│ + getState()        │         └───────────────────┘
+│ + createMemento()   │                  ^
+│ + restoreMemento()  │                  │ saves
+└─────────────────────┘                  │
+         ^                    ┌───────────────────────┐
+         │ restores           │      Caretaker         │
+         └────────────────────│───────────────────────│
+                              │ - mementos[]          │
+                              │───────────────────────│
+                              │ + save(memento)       │
+                              │ + undo(): Memento     │
+                              └───────────────────────┘
+```
+
+---
+
+## 四、工作流程
+
+1. **保存状态（快照）**：原发器（Originator）在某个关键时刻，调用 `createMemento()` 创建一个备忘录对象，将当前内部状态保存到其中。
+2. **存储备忘录**：管理者（Caretaker）接收并存储备忘录对象。备忘录一旦存储后应保持**稳定**，外界不应修改它。
+3. **继续操作**：原发器的状态可以继续随程序运行而改变。
+4. **恢复状态**：当需要回溯时（如用户执行 Undo 操作），管理者取出之前保存的备忘录，原发器调用 `restoreMemento()` 从备忘录中恢复状态。
+
+---
+
+## 五、关键实现要点
+
+### 1. 信息隐藏
+
+备忘录模式的核心前提是**不破坏原发器的封装性**。原发器的内部实现细节对外界是隐藏的，备忘录只是保存了状态的快照，但不暴露原发器的内部结构。
+
+### 2. 深拷贝
+
+备忘录对象与原发器对象之间**不能共享任何状态**，必须实现一种**深拷贝**的内存快照方式。如果原发器内部包含指针、多层嵌套的复杂对象，深拷贝的实现会变得复杂。
+
+### 3. 序列化技术
+
+对于复杂对象，通常采用**序列化**技术来实现状态的保存，例如：
+
+- 内存流序列化
+- Base64 编码
+- JSON / XML 序列化
+- 自定义二进制编码
+
+### 4. 状态保存的量级
+
+需要考虑状态保存的频率：
+
+- **单次保存**：实现简单
+- **多次保存（N个快照）**：需要考虑性能问题，可能需要使用高效的序列化和内存编码技术
+
+---
+
+## 六、备忘录模式的时代演变
+
+### 历史背景
+
+《设计模式》（GoF）一书出版于 **1994 年**，当时：
+
+- Java 语言尚未诞生（1995 年才出现）
+- 主流语言是 Smalltalk 等早期面向对象语言
+- 语言和框架提供的序列化能力非常有限
+
+### 现代实现
+
+在今天的 C++、Java、C# 等语言中，序列化技术已经非常成熟。因此：
+
+- **传统方式**：逐字段映射保存，效率低、实现繁琐
+- **现代方式**：使用序列化框架（如 Boost.Serialization、protobuf 等），更高效、更易正确实现
+
+### 模式的现代价值
+
+虽然备忘录模式的**具体实现方式**已经随时代变化，但其**核心思想**依然有价值：
+
+- 保持信息隐藏（封装性）
+- 将对象状态的保存与恢复逻辑分离
+- 关注点分离（Caretaker 管理存储，Originator 管理状态）
+
+在某些人看来，这个模式在今天可能略显"过时"，因为实现上无非是序列化保存状态，不必一定套用一个完整的模式。但理解其设计思想仍然是有意义的。
+
+---
+
+## 七、C++ 示例代码
+
+### 示例一：基础版 — 核心思想演示
+
+展示 Memento 模式的三个核心角色及其协作关系。
+
+```cpp
+// Memento 设计模式 - 基础示例
+// 展示核心思想：在不破坏封装性的前提下，捕获并恢复对象状态
+
+#include <iostream>
+#include <string>
+#include <vector>
+#include <memory>
+
+// ==================== 备忘录 (Memento) ====================
+// 存储原发器的内部状态，对外不暴露实现细节
+class Memento {
+public:
+    Memento(const std::string& state) : state_(state) {}
+
+    std::string getState() const { return state_; }
+
+private:
+    std::string state_;  // 原发器的内部状态快照
+};
+
+// ==================== 原发器 (Originator) ====================
+// 需要保存状态的对象，负责创建和恢复备忘录
+class Originator {
+public:
+    void setState(const std::string& state) {
+        state_ = state;
+        std::cout << "  [Originator] 状态设置为: " << state_ << std::endl;
+    }
+
+    std::string getState() const { return state_; }
+
+    // 创建备忘录：捕获当前状态的快照
+    std::shared_ptr<Memento> createMemento() const {
+        std::cout << "  [Originator] 保存状态到备忘录: " << state_ << std::endl;
+        return std::make_shared<Memento>(state_);
+    }
+
+    // 从备忘录恢复：将状态恢复到备忘录中保存的状态
+    bool restoreMemento(const std::shared_ptr<Memento>& memento) {
+        if (!memento) {
+            std::cout << "  [Originator] 无法恢复：备忘录为空" << std::endl;
+            return false;
+        }
+        state_ = memento->getState();
+        std::cout << "  [Originator] 从备忘录恢复状态: " << state_ << std::endl;
+        return true;
+    }
+
+private:
+    std::string state_;
+};
+
+// ==================== 管理者 (Caretaker) ====================
+// 负责保存备忘录，但不检查备忘录的内容
+class Caretaker {
+public:
+    void save(const std::shared_ptr<Memento>& memento) {
+        mementos_.push_back(memento);
+        std::cout << "  [Caretaker] 备忘录已保存 (共 "
+                  << mementos_.size() << " 份)" << std::endl;
+    }
+
+    std::shared_ptr<Memento> undo() {
+        if (mementos_.empty()) {
+            std::cout << "  [Caretaker] 没有可恢复的备忘录!" << std::endl;
+            return nullptr;
+        }
+        auto memento = mementos_.back();
+        mementos_.pop_back();
+        std::cout << "  [Caretaker] 取出最近的备忘录进行恢复" << std::endl;
+        return memento;
+    }
+
+private:
+    std::vector<std::shared_ptr<Memento>> mementos_;
+};
+
+// ==================== 测试代码 ====================
+int main() {
+    std::cout << "===== Memento 备忘录设计模式演示 =====" << std::endl;
+
+    Originator originator;
+    Caretaker caretaker;
+
+    std::cout << "\n--- 步骤1: 设置初始状态 ---" << std::endl;
+    originator.setState("状态A: 初始化");
+    caretaker.save(originator.createMemento());
+
+    std::cout << "\n--- 步骤2: 修改状态 ---" << std::endl;
+    originator.setState("状态B: 第一次修改");
+    caretaker.save(originator.createMemento());
+
+    std::cout << "\n--- 步骤3: 再次修改状态 ---" << std::endl;
+    originator.setState("状态C: 第二次修改");
+
+    std::cout << "\n--- 步骤4: 执行Undo ---" << std::endl;
+    if (originator.restoreMemento(caretaker.undo()))
+        std::cout << "  当前状态: " << originator.getState() << std::endl;
+
+    std::cout << "\n--- 步骤5: 再次Undo ---" << std::endl;
+    if (originator.restoreMemento(caretaker.undo()))
+        std::cout << "  当前状态: " << originator.getState() << std::endl;
+
+    std::cout << "\n--- 步骤6: 尝试在无备忘录时Undo ---" << std::endl;
+    originator.restoreMemento(caretaker.undo());
+
+    std::cout << "\n===== 演示结束 =====" << std::endl;
+    return 0;
+}
+```
+
+**运行结果**：
+```
+===== Memento 备忘录设计模式演示 =====
+
+--- 步骤1: 设置初始状态 ---
+  [Originator] 状态设置为: 状态A: 初始化
+  [Originator] 保存状态到备忘录: 状态A: 初始化
+  [Caretaker] 备忘录已保存 (共 1 份)
+
+--- 步骤2: 修改状态 ---
+  [Originator] 状态设置为: 状态B: 第一次修改
+  [Originator] 保存状态到备忘录: 状态B: 第一次修改
+  [Caretaker] 备忘录已保存 (共 2 份)
+
+--- 步骤3: 再次修改状态 ---
+  [Originator] 状态设置为: 状态C: 第二次修改
+
+--- 步骤4: 执行Undo ---
+  [Caretaker] 取出最近的备忘录进行恢复
+  [Originator] 从备忘录恢复状态: 状态B: 第一次修改
+  当前状态: 状态B: 第一次修改
+
+--- 步骤5: 再次Undo ---
+  [Caretaker] 取出最近的备忘录进行恢复
+  [Originator] 从备忘录恢复状态: 状态A: 初始化
+  当前状态: 状态A: 初始化
+
+--- 步骤6: 尝试在无备忘录时Undo ---
+  [Caretaker] 没有可恢复的备忘录!
+  [Originator] 无法恢复：备忘录为空
+
+===== 演示结束 =====
+```
+
+---
+
+### 示例二：进阶版 — 游戏角色存档系统
+
+演示复杂对象（游戏角色）的状态保存与恢复，使用序列化方式实现深拷贝，支持多存档位管理。
+
+```cpp
+// Memento 设计模式 - 进阶示例
+// 演示复杂对象状态的保存与恢复，使用序列化方式实现深拷贝
+
+#include <iostream>
+#include <string>
+#include <vector>
+#include <sstream>
+#include <memory>
+#include <map>
+
+// ==================== 备忘录 (Memento) ====================
+// 使用序列化的字符串存储复杂状态，而非逐字段映射
+class Memento {
+public:
+    explicit Memento(const std::string& serializedState)
+        : serializedState_(serializedState) {}
+
+    std::string getSerializedState() const { return serializedState_; }
+
+private:
+    std::string serializedState_;
+};
+
+// ==================== 原发器 (Originator) - 游戏角色 ====================
+class GameCharacter {
+public:
+    struct Position {
+        double x = 0, y = 0, z = 0;
+    };
+
+    GameCharacter(const std::string& name) : name_(name) {}
+
+    void setPosition(double x, double y, double z) { pos_ = {x, y, z}; }
+    void setHealth(int health) { health_ = health; }
+    void setMana(int mana) { mana_ = mana; }
+    void setLevel(int level) { level_ = level; }
+    void addItem(const std::string& item) { inventory_.push_back(item); }
+
+    void printStatus() const {
+        std::cout << "  角色: " << name_ << std::endl;
+        std::cout << "  位置: (" << pos_.x << ", " << pos_.y
+                  << ", " << pos_.z << ")" << std::endl;
+        std::cout << "  生命: " << health_ << "  法力: " << mana_
+                  << "  等级: " << level_ << std::endl;
+        std::cout << "  背包: [";
+        for (size_t i = 0; i < inventory_.size(); ++i) {
+            if (i > 0) std::cout << ", ";
+            std::cout << inventory_[i];
+        }
+        std::cout << "]" << std::endl;
+    }
+
+    // 创建备忘录：将所有状态序列化为字符串
+    std::shared_ptr<Memento> createMemento() const {
+        std::ostringstream oss;
+        oss << name_ << "|"
+            << pos_.x << "," << pos_.y << "," << pos_.z << "|"
+            << health_ << "," << mana_ << "," << level_ << "|";
+        for (size_t i = 0; i < inventory_.size(); ++i) {
+            if (i > 0) oss << ";";
+            oss << inventory_[i];
+        }
+        std::cout << "  [保存] 角色状态已快照" << std::endl;
+        return std::make_shared<Memento>(oss.str());
+    }
+
+    // 从备忘录恢复：反序列化字符串恢复状态
+    void restoreMemento(const std::shared_ptr<Memento>& memento) {
+        std::istringstream iss(memento->getSerializedState());
+        std::string token, coord;
+
+        std::getline(iss, name_, '|');
+
+        std::string posStr;
+        std::getline(iss, posStr, '|');
+        std::istringstream posStream(posStr);
+        std::getline(posStream, coord, ','); pos_.x = std::stod(coord);
+        std::getline(posStream, coord, ','); pos_.y = std::stod(coord);
+        std::getline(posStream, coord, ','); pos_.z = std::stod(coord);
+
+        std::string statsStr;
+        std::getline(iss, statsStr, '|');
+        std::istringstream statsStream(statsStr);
+        std::getline(statsStream, coord, ','); health_ = std::stoi(coord);
+        std::getline(statsStream, coord, ','); mana_ = std::stoi(coord);
+        std::getline(statsStream, coord, ','); level_ = std::stoi(coord);
+
+        inventory_.clear();
+        std::string invStr;
+        std::getline(iss, invStr);
+        if (!invStr.empty()) {
+            std::istringstream invStream(invStr);
+            std::string item;
+            while (std::getline(invStream, item, ';')) {
+                inventory_.push_back(item);
+            }
+        }
+
+        std::cout << "  [恢复] 角色状态已恢复" << std::endl;
+    }
+
+private:
+    std::string name_;
+    Position pos_;
+    int health_ = 100;
+    int mana_ = 50;
+    int level_ = 1;
+    std::vector<std::string> inventory_;
+};
+
+// ==================== 管理者 (Caretaker) ====================
+class GameSaveManager {
+public:
+    void saveGame(int slot, const std::shared_ptr<Memento>& memento) {
+        saves_[slot] = memento;
+        std::cout << "  [存档管理] 游戏已保存到存档位 "
+                  << slot << std::endl;
+    }
+
+    std::shared_ptr<Memento> loadGame(int slot) {
+        auto it = saves_.find(slot);
+        if (it == saves_.end()) {
+            std::cout << "  [存档管理] 存档位 " << slot
+                      << " 不存在!" << std::endl;
+            return nullptr;
+        }
+        std::cout << "  [存档管理] 正在读取存档位 "
+                  << slot << std::endl;
+        return it->second;
+    }
+
+    void listSaves() const {
+        std::cout << "  [存档管理] 可用存档: ";
+        for (const auto& pair : saves_) {
+            std::cout << "[" << pair.first << "] ";
+        }
+        std::cout << std::endl;
+    }
+
+private:
+    std::map<int, std::shared_ptr<Memento>> saves_;
+};
+
+// ==================== 测试代码 ====================
+int main() {
+    std::cout << "===== Memento 进阶示例：游戏角色存档系统 ====="
+              << std::endl;
+
+    GameCharacter hero("勇者");
+    GameSaveManager saveManager;
+
+    std::cout << "\n--- 初始状态 ---" << std::endl;
+    hero.setPosition(0, 0, 0);
+    hero.setHealth(100);
+    hero.setMana(50);
+    hero.setLevel(1);
+    hero.addItem("新手剑");
+    hero.printStatus();
+
+    std::cout << "\n--- 保存存档1 ---" << std::endl;
+    saveManager.saveGame(1, hero.createMemento());
+
+    std::cout << "\n--- 游戏进展 ---" << std::endl;
+    hero.setPosition(100, 0, 50);
+    hero.setHealth(80);
+    hero.setMana(30);
+    hero.setLevel(5);
+    hero.addItem("火焰法杖");
+    hero.addItem("治疗药水");
+    hero.printStatus();
+
+    std::cout << "\n--- 保存存档2 ---" << std::endl;
+    saveManager.saveGame(2, hero.createMemento());
+
+    std::cout << "\n--- 战斗中，状态恶化 ---" << std::endl;
+    hero.setPosition(200, 10, 80);
+    hero.setHealth(10);
+    hero.setMana(5);
+    hero.printStatus();
+
+    std::cout << "\n--- 读取存档2 ---" << std::endl;
+    auto save2 = saveManager.loadGame(2);
+    if (save2) {
+        hero.restoreMemento(save2);
+        hero.printStatus();
+    }
+
+    std::cout << "\n--- 读取存档1 ---" << std::endl;
+    auto save1 = saveManager.loadGame(1);
+    if (save1) {
+        hero.restoreMemento(save1);
+        hero.printStatus();
+    }
+
+    std::cout << "\n--- 存档列表 ---" << std::endl;
+    saveManager.listSaves();
+
+    std::cout << "\n===== 演示结束 =====" << std::endl;
+    return 0;
+}
+```
+
+**运行结果**：
+```
+===== Memento 进阶示例：游戏角色存档系统 =====
+
+--- 初始状态 ---
+  角色: 勇者
+  位置: (0, 0, 0)
+  生命: 100  法力: 50  等级: 1
+  背包: [新手剑]
+
+--- 保存存档1 ---
+  [保存] 角色状态已快照
+  [存档管理] 游戏已保存到存档位 1
+
+--- 游戏进展 ---
+  角色: 勇者
+  位置: (100, 0, 50)
+  生命: 80  法力: 30  等级: 5
+  背包: [新手剑, 火焰法杖, 治疗药水]
+
+--- 保存存档2 ---
+  [保存] 角色状态已快照
+  [存档管理] 游戏已保存到存档位 2
+
+--- 战斗中，状态恶化 ---
+  角色: 勇者
+  位置: (200, 10, 80)
+  生命: 10  法力: 5  等级: 5
+  背包: [新手剑, 火焰法杖, 治疗药水]
+
+--- 读取存档2 ---
+  [存档管理] 正在读取存档位 2
+  [恢复] 角色状态已恢复
+  角色: 勇者
+  位置: (100, 0, 50)
+  生命: 80  法力: 30  等级: 5
+  背包: [新手剑, 火焰法杖, 治疗药水]
+
+--- 读取存档1 ---
+  [存档管理] 正在读取存档位 1
+  [恢复] 角色状态已恢复
+  角色: 勇者
+  位置: (0, 0, 0)
+  生命: 100  法力: 50  等级: 1
+  背包: [新手剑]
+
+--- 存档列表 ---
+  [存档管理] 可用存档: [1] [2]
+
+===== 演示结束 =====
+```
+
+---
+
+## 八、与其他模式的关系
+
+| 相关模式 | 关系说明 |
+|----------|----------|
+| **Command 模式** | Command 可使用 Memento 来为可撤销的操作维护状态 |
+| **Iterator 模式** | Iterator 可使用 Memento 来捕获迭代状态以便恢复 |
+| **State 模式** | 两者都与对象状态变化相关，但 State 关注状态行为的切换，Memento 关注状态的保存与恢复 |
+
+---
+
+## 九、适用场景
+
+- 需要保存对象在某时刻的快照，以便后续恢复
+- 需要实现 Undo / Redo 功能
+- 直接获取对象状态会暴露实现细节，破坏封装性
+- 需要在不影响对象封装性的前提下，在对象外部保存其状态
+
+## 十、优缺点
+
+| 优点 | 缺点 |
+|------|------|
+| 保持了封装性，不暴露对象内部细节 | 如果状态数据量大，存储开销较大 |
+| 简化了原发器的代码，状态管理职责分离 | 频繁创建备忘录可能影响性能 |
+| 提供了状态恢复的标准化方式 | 管理者需要管理备忘录的生命周期 |
+
+---
+
+## 十一、总结
+
+备忘录模式虽然在《设计模式》（1994年）中定义的实现方式在今天看来可能显得有些"过时"，因为现代语言和框架提供了丰富的序列化技术支持。但其**核心设计思想**——在保持封装性的前提下实现对象状态的保存与恢复——仍然具有重要的实践价值。在实际应用中，开发者可以利用现代序列化技术（如 Boost.Serialization、protobuf 等）来更高效地实现这一模式，而不必拘泥于原始的逐字段映射方式。
+
+
+---
+
+## 专栏导航与全景索引
+
+- [上一讲：第18讲 状态模式（State Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-18-state.md)
+- [下一讲：第20讲 组合模式（Composite Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-20-composite.md)
+- 架构进阶：[异构计算与 AI 编译器设计模式全景实践指南](file:///home/ubuntu/git/blog/src/content/posts/heterogeneous-computing-and-ai-compiler-design-patterns-guide.md)

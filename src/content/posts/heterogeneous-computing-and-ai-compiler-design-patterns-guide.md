@@ -698,6 +698,18 @@ int main() {
 
 下面，我们将 23 种模式逐一置于现代 C++20、AI 编译器与异构底层系统的显微镜下，深入解剖其工程实践与选型边界。**每一个模式均配有完整的、可独立编译运行的 C++20 代码**。
 
+> [!TIP] 《侯捷 C++ 设计模式沉思录》全 26 讲单篇深度精讲专栏索引
+> 本文聚焦于异构计算与 AI 编译器中的模式落地与高性能实践。若需系统研读经典 C++ 基础、类图推导、代码演进与重构到模式的心法，可点击查阅对应的 26 篇独立深度解析文章：
+> 
+> | 篇章大类 | 专栏单篇深度文章直达链接 |
+> | :--- | :--- |
+> | **基石与原则** | [第01讲：设计模式简介与思维转变](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-01-introduction.md) · [第02讲：面向对象八大设计原则深度解析](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-02-object-oriented-principles.md) |
+> | **创建型模式** | [第08讲：工厂方法模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-08-factory-method.md) · [第09讲：抽象工厂模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-09-abstract-factory.md) · [第10讲：原型模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-10-prototype.md) · [第11讲：构建器模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-11-builder.md) · [第12讲：单例模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-12-singleton.md) |
+> | **结构型模式** | [第06讲：装饰模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-06-decorator.md) · [第07讲：桥模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-07-bridge.md) · [第13讲：享元模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-13-flyweight.md) · [第14讲：门面模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-14-facade.md) · [第15讲：代理模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-15-proxy.md) · [第16讲：适配器模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-16-adapter.md) · [第20讲：组合模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-20-composite.md) |
+> | **行为型模式** | [第03讲：模板方法模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-03-template-method.md) · [第04讲：策略模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-04-strategy.md) · [第05讲：观察者模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-05-observer.md) · [第17讲：中介者模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-17-mediator.md) · [第18讲：状态模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-18-state.md) · [第19讲：备忘录模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-19-memento.md) · [第21讲：迭代器模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-21-iterator.md) · [第22讲：职责链模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-22-chain-of-responsibility.md) · [第23讲：命令模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-23-command.md) · [第24讲：访问者模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-24-visitor.md) · [第25讲：解释器模式](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-25-interpreter.md) |
+> | **心法与总结** | [第26讲：设计模式总结与重构心法](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-26-summary.md) |
+
+
 ---
 
 ### 3.1 创建型模式：管理对象与执行计划的构建

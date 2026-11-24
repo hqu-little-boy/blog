@@ -1,0 +1,421 @@
+---
+author: hqu-little-boy
+pubDatetime: 2026-11-23T10:17:00Z
+title: 设计模式沉思录（第18讲）：状态模式（State Pattern）
+featured: false
+draft: false
+tags:
+  - 设计模式
+  - C++
+  - 面向对象
+  - 架构设计
+description: 将对象在不同生命周期的行为委托给独立状态对象，彻底根除布尔标志位爆炸。
+---
+
+# 设计模式沉思录（第18讲）：状态模式（State Pattern）
+
+> [!NOTE] 专栏导读
+> 本文是 **《侯捷 C++ 设计模式沉思录》** 系列专栏的第 **18** 讲。
+> - **上一讲**：[上一讲：第17讲 中介者模式（Mediator Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-17-mediator.md)
+> - **下一讲**：[下一讲：第19讲 备忘录模式（Memento Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-19-memento.md)
+> - **架构进阶**：[异构计算与 AI 编译器设计模式全景实践指南](file:///home/ubuntu/git/blog/src/content/posts/heterogeneous-computing-and-ai-compiler-design-patterns-guide.md)
+
+
+## 一、模式概述
+
+State 模式属于**状态变化**这一类别（与 Memento 备忘录模式归为同类）。该类别关注的核心问题是：在组件构建过程中，某些对象的状态经常面临变化，如何对这些变化进行有效管理，同时维持高层模块的稳定。
+
+> **核心定义**：允许一个对象在其内部状态改变时改变它的行为。对象看起来似乎修改了其类——本质上是通过多态实现的运行时行为切换。
+
+## 二、问题场景：网络应用的状态管理
+
+### 架构类图与时序关系
+
+```mermaid
+classDiagram
+    class NetworkProcessor {
+        -NetworkState* state
+        +operation1()
+        +changeState(NetworkState*)
+    }
+    class NetworkState {
+        <<interface>>
+        +operation1(NetworkProcessor*)*
+    }
+    class OpenState {
+        +operation1(NetworkProcessor*)
+    }
+    class CloseState {
+        +operation1(NetworkProcessor*)
+    }
+    NetworkProcessor o--> NetworkState : 状态委托
+    NetworkState <|-- OpenState
+    NetworkState <|-- CloseState
+```
+
+
+假设有一个网络应用，它需要根据网络状态做出不同的行为调整。网络有三种状态：
+
+- **OPEN**（打开）
+- **CLOSED**（关闭）
+- **CONNECT**（连接）
+
+### 2.1 朴素实现：if-else 方案
+
+最直观的做法是用枚举表示状态，然后在每个操作中用 `if-else` 判断当前状态：
+
+```cpp
+#include <iostream>
+#include <string>
+
+enum class NetworkStateType {
+    OPEN,
+    CLOSED,
+    CONNECT
+};
+
+class NetworkProcessor {
+private:
+    NetworkStateType state_;
+
+public:
+    NetworkProcessor() : state_(NetworkStateType::OPEN) {}
+
+    void operation1() {
+        if (state_ == NetworkStateType::OPEN) {
+            std::cout << "[OPEN]   执行 operation1: 打开连接操作" << std::endl;
+            state_ = NetworkStateType::CLOSED; // 状态转换: OPEN -> CLOSED
+        }
+        else if (state_ == NetworkStateType::CLOSED) {
+            std::cout << "[CLOSED] 执行 operation1: 关闭状态下的特殊处理" << std::endl;
+            state_ == NetworkStateType::CONNECT; // 状态转换: CLOSED -> CONNECT
+        }
+        else if (state_ == NetworkStateType::CONNECT) {
+            std::cout << "[CONNECT] 执行 operation1: 连接状态下的处理" << std::endl;
+            state_ = NetworkStateType::OPEN; // 状态转换: CONNECT -> OPEN
+        }
+        // 如果新增 WAIT 状态，需要在这里再加一个 else if
+    }
+
+    void operation2() { /* 同样大量的 if-else ... */ }
+    void operation3() { /* 同样大量的 if-else ... */ }
+};
+```
+
+### 2.2 if-else 方案的问题
+
+1. **违反开闭原则（Open-Closed Principle）**：每新增一种状态，都需要在所有 `operation` 方法中添加 `else if` 分支，修改已有代码。
+2. **状态转换关系混乱**：所有状态的转换逻辑散布在各个 `operation` 中，难以维护。
+3. **代码膨胀**：随着状态和操作的增加，`if-else` 链条会急剧增长。
+
+## 三、State 模式的解决方案
+
+### 3.1 设计思路
+
+与 Strategy（策略）模式的手法异曲同工：
+
+1. **提取抽象基类**：将枚举类型转换为抽象基类 `NetworkState`，所有与状态相关的操作变为该类的纯虚函数。
+2. **派生具体状态类**：每种状态（Open、Closed、Connect）各自继承基类，实现自己的行为逻辑。
+3. **状态对象自管理转换**：每个状态对象内部维护一个 `nextState_` 指针，操作执行完毕后自行设置下一个状态。
+4. **上下文类持有抽象指针**：`NetworkProcessor` 只持有 `NetworkState*` 指针，通过多态调用行为。
+
+### 3.2 类图结构
+
+```
+┌─────────────────────┐         ┌─────────────────────────┐
+│   NetworkProcessor  │         │     NetworkState        │
+│     (Context)       │         │     (抽象基类)           │
+├─────────────────────┤         ├─────────────────────────┤
+│ - pState_: NetworkState* ────>│ + nextState_: NetworkState*│
+├─────────────────────┤         │ + operation1() = 0      │
+│ + operation1()      │         │ + operation2() = 0      │
+│ + operation2()      │         │ + operation3() = 0      │
+│ + operation3()      │         └────────┬────────────────┘
+└─────────────────────┘                  │
+                              ┌──────────┼──────────┐
+                              │          │          │
+                       ┌──────┴───┐ ┌────┴────┐ ┌───┴──────┐
+                       │OpenState │ │ClosedState│ │ConnectState│
+                       │(Singleton)│ │(Singleton)│ │(Singleton)│
+                       └──────────┘ └─────────┘ └──────────┘
+```
+
+**稳定性分析**：
+- **稳定部分**：`NetworkState`（抽象基类接口）、`NetworkProcessor`（上下文类）
+- **变化部分**：各种具体状态子类（`OpenState`、`ClosedState`、`ConnectState` 等）
+
+### 3.3 完整实现代码
+
+```cpp
+#include <iostream>
+#include <string>
+
+// ============================================================
+// 抽象状态基类
+// ============================================================
+class NetworkState {
+public:
+    NetworkState* nextState_; // 实际项目中应为 private + getter/setter
+
+    NetworkState() : nextState_(nullptr) {}
+    virtual ~NetworkState() = default;
+
+    virtual void operation1() = 0;
+    virtual void operation2() = 0;
+    virtual void operation3() = 0;
+    virtual std::string name() const = 0;
+};
+
+// ============================================================
+// 具体状态类声明（采用 Singleton 模式）
+// ============================================================
+class OpenState : public NetworkState {
+private:
+    OpenState() = default;
+public:
+    OpenState(const OpenState&) = delete;
+    OpenState& operator=(const OpenState&) = delete;
+    static OpenState* getInstance();
+    void operation1() override;
+    void operation2() override;
+    void operation3() override;
+    std::string name() const override { return "OPEN"; }
+};
+
+class ClosedState : public NetworkState {
+private:
+    ClosedState() = default;
+public:
+    ClosedState(const ClosedState&) = delete;
+    ClosedState& operator=(const ClosedState&) = delete;
+    static ClosedState* getInstance();
+    void operation1() override;
+    void operation2() override;
+    void operation3() override;
+    std::string name() const override { return "CLOSED"; }
+};
+
+class ConnectState : public NetworkState {
+private:
+    ConnectState() = default;
+public:
+    ConnectState(const ConnectState&) = delete;
+    ConnectState& operator=(const ConnectState&) = delete;
+    static ConnectState* getInstance();
+    void operation1() override;
+    void operation2() override;
+    void operation3() override;
+    std::string name() const override { return "CONNECT"; }
+};
+
+// ============================================================
+// Singleton 实现
+// ============================================================
+OpenState* OpenState::getInstance() {
+    static OpenState instance;
+    return &instance;
+}
+ClosedState* ClosedState::getInstance() {
+    static ClosedState instance;
+    return &instance;
+}
+ConnectState* ConnectState::getInstance() {
+    static ConnectState instance;
+    return &instance;
+}
+
+// ============================================================
+// OpenState 的状态行为与转换
+// ============================================================
+void OpenState::operation1() {
+    std::cout << "[OPEN]    执行 operation1: 打开连接操作" << std::endl;
+    nextState_ = ClosedState::getInstance();  // OPEN -> CLOSED
+}
+void OpenState::operation2() {
+    std::cout << "[OPEN]    执行 operation2: 打开态下的数据发送" << std::endl;
+    nextState_ = ConnectState::getInstance(); // OPEN -> CONNECT
+}
+void OpenState::operation3() {
+    std::cout << "[OPEN]    执行 operation3: 打开态下的心跳检测" << std::endl;
+    nextState_ = OpenState::getInstance();    // OPEN -> OPEN
+}
+
+// ============================================================
+// ClosedState 的状态行为与转换
+// ============================================================
+void ClosedState::operation1() {
+    std::cout << "[CLOSED]  执行 operation1: 关闭状态下的特殊处理" << std::endl;
+    nextState_ = ConnectState::getInstance(); // CLOSED -> CONNECT
+}
+void ClosedState::operation2() {
+    std::cout << "[CLOSED]  执行 operation2: 关闭态下的重启操作" << std::endl;
+    nextState_ = OpenState::getInstance();    // CLOSED -> OPEN
+}
+void ClosedState::operation3() {
+    std::cout << "[CLOSED]  执行 operation3: 关闭态下的资源释放" << std::endl;
+    nextState_ = ClosedState::getInstance();  // CLOSED -> CLOSED
+}
+
+// ============================================================
+// ConnectState 的状态行为与转换
+// ============================================================
+void ConnectState::operation1() {
+    std::cout << "[CONNECT] 执行 operation1: 连接状态下的处理" << std::endl;
+    nextState_ = OpenState::getInstance();    // CONNECT -> OPEN
+}
+void ConnectState::operation2() {
+    std::cout << "[CONNECT] 执行 operation2: 连接态下的数据接收" << std::endl;
+    nextState_ = ClosedState::getInstance();  // CONNECT -> CLOSED
+}
+void ConnectState::operation3() {
+    std::cout << "[CONNECT] 执行 operation3: 连接态下的状态查询" << std::endl;
+    nextState_ = OpenState::getInstance();    // CONNECT -> OPEN
+}
+
+// ============================================================
+// 上下文类：持有抽象状态指针
+// ============================================================
+class NetworkProcessor {
+private:
+    NetworkState* pState_;
+
+public:
+    NetworkProcessor() : pState_(OpenState::getInstance()) {}
+
+    void operation1() {
+        pState_->operation1();           // 多态调用
+        pState_ = pState_->nextState_;   // 状态切换
+    }
+
+    void operation2() {
+        pState_->operation2();
+        pState_ = pState_->nextState_;
+    }
+
+    void operation3() {
+        pState_->operation3();
+        pState_ = pState_->nextState_;
+    }
+
+    std::string getStateName() const {
+        return pState_->name();
+    }
+};
+
+int main() {
+    NetworkProcessor processor;
+
+    std::cout << "初始状态: " << processor.getStateName() << std::endl;
+
+    processor.operation1();
+    std::cout << "当前状态: " << processor.getStateName() << std::endl;
+
+    processor.operation2();
+    std::cout << "当前状态: " << processor.getStateName() << std::endl;
+
+    processor.operation3();
+    std::cout << "当前状态: " << processor.getStateName() << std::endl;
+
+    return 0;
+}
+```
+
+**运行输出**：
+```
+初始状态: OPEN
+[OPEN]    执行 operation1: 打开连接操作
+当前状态: CLOSED
+[CLOSED]  执行 operation2: 关闭态下的重启操作
+当前状态: OPEN
+[OPEN]    执行 operation3: 打开态下的心跳检测
+当前状态: OPEN
+```
+
+### 3.4 扩展示例：新增状态无需修改已有代码
+
+当需要新增 `WAIT`（等待）状态时，只需添加一个新的子类：
+
+```cpp
+class WaitState : public NetworkState {
+private:
+    WaitState() = default;
+public:
+    WaitState(const WaitState&) = delete;
+    WaitState& operator=(const WaitState&) = delete;
+    static WaitState* getInstance() {
+        static WaitState instance;
+        return &instance;
+    }
+    void operation1() override {
+        std::cout << "[WAIT] 执行 operation1: 等待态下的超时检测" << std::endl;
+        nextState_ = OpenState::getInstance();    // WAIT -> OPEN
+    }
+    void operation2() override {
+        std::cout << "[WAIT] 执行 operation2: 等待态下的重连尝试" << std::endl;
+        nextState_ = ConnectState::getInstance(); // WAIT -> CONNECT
+    }
+    void operation3() override {
+        std::cout << "[WAIT] 执行 operation3: 等待态下的状态保持" << std::endl;
+        nextState_ = WaitState::getInstance();    // WAIT -> WAIT
+    }
+    std::string name() const override { return "WAIT"; }
+};
+```
+
+**关键点**：`NetworkProcessor` 的代码**完全不需要修改**，新增状态通过继承扩展即可。
+
+## 四、虚函数的本质：运行时的 if-else
+
+`pState_->operation1()` 这句多态调用，在底层本质上就是一个**运行时的 if-else**：
+
+- 如果 `pState_` 指向 `OpenState` 对象 → 调用 `OpenState::operation1()`
+- 如果 `pState_` 指向 `ClosedState` 对象 → 调用 `ClosedState::operation1()`
+- 如果 `pState_` 指向 `ConnectState` 对象 → 调用 `ConnectState::operation1()`
+
+与手动写 `if-else` 的区别在于：**判断逻辑由编译器/运行时的虚函数表机制自动完成**，而我们只需要通过扩展子类来添加新的分支，无需修改已有代码。
+
+## 五、Singleton 模式在状态模式中的应用
+
+State 模式中的具体状态对象，如果没有除 `nextState_` 之外的实例变量，可以使用 **Singleton（单例）模式**：
+
+- **原因**：某个具体状态（如 `OpenState`）只需要一个实例即可，多个实例没有意义。
+- **好处**：
+  - 简化对象的生存周期管理
+  - 节省内存开销
+  - 上下文可以共享同一个状态对象
+
+## 六、State 模式与 Strategy 模式的对比
+
+| 对比维度 | State 模式 | Strategy 模式 |
+|---------|-----------|--------------|
+| **核心意图** | 对象在不同状态下的行为不同，状态会自动转换 | 客户端主动选择不同的算法/策略 |
+| **状态转换** | 状态对象内部自行管理转换关系 | 策略通常由外部设置，不自行切换 |
+| **使用者感知** | 对象行为随状态"自动"变化 | 客户端明确知道在使用哪种策略 |
+| **类图结构** | 几乎相同 | 几乎相同 |
+| **解决的问题** | if-else / switch 基于状态的分支判断 | if-else / switch 基于策略的分支判断 |
+
+> **侯捷老师的观点**：不必过于计较 State 和 Strategy 之间的差异。它们本质上都是用多态来替代 `if-else` 分支，解决的是同一类问题——**稳定点与变化点的分离**。在实际开发中，理解"用多态实现运行时的行为改变"这一核心思想，比记住模式的名字更重要。
+
+## 七、设计要点总结
+
+1. **将与特定状态相关的行为放入对应的状态子类中**：`operation1`、`operation2`、`operation3` 全部编码到对应的状态对象中。
+2. **状态切换时切换对象（而非枚举值）**：`pState_` 指向的是一个状态对象，切换时替换为另一个状态对象。
+3. **维持统一的接口**：所有状态子类都继承自 `NetworkState`，接口不变。
+4. **状态转换的原子性**：每个状态对象只关心自己执行完操作后的下一个状态是什么，不需要考虑更深层的状态链路，降低了耦合。
+5. **符合开闭原则**：新增状态通过添加子类实现，无需修改 `NetworkProcessor` 和已有状态类的代码。
+
+## 八、补充知识：状态模式的适用场景
+
+- **对象行为取决于其状态**，且必须在运行时根据状态改变行为。
+- **代码中包含大量与对象状态相关的条件分支**（`if-else` / `switch`），且这些分支会随着状态增加而不断膨胀。
+- **状态转换规则复杂**，需要清晰地管理各状态之间的转换关系。
+- 典型应用场景：TCP 连接状态管理、订单状态流转（待付款→已付款→已发货→已完成）、游戏角色状态（站立→行走→跳跃→攻击）等。
+
+
+---
+
+## 专栏导航与全景索引
+
+- [上一讲：第17讲 中介者模式（Mediator Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-17-mediator.md)
+- [下一讲：第19讲 备忘录模式（Memento Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-19-memento.md)
+- 架构进阶：[异构计算与 AI 编译器设计模式全景实践指南](file:///home/ubuntu/git/blog/src/content/posts/heterogeneous-computing-and-ai-compiler-design-patterns-guide.md)

@@ -1,0 +1,434 @@
+---
+author: hqu-little-boy
+pubDatetime: 2026-11-23T10:15:00Z
+title: 设计模式沉思录（第16讲）：适配器模式（Adapter Pattern）
+featured: false
+draft: false
+tags:
+  - 设计模式
+  - C++
+  - 面向对象
+  - 架构设计
+description: 转换已有类的接口形态，使因协议或签名不兼容的系统能够无缝协同工作。
+---
+
+# 设计模式沉思录（第16讲）：适配器模式（Adapter Pattern）
+
+> [!NOTE] 专栏导读
+> 本文是 **《侯捷 C++ 设计模式沉思录》** 系列专栏的第 **16** 讲。
+> - **上一讲**：[上一讲：第15讲 代理模式（Proxy Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-15-proxy.md)
+> - **下一讲**：[下一讲：第17讲 中介者模式（Mediator Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-17-mediator.md)
+> - **架构进阶**：[异构计算与 AI 编译器设计模式全景实践指南](file:///home/ubuntu/git/blog/src/content/posts/heterogeneous-computing-and-ai-compiler-design-patterns-guide.md)
+
+
+## 一、模式概述
+
+### 1.1 定义
+
+适配器模式（Adapter Pattern）属于**接口隔离模式**的一种，其核心思想是：
+
+> 将一个类的接口转换成客户希望的另一个接口，使得原本由于接口不兼容而不能一起工作的那些类可以一起工作。
+
+### 1.2 应用场景
+
+- 软件系统中，由于应用环境的变化，常常需要将一些**现存的（旧的）对象**放到**新环境**中使用
+- 新环境要求的接口与现存对象的接口不完全匹配
+- 需要应对**迁移变化**：把旧接口适配到新接口
+
+### 1.3 生活中的适配器
+
+适配器模式来源于日常生活，常见的例子包括：
+
+| 适配器类型 | 说明 |
+|-----------|------|
+| 水管适配器 | 进水管和出水管接口不匹配，通过适配器连接 |
+| HDMI 转 VGA 适配器 | 将 HDMI 信号转换为 VGA 信号 |
+| 电源适配器 | 将 220V 电压转换为更低的电压 |
+
+其本质都是：**在对接或移植时，解决不同接口的匹配需求**。
+
+---
+
+## 二、模式结构
+
+### 架构类图与时序关系
+
+```mermaid
+classDiagram
+    class ITarget {
+        <<interface>>
+        +process()*
+    }
+    class Adapter {
+        -IAdaptee* pAdaptee
+        +process()
+    }
+    class IAdaptee {
+        +oldProcess()
+    }
+    ITarget <|-- Adapter
+    Adapter o--> IAdaptee : 转发适配 (对象适配器)
+```
+
+
+### 2.1 类图
+
+```
+┌──────────────┐
+│   ITarget    │  ← 目标接口（新接口/希望的接口）
+│──────────────│
+│ +process()   │
+└──────┬───────┘
+       │ 继承（遵循接口规范）
+       │
+┌──────┴───────┐      组合（has-a）      ┌──────────────┐
+│   Adapter    │ ──────────────────────→ │  IAdaptee    │  ← 被适配者（遗留接口）
+│──────────────│                         │──────────────│
+│ -pAdaptee*   │                         │ +bar()       │
+│ +process()   │                         │ +foo(data)   │
+└──────────────┘                         └──────┬───────┘
+                                                │ 实现
+                                         ┌──────┴───────┐
+                                         │  OldClass    │  ← 遗留类
+                                         └──────────────┘
+```
+
+### 2.2 核心角色
+
+| 角色 | 说明 |
+|------|------|
+| **ITarget** | 目标接口，定义客户希望的新接口规范 |
+| **IAdaptee** | 被适配者接口，定义已有的（遗留的）接口 |
+| **Adapter** | 适配器，继承 ITarget 并组合 IAdaptee，完成接口转换 |
+| **OldClass** | 具体的遗留类，实现 IAdaptee 接口 |
+
+---
+
+## 三、两种实现方式
+
+### 3.1 对象适配器（Object Adapter）— 推荐
+
+**结构**：继承目标接口 + 组合被适配者对象
+
+```cpp
+class ObjectAdapter : public ITarget {
+protected:
+    IAdaptee* pAdaptee;  // 组合：持有被适配者指针
+public:
+    explicit ObjectAdapter(IAdaptee* adaptee) : pAdaptee(adaptee) {}
+    void process() override {
+        int data = pAdaptee->bar();
+        pAdaptee->foo(data);
+    }
+};
+```
+
+**优点**：
+- **灵活性高**：通过指针可以在运行时更换被适配的对象
+- **松耦合**：适配器与被适配者之间是组合关系，符合"优先使用组合而非继承"的原则
+- 符合合成复用原则（CRP）
+
+### 3.2 类适配器（Class Adapter）— 不推荐
+
+**结构**：多继承，公有继承目标接口 + 私有继承遗留类
+
+```cpp
+class ClassAdapter : public ITarget, private OldClass {
+public:
+    void process() override {
+        int data = bar();   // 直接调用继承来的 OldClass 方法
+        foo(data);
+    }
+};
+```
+
+**缺点**：
+- **缺乏灵活性**：被适配的类在编译期就已绑定，无法在运行时更换
+- **多继承问题**：C++ 多继承本身容易带来菱形继承等复杂问题
+- **语言兼容性差**：Java、C#、Swift 等语言不支持类的多继承，仅支持接口多继承
+- **结论**：类适配器几乎只有坏处没有好处，**推荐使用对象适配器**
+
+---
+
+## 四、对象适配器完整示例代码
+
+```cpp
+#include <iostream>
+#include <string>
+
+// ========== 目标接口（新接口） ==========
+class ITarget {
+public:
+    virtual ~ITarget() = default;
+    virtual void process() = 0;
+};
+
+// ========== 被适配者接口（遗留接口） ==========
+class IAdaptee {
+public:
+    virtual ~IAdaptee() = default;
+    virtual int bar() = 0;
+    virtual void foo(int data) = 0;
+};
+
+// ========== 遗留类：实现了旧接口 ==========
+class OldClass : public IAdaptee {
+public:
+    int bar() override {
+        std::cout << "OldClass::bar() 被调用，返回 42" << std::endl;
+        return 42;
+    }
+    void foo(int data) override {
+        std::cout << "OldClass::foo() 被调用，参数: " << data << std::endl;
+    }
+};
+
+// ========== 另一个遗留类 ==========
+class AnotherOldClass : public IAdaptee {
+public:
+    int bar() override {
+        std::cout << "AnotherOldClass::bar() 被调用，返回 100" << std::endl;
+        return 100;
+    }
+    void foo(int data) override {
+        std::cout << "AnotherOldClass::foo() 被调用，参数: " << data << std::endl;
+    }
+};
+
+// ========== 对象适配器（推荐） ==========
+class ObjectAdapter : public ITarget {
+protected:
+    IAdaptee* pAdaptee;
+public:
+    explicit ObjectAdapter(IAdaptee* adaptee) : pAdaptee(adaptee) {}
+    void process() override {
+        int data = pAdaptee->bar();
+        pAdaptee->foo(data);
+        std::cout << "ObjectAdapter::process() 完成接口转换" << std::endl;
+    }
+};
+
+int main() {
+    // 创建遗留对象
+    IAdaptee* oldObj = new OldClass();
+    ITarget* pTarget = new ObjectAdapter(oldObj);
+
+    std::cout << "=== 使用 OldClass 通过对象适配器 ===" << std::endl;
+    pTarget->process();
+
+    std::cout << std::endl;
+
+    // 灵活性：可以更换为另一个遗留类
+    delete pTarget;
+    IAdaptee* anotherObj = new AnotherOldClass();
+    pTarget = new ObjectAdapter(anotherObj);
+
+    std::cout << "=== 使用 AnotherOldClass 通过对象适配器 ===" << std::endl;
+    pTarget->process();
+
+    delete pTarget;
+    delete oldObj;
+    delete anotherObj;
+    return 0;
+}
+```
+
+**输出**：
+```
+=== 使用 OldClass 通过对象适配器 ===
+OldClass::bar() 被调用，返回 42
+OldClass::foo() 被调用，参数: 42
+ObjectAdapter::process() 完成接口转换
+
+=== 使用 AnotherOldClass 通过对象适配器 ===
+AnotherOldClass::bar() 被调用，返回 100
+AnotherOldClass::foo() 被调用，参数: 100
+ObjectAdapter::process() 完成接口转换
+```
+
+---
+
+## 五、STL 中的适配器模式
+
+STL 中 `std::stack` 和 `std::queue` 是适配器模式的经典应用。它们内部都使用 `std::deque` 作为底层容器，将 deque 的接口适配为不同的数据结构接口。
+
+### 5.1 关系说明
+
+| 适配器 | 底层容器 | 适配后的接口 |
+|--------|---------|-------------|
+| `std::stack` | `std::deque` | LIFO 栈接口（push/pop/top） |
+| `std::queue` | `std::deque` | FIFO 队列接口（push/pop/front） |
+
+### 5.2 模拟实现代码
+
+```cpp
+#include <iostream>
+#include <deque>
+
+// 简化的 deque 模拟（被适配者）
+template <typename T>
+class SimpleDeque {
+    T data[100];
+    int front_idx = 0;
+    int back_idx = 0;
+public:
+    void push_back(const T& val) { data[back_idx++] = val; }
+    void push_front(const T& val) { data[--front_idx] = val; }
+    T pop_back() { return data[--back_idx]; }
+    T pop_front() { return data[front_idx++]; }
+    T& back() { return data[back_idx - 1]; }
+    T& front() { return data[front_idx]; }
+    bool empty() const { return front_idx == back_idx; }
+};
+
+// Stack 适配器：将 deque 接口适配为 LIFO 栈接口
+template <typename T>
+class StackAdapter {
+    SimpleDeque<T> container;  // 组合 deque
+public:
+    void push(const T& val) { container.push_back(val); }
+    T pop() { return container.pop_back(); }
+    T& top() { return container.back(); }
+    bool empty() const { return container.empty(); }
+};
+
+// Queue 适配器：将 deque 接口适配为 FIFO 队列接口
+template <typename T>
+class QueueAdapter {
+    SimpleDeque<T> container;  // 组合 deque
+public:
+    void push(const T& val) { container.push_back(val); }
+    T pop() { return container.pop_front(); }
+    T& front() { return container.front(); }
+    bool empty() const { return container.empty(); }
+};
+
+int main() {
+    std::cout << "=== Stack 适配器（LIFO）===" << std::endl;
+    StackAdapter<int> stack;
+    stack.push(10);
+    stack.push(20);
+    stack.push(30);
+    std::cout << "栈顶: " << stack.top() << std::endl;  // 30
+    std::cout << "弹出: " << stack.pop() << std::endl;   // 30
+    std::cout << "弹出: " << stack.pop() << std::endl;   // 20
+
+    std::cout << std::endl;
+
+    std::cout << "=== Queue 适配器（FIFO）===" << std::endl;
+    QueueAdapter<int> queue;
+    queue.push(10);
+    queue.push(20);
+    queue.push(30);
+    std::cout << "队首: " << queue.front() << std::endl;  // 10
+    std::cout << "弹出: " << queue.pop() << std::endl;    // 10
+    std::cout << "弹出: " << queue.pop() << std::endl;    // 20
+
+    return 0;
+}
+```
+
+**输出**：
+```
+=== Stack 适配器（LIFO）===
+栈顶: 30
+弹出: 30
+弹出: 20
+
+=== Queue 适配器（FIFO）===
+队首: 10
+弹出: 10
+弹出: 20
+```
+
+**说明**：STL 中的 stack 和 queue 没有显式继承某个 `ITarget` 接口，但其本质仍然是将 deque 的接口适配为不同的目标接口，符合适配器模式的核心思想。
+
+---
+
+## 六、类适配器示例代码
+
+```cpp
+#include <iostream>
+
+class ITarget {
+public:
+    virtual ~ITarget() = default;
+    virtual void process() = 0;
+};
+
+class OldClass {
+public:
+    int bar() {
+        std::cout << "OldClass::bar() 返回 42" << std::endl;
+        return 42;
+    }
+    void foo(int data) {
+        std::cout << "OldClass::foo() 参数: " << data << std::endl;
+    }
+};
+
+// 类适配器：多继承（不推荐）
+class ClassAdapter : public ITarget, private OldClass {
+public:
+    void process() override {
+        int data = bar();
+        foo(data);
+        std::cout << "ClassAdapter::process() 完成" << std::endl;
+    }
+};
+
+int main() {
+    ITarget* pTarget = new ClassAdapter();
+    std::cout << "=== 类适配器示例 ===" << std::endl;
+    pTarget->process();
+    delete pTarget;
+    return 0;
+}
+```
+
+---
+
+## 七、关键要点总结
+
+### 7.1 模式核心
+
+| 要点 | 说明 |
+|------|------|
+| 模式类型 | 接口隔离模式 |
+| 核心思想 | 将一个类的接口转换成客户希望的另一个接口 |
+| 设计原则 | 合成复用原则（优先组合而非继承） |
+| 变化点 | 被适配的具体类（通过组合指针实现灵活性） |
+| 稳定点 | 目标接口（ITarget）和适配器（Adapter）的结构 |
+
+### 7.2 对象适配器 vs 类适配器
+
+| 对比项 | 对象适配器 | 类适配器 |
+|--------|-----------|---------|
+| 实现方式 | 继承 + 组合 | 多继承 |
+| 灵活性 | 高（运行时可更换被适配对象） | 低（编译期绑定） |
+| 耦合度 | 松耦合 | 紧耦合 |
+| 语言兼容 | 所有面向对象语言 | 仅 C++ 等支持多继承的语言 |
+| 推荐程度 | **推荐** | **不推荐** |
+
+### 7.3 设计模式学习建议
+
+- 不能太死板地追求与 GoF 经典定义一模一样的代码结构
+- 设计模式有很多**变体形式**，代码可能千差万别
+- 关键是理解模式的**场景、解决问题的手法、变化点和稳定点的分离方式**
+- 学习设计模式应上升到**设计原则和设计手段的灵活运用**层面
+- 学习设计模式的过程，会反过来帮助深入理解**多态、继承、组合、动态绑定**等核心机制
+
+### 7.4 适用场景
+
+- 遗留代码复用和类库迁移
+- 框架开发中处理接口不兼容的迁移需求
+- 需要在不修改原有类的情况下，使其适配新接口
+
+
+---
+
+## 专栏导航与全景索引
+
+- [上一讲：第15讲 代理模式（Proxy Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-15-proxy.md)
+- [下一讲：第17讲 中介者模式（Mediator Pattern）](file:///home/ubuntu/git/blog/src/content/posts/design-patterns-17-mediator.md)
+- 架构进阶：[异构计算与 AI 编译器设计模式全景实践指南](file:///home/ubuntu/git/blog/src/content/posts/heterogeneous-computing-and-ai-compiler-design-patterns-guide.md)
