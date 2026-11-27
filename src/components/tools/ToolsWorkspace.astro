@@ -140,7 +140,7 @@ const { initialTool = "latex" } = Astro.props;
       </button>
     </div>
 
-    <!-- Tool description & Status summary -->
+    <!-- Tool description -->
     <div class="text-on-surface-variant flex items-center gap-2.5 text-xs">
       <span
         id="tool-desc-badge"
@@ -148,10 +148,6 @@ const { initialTool = "latex" } = Astro.props;
       >
         LaTeX 数学公式渲染
       </span>
-      <span class="text-on-surface-variant/40 hidden sm:inline">•</span>
-      <span class="text-on-surface-variant/70 hidden sm:inline"
-        >支持实时编译与全屏独立预览</span
-      >
     </div>
   </div>
 
@@ -470,7 +466,7 @@ const { initialTool = "latex" } = Astro.props;
             id="open-new-tab-btn"
             type="button"
             class="bg-primary text-on-primary hover:bg-primary/90 inline-flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold shadow-xs transition-all duration-200 active:scale-95"
-            title="在新标签页中全屏展示（只展示预览内容）"
+            title="在新标签页中打开"
           >
             <svg
               class="size-3.5"
@@ -544,9 +540,6 @@ const { initialTool = "latex" } = Astro.props;
       >
         <div class="flex items-center gap-2">
           <span id="preview-format-hint">矢量 SVG 渲染模式</span>
-        </div>
-        <div class="flex items-center gap-2">
-          <span>点击右上角按钮弹出纯净新标签页</span>
         </div>
       </div>
     </div>

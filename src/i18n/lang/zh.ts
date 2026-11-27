@@ -61,12 +61,10 @@ export default {
     archivesDesc: "按时间归档的历史文章。",
 
     toolsTitle: "在线渲染工具",
-    toolsDesc:
-      "支持 LaTeX、Graphviz、Mermaid、HTML、SVG 的双栏实时渲染与全屏预览工具箱。",
+    toolsDesc: "支持 LaTeX、Graphviz、Mermaid、HTML 与 SVG 在线渲染。",
 
     compileTitle: "在线编译器",
-    compileDesc:
-      "基于 Compiler Explorer (Godbolt) API 的三栏交互式编译器，实时探索 C/C++/Rust 汇编生成与云端沙箱执行。",
+    compileDesc: "支持 C、C++ 与 Rust 的在线编译运行与汇编查看。",
 
     searchTitle: "搜索",
     searchDesc: "输入关键词搜索文章...",

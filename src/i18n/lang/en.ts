@@ -61,12 +61,11 @@ export default {
     archivesDesc: "All the articles I've archived.",
 
     toolsTitle: "Online Rendering Tools",
-    toolsDesc:
-      "Real-time dual-column renderer for LaTeX, Graphviz, Mermaid, HTML, and SVG.",
+    toolsDesc: "Online renderer for LaTeX, Graphviz, Mermaid, HTML, and SVG.",
 
     compileTitle: "Online Compiler",
     compileDesc:
-      "Interactive three-column compiler explorer powered by Godbolt API for C/C++/Rust assembly inspection and cloud execution.",
+      "Online C, C++, and Rust compiler with assembly inspection and execution.",
 
     searchTitle: "Search",
     searchDesc: "Search any article ...",

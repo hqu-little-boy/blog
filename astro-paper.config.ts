@@ -4,7 +4,7 @@ export default defineAstroPaperConfig({
   site: {
     url: "https://blog.pages.dev/",
     title: "Little Boy's Blog",
-    description: "极简克制与灵动并存的个人博客，基于 Astro 与 Material Design 3 设计规范。",
+    description: "记录思考、技术与生活的个人博客。",
     author: "hqu-little-boy",
     profile: "https://github.com/hqu-little-boy",
     ogImage: "default-og.jpg",

@@ -45,20 +45,13 @@ const initialFormattedDate = new Intl.DateTimeFormat(
     <!-- Pixel Launcher: At a Glance Section -->
     <section id="hero" class="pt-8 pb-3">
       <div class="flex flex-col gap-2">
-        <!-- Date & Status Pill -->
+        <!-- Date -->
         <div
           class="text-on-surface-variant flex items-center gap-2.5 text-xs font-medium sm:text-sm"
         >
           <span id="pixel-at-a-glance-date" class="tracking-wide"
             >{initialFormattedDate}</span
           >
-          <span class="bg-on-surface-variant/50 size-1 rounded-full"></span>
-          <span
-            class="bg-secondary-container text-on-secondary-container inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-semibold sm:text-xs"
-          >
-            <span class="bg-primary size-1.5 animate-pulse rounded-full"></span>
-            <span>Material You · Pixel 风格</span>
-          </span>
         </div>
 
         <div class="mt-1 flex items-baseline justify-between gap-4">
@@ -82,8 +75,7 @@ const initialFormattedDate = new Intl.DateTimeFormat(
         <p
           class="text-on-surface-variant mt-1 text-base leading-relaxed sm:text-lg"
         >
-          记录思考、技术与生活。基于 Astro 与 Material Design 3
-          风格打造，极简、克制、灵动。
+          记录思考、技术与生活。
         </p>
 
         {
