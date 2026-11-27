@@ -9,10 +9,12 @@ tags:
   - GPU
   - CUDA
   - TensorCore
+  - 编译器
+  - 性能优化
   - 体系结构
   - 异构计算
   - 并行计算
-description: 面向 NVIDIA GPU 体系结构与 CUDA 编程初学者，从零拆解现代 NVIDIA GPU 内部的三层异构核心（CUDA Core、Tensor Core、RT Core）、SM 专用辅助单元（SFU、LD/ST、TMA、Texture Unit）与芯片级外围引擎（NVENC/NVDEC、OFA、NVJPEG、解压缩引擎、RISC-V GSP）。深入解析 CUDA C++ 经 NVCC→PTX→ptxas→SASS 降级并分发到各硬件流水线的映射机制、SASS MUFU 指令 8 拍吞吐与记分板延迟真相、WMMA/内联 PTX/Triton 调用与 Fragment Layout 协同映射、图灵完备性互替边界，以及“只能算矩阵乘加的 Tensor Core 为何叫 Tensor Core”的历史与数学本质。配备多张 Graphviz 与 Mermaid 高清可视化图解。
+description: 面向 NVIDIA GPU 体系结构、CUDA 编程与 AI 编译器（Triton/CUTLASS/MLIR）开发者，从零拆解现代 NVIDIA GPU 内部的三层异构核心（CUDA Core、Tensor Core、RT Core）、SM 专用辅助单元（SFU、LD/ST、TMA、Texture Unit）与芯片级外围引擎（NVENC/NVDEC、OFA、NVJPEG、解压缩引擎、RISC-V GSP）。深入解析 CUDA C++ 经 NVCC→PTX→ptxas→SASS 降级映射、MUFU 8 拍吞吐与记分板延迟、WMMA/内联 PTX 调用与 Fragment Layout 协同映射、为什么 Tensor Core 只做矩阵乘加，以及 CUDA 与 DSL 编译器必须掌握的存储层次、合并访存、Shared Memory Bank Conflict 与 Swizzle 消除、Occupancy 权衡、Cluster DSMEM、Warp Specialization、独立线程调度与 mbarrier 一致性模型。配备多张 Graphviz 与 Mermaid 高清可视化图解。
 ---
 
 > **导读**：很多初学 CUDA 编程的同学脑海里往往有一个简化印象：“GPU 里面塞了成千上万个小 CPU 核心，写好 `__global__` 核函数扔上去并发跑就完了。”
@@ -60,6 +62,7 @@ flowchart TD
     Root --> L4["四、Tensor Core 调用与互替边界<br/>(WMMA/PTX/Triton 与 Collective 协同映射)"]
     Root --> L5["五、终极追问<br/>(连 SIMD 张量都算不了，为何叫 Tensor Core？)"]
     Root --> L6["六、SM 微观拓扑与工程调优实战<br/>(4 Sub-partition 布局 + cuobjdump/Nsight 验证)"]
+    Root --> L7["七、CUDA 与 DSL 编译器硬件必修课<br/>(存储层次/Bank Conflict/Swizzle/Warp 特化/mbarrier)"]
 
     L1 --> L1A["CUDA Core / Tensor Core / RT Core<br/>+ SFU / LD-ST / TMA / TEX"]
     L2 --> L2A["隐式映射 vs Fast Math / API / 内联 PTX<br/>vs OptiX JIT 与 Host 侧独立 SDK"]
@@ -67,6 +70,7 @@ flowchart TD
     L4 --> L4A["CUDA Core 图灵完备可模拟万物<br/>Tensor Core 非图灵完备但快 1~2 个数量级"]
     L5 --> L5A["2017 营销风口 + 数学降维现实<br/>90%+ 高维张量算力最终归宿于 2D GEMM"]
     L6 --> L6A["Sub-partition 资源切分与共享 SRAM<br/>SASS 反汇编 + Nsight Compute 管道诊断"]
+    L7 --> L7A["Coalescing + Swizzle + Occupancy 权衡<br/>Cluster DSMEM + 编译器 Pass 硬件契约"]
 
     style Root fill:#eff6ff,stroke:#2563eb,stroke-width:2px
     style L1 fill:#ecfdf5,stroke:#16a34a
@@ -75,6 +79,7 @@ flowchart TD
     style L4 fill:#fef2f2,stroke:#dc2626
     style L5 fill:#f0f9ff,stroke:#0284c7
     style L6 fill:#fdf4ff,stroke:#c026d3
+    style L7 fill:#fff7ed,stroke:#ea580c
 ```
 
 ---
@@ -797,7 +802,184 @@ ncu --set full -o profile_report ./my_cuda_kernel
 
 ---
 
-## 九、终极选型决策树与全篇自查清单
+## 九、面向 CUDA 编程与 DSL 编译器开发的硬件必修课
+
+弄懂了“有哪些核心”只是第一步。如果你打算手写高性能 CUDA Kernel，或者正在研发 **Triton、CUTLASS CuTe、TVM、MLIR（NVGPU/NVVM 方言）** 这类 GPU DSL 与张量编译器，光知道算力核心远远不够——因为现代 GPU 上 **90% 的性能瓶颈并不是算力不够，而是数据没有以硬件喜欢的方式送进核心里**。
+
+以下是 CUDA 工程师与 DSL 编译器后端开发者必须牢牢刻在脑海里的 **6 大底层硬件契约**：
+
+---
+
+### 9.1 四级存储层次、合并访存（Coalescing）与异步直通路径
+
+GPU 是一台极度“重计算、轻缓存”的机器，算力与显存带宽之间存在巨大的**存储墙（Memory Wall）**。编写 CUDA 或设计编译器 Tiling（分块）Pass 时，必须先摸清这四级存储的物理脾气：
+
+| 存储层级 | 物理位置与作用域 | 典型容量（单 SM / 芯片） | 访存延迟量级 | 编程与 DSL 编译器关注重点 |
+| :--- | :--- | :--- | :--- | :--- |
+| **Register File** | SM Sub-partition 内（Thread 私有） | 256 KB / SM<br/>（单线程硬上限 **255** 个 32-bit 寄存器） | ~1 拍（零延迟流水） | **警惕溢出（Spilling）**：一旦超出 255 个寄存器或人为限制过多，变量会被编译器悄悄踢到 **Local Memory**（物理上走 L1/L2/HBM，性能暴跌！）。 |
+| **Shared Memory / L1** | SM 内共享 SRAM（CTA 内共享） | 128 KB ~ 228 KB / SM（可配置切分比例） | ~20~30 拍 | 编译器 **Tiling** 的主战场。需要精确计算多缓冲（Multi-stage）总字节数，避免超出单 SM 容量上限。 |
+| **L2 Cache** | 芯片级共享（所有 SM 互通） | 数十 MB（如 H100 为 50 MB） | ~200+ 拍 | **跨 CTA 复用的唯一硬件缓存**。编译器常通过 **CTA Swizzling（Grid 调度块重排，如 L2 Cache 局部性 Z-order）** 提高 L2 命中率。 |
+| **Global Memory (HBM/GDDR)** | 独立显存颗粒（全设备共享） | 数十至上百 GB | ~400~800+ 拍 | 必须保证 **合并访存（Coalescing）** 并通过 `cp.async` / `TMA` 异步预取隐藏长延迟。 |
+
+#### 1. 合并访存（Memory Coalescing）与 32B Sector
+
+Global Memory 控制器并不会按“单个 `float`（4 字节）”去读写显存，而是以 **32 字节扇区（Sector）** 为最小物理传输事务（4 个连续 Sector 组成一条 128 字节 Cache Line）：
+
+- **理想合并**：当一个 Warp 的 32 个线程访问连续且对齐的 32 个 `float`（共 128 字节）时，硬件只需要发起 **4 个 32B Sector 事务（1 条 Cache Line）**，带宽利用率 **100%**。
+- **步长灾难**：如果线程按大步长跳跃访问（例如按列读一个行主序二维矩阵），32 个线程的地址落在了 32 个互不相连的 Sector 上，硬件被迫发起 **32 次独立内存事务**，有效带宽瞬间跌至 **1/8 甚至 1/32**！
+- **对 DSL 编译器的启示**：Triton / CuTe 在做线程布局推导（Thread Layout Inference）时，有一条铁律——**必须将线程束内相邻的 `lane_id` 映射到张量内存中步长为 1（Contiguous）的最内层维度上**，并且尽可能做向量化宽指令加载（如 `LDG.E.128`，每线程一次加载 16 字节 `float4`）。
+
+#### 2. 绕过寄存器的异步数据通路演进
+
+从显存搬数据进 Shared Memory，硬件经历了三代演进，这也是现代编译器 **Software Pipelining（软件流水线）** Pass 必须区分的路径：
+
+- **传统同步路径（Volta/Turing）**：`LDG`（Global $\rightarrow$ Register）+ `STS`（Register $\rightarrow$ Shared）。数据必须在宝贵的 Register File 里中转一圈，白白占用寄存器名额并拉高延迟。
+- **Ampere 异步拷贝（`cp.async` / SASS `LDGSTS`）**：硬件允许数据**直接从 Global Memory（经 L2/L1）写进 Shared Memory，彻底绕过寄存器**！这让双缓冲/多缓冲（Multi-stage Prefetch）流水线正式普及。
+- **Hopper/Blackwell 张量异步搬运（`TMA` / `cp.async.bulk.tensor`）**：连每线程算地址和判断边界 `if (row < M)` 都省了——只需要 1 个线程提交 `CUtensorMap` 描述符，TMA 引擎后台自动搬运并自动越界补零，配合 `mbarrier` 完成通知。
+
+---
+
+### 9.2 Shared Memory Bank Conflict 与 Swizzle 硬件消除术
+
+新手好不容易把数据搬进了飞快的 Shared Memory，结果一测性能依然很差，十有八九撞上了 **Bank Conflict（存储体冲突）**。
+
+#### 1. 物理原理：32 个 4 字节宽的 Bank
+
+在物理电路上，SM 里的 Shared Memory 并不是一整块单口内存，而是被切分成了 **32 个独立的存储体（Bank 0 ~ Bank 31）**，每个 Bank 的宽度固定为 **4 字节（32-bit）**。地址映射规则非常简单：
+
+$$
+\text{Bank ID} = \left\lfloor \frac{\text{Byte Address}}{4} \right\rfloor \bmod 32
+$$
+
+- **无冲突（1 拍完成）**：一个 Warp 的 32 个线程同时读写的地址刚好分散在 32 个不同的 Bank 上，或者多个线程读**同一个 32-bit 地址**（触发硬件 **Broadcast 广播机制**）。
+- **$N$-way Bank Conflict（性能下降 $N$ 倍）**：如果 32 个线程中有 $N$ 个线程访问了**同一个 Bank 里的不同地址**（比如线程 0 读 `Bank 0` 的第 0 行，线程 1 读 `Bank 0` 的第 1 行），硬件只能把它们拆成 $N$ 批串行服务！
+
+#### 2. 为什么 Tensor Core 极易触发 Bank Conflict？如何用 `Swizzle` 零成本解决？
+
+在做矩阵乘（GEMM）或矩阵转置时，我们经常需要“按行写入 Shared Memory，再按列读出来喂给 Tensor Core”。如果矩阵的列宽（Stride）恰好是 32 个 `float`（128 字节）或 64 个 `half`，那么同一列上的所有元素全部会落进 **同一个 Bank**，引发灾难性的 **32-way 或 16-way Bank Conflict**！
+
+工程与编译器上有两种解法：
+- **老办法：Padding（行尾填充）**：在每行末尾人为多塞 1~4 个无用的空白元素，把行步长错开。缺点是白白浪费稀缺的 Shared Memory 容量，且破坏 **TMA** 要求的 16 字节/128 字节对齐规范。
+- **现代编译器核心绝招：Swizzle（异或地址混淆）**：在 **CUTLASS CuTe** 与 **Triton** 编译器中，普遍采用一种零额外空间开销的位运算技巧——**Swizzle**！它利用矩阵元素所在的行号高位与列号进行按位异或（`XOR`）：
+  $$\text{Swizzled\_Col} = \text{Col} \oplus (\text{Row} \bmod K)$$
+  这样一来，**写入时同一行仍处于不同 Bank，而读取时原本撞在同一列同一个 Bank 的元素，被巧妙地“错位”打散到了不同的 Bank 中**，而且还完美兼容 `TMA` 硬件的 Swizzle 模式（如 32B / 64B / 128B Swizzle）以及 `ldmatrix` 指令！
+
+```dot
+digraph BankConflictVsSwizzle {
+    rankdir=TB;
+    node [shape=box, style="rounded,filled", fontname="sans-serif", fontsize=10];
+    edge [color="#475569", fontname="sans-serif", fontsize=9];
+
+    subgraph cluster_conflict {
+        label="传统无混淆布局：按列访问触发 4-way / 32-way Bank Conflict";
+        style="rounded,dashed";
+        color="#dc2626";
+        bgcolor="#fef2f2";
+
+        r0 [label="Row 0: [Col0 -> Bank 0] | [Col1 -> Bank 1] | ...", fillcolor="#fee2e2", color="#b91c1c"];
+        r1 [label="Row 1: [Col0 -> Bank 0] | [Col1 -> Bank 1] | ...", fillcolor="#fee2e2", color="#b91c1c"];
+        r2 [label="Row 2: [Col0 -> Bank 0] | [Col1 -> Bank 1] | ...", fillcolor="#fee2e2", color="#b91c1c"];
+        c_warn [label="当不同线程同时读同一列 Col0 时：\n全部撞进 Bank 0 -> 硬件被迫串行排队！", fillcolor="#ffffff", color="#dc2626"];
+
+        r0 -> r1 -> r2 -> c_warn [style=invis];
+    }
+
+    subgraph cluster_swizzle {
+        label="CuTe / Triton / TMA Swizzle 布局：Col' = Col XOR Row (零空间浪费)";
+        style="rounded,dashed";
+        color="#16a34a";
+        bgcolor="#f0fdf4";
+
+        s0 [label="Row 0 (⊕0): [Col0 -> Bank 0] | [Col1 -> Bank 1] | [Col2 -> Bank 2]", fillcolor="#dcfce7", color="#15803d"];
+        s1 [label="Row 1 (⊕1): [Col0 -> Bank 1] | [Col1 -> Bank 0] | [Col2 -> Bank 3]", fillcolor="#dcfce7", color="#15803d"];
+        s2 [label="Row 2 (⊕2): [Col0 -> Bank 2] | [Col1 -> Bank 3] | [Col2 -> Bank 0]", fillcolor="#dcfce7", color="#15803d"];
+        s_ok [label="按行写不冲突 + 按列读 Col0 分别命中 Bank 0, 1, 2 -> 1 拍全速并发！", fillcolor="#ffffff", color="#16a34a"];
+
+        s0 -> s1 -> s2 -> s_ok [style=invis];
+    }
+}
+```
+
+---
+
+### 9.3 Occupancy（占用率）与延迟隐藏：为什么“100% 占用率”反而不一定最快？
+
+GPU 没有 CPU 那样庞大的乱序执行（Out-of-Order）窗口和几兆字节分支预测器，它隐藏几百拍 Global Memory 延迟或 20 拍 `MUFU` / `HMMA` 延迟的唯一法宝，叫做 **零开销硬件线程束切换（Zero-Overhead Warp Switching）**：当前正在跑的 Warp 一旦等数据卡住（Stall），Warp Scheduler 就在**下一个时钟周期**无缝切到另一个已经就绪的 Warp 继续发射指令。
+
+所谓 **Occupancy（占用率）**，就是 **“当前 SM 上实际驻留的活跃 Warp 数 ÷ 该 SM 硬件支持的最大 Warp 数”**。限制占用率的三大硬件天花板分别是：
+1. **硬件硬上限**：例如 Ampere GA100 / Hopper GH100 每 SM 最多驻留 `64` 个 Warp（2048 线程），部分消费级/Ada 架构为 `48` 个 Warp（1536 线程）；每 SM 最大 CTA（线程块）数量也有上限（如 `16` 或 `32` 个）。
+2. **Register File 瓶颈（256 KB / SM）**：若单个线程消耗了 `128` 个寄存器，整个 SM 最多只能塞 $65,536 \div 128 = 512$ 个线程（`16` 个 Warp），Occupancy 上限立刻跌到 `25%`（64 Warp 架构下）。
+3. **Shared Memory 瓶颈**：若每个 CTA 申请了超过半数可用 SMEM（例如 164 KB 中的 96 KB），同一个 SM 就只能放 **1 个 CTA**，剩下几十 KB 的 SMEM 与其他 Sub-partition 算力都会遭遇“木桶效应”浪费。
+
+> [!IMPORTANT] 编译器调优的核心反直觉：低 Occupancy + 大 Tile 往往完胜 100% Occupancy
+> 初学者常把“追求 100% Occupancy”当成金科玉律，但在 **CUTLASS / Triton** 编写的高性能 GEMM 与 FlashAttention 算子中，最优内核的 Occupancy 往往只有 **25% ~ 50%**（每个 SM 只驻留 1~2 个巨型 CTA）！
+>
+> 原因在于：**更大的分块（Tile Size）需要更多寄存器和 Shared Memory，但能换来成倍提升的矩阵数据复用率（Arithmetic Intensity），彻底打破显存带宽瓶颈**；而少量的活跃 Warp 已经足够通过 **ILP（指令级并行，如循环展开同时发射多条独立指令）** 和 **`cp.async`/`TMA` 多阶段预取流水线**把执行单元喂饱。DSL 编译器的 Auto-tuner 本质上就是在 **Tile Size、Register/SMEM Pressure、Stages 与 Occupancy** 之间做帕累托最优搜索。
+
+---
+
+### 9.4 线程层次演化：从 `Grid/Block/Warp` 到 Hopper `Cluster / DSMEM` 与 `Warp Specialization`
+
+在软件层面写 CUDA 或 DSL 时，逻辑层次与物理硬件资源的绑定关系必须一清二楚：
+
+1. **Warp（32 线程）—— 跨线程寄存器直传的秘密通道**
+   除了共同执行 Tensor Core `mma` 指令外，同一个 Warp 的 32 个线程之间还可以直接通过 **Warp Shuffle 指令**（如 `__shfl_sync`、`__shfl_xor_sync`，底层 SASS 为 `SHFL`）**直接互读对方寄存器里的值**，完全不需要绕道 Shared Memory 和 `__syncthreads()`！这是实现极速块内归约（Reduction，如 Softmax 求最大值与求和）的核心原语。
+2. **CTA / Thread Block $\leftrightarrow$ 绑定至单个 SM**
+   同一个 CTA 内的所有 Warp 保证落在**同一个 SM** 上，共享同一个 Shared Memory 池。
+3. **Thread Block Cluster + DSMEM（Hopper / Blackwell 第四级层次）**
+   从 Hopper 架构开始，NVIDIA 在 Grid 和 CTA 之间新增了一级硬件抽象——**Cluster（线程块集群）**，其物理载体是芯片上的 **GPC（Graphics Processing Cluster，图形处理集群）** 内的多个相邻 SM：
+   - 同一 Cluster 内的不同 CTA 会被调度到直连的 SM 上，通过专门的 **SM-to-SM 网络**直接读写彼此的 Shared Memory，这被称为 **Distributed Shared Memory（DSMEM，分布式共享内存）**。
+   - **TMA Multicast（硬件多播）**：当多个相邻 SM 需要同一块权重矩阵时，TMA 只需从 HBM 读取**一次**数据，就能像广播电台一样同时复制进 Cluster 内多个 SM 的 Shared Memory，成倍节省宝贵的 HBM 显存与 L2 带宽！
+   - **Blackwell 2-CTA 协作矩阵乘（`tcgen05`）**：支持 Cluster 内相邻两个 SM 协同完成一个超大矩阵分片计算，进一步减少权重加载次数。
+4. **Warp Specialization（线程束特化：Producer-Consumer 异步接力）**
+   这是 **Hopper / Blackwell** 时代 CUTLASS 3.x 与前沿 DSL（如 Triton / TileLang）最核心的编程范式转变：不再让 CTA 里的所有 Warp 干相同的活，而是把它们分成两支专业特种部队：
+   - **Producer Warp（搬运工组）**：专门调用 `TMA` 异步把下一批数据搬进 SMEM，甚至主动调用 PTX 指令 `setmaxnreg.dec` **把多余的寄存器让渡出去**。
+   - **Consumer Warp Group（算力主力组）**：专门执行 `wgmma` / `tcgen05` 与后处理，调用 `setmaxnreg.inc` **抢占更多的寄存器名额**用来保存巨型累加矩阵块，双方通过 `mbarrier` 无锁接力，把张量核利用率推向物理极限。
+
+---
+
+### 9.5 同步原语、独立线程调度（ITS）与弱内存模型（Weak Memory Model）
+
+写多线程并发代码和编译器后端时，最容易写出“在测试卡上能跑、换张卡就随机死锁或算错”的幽灵 Bug，根源几乎都在以下三点：
+
+1. **Volta+ 独立线程调度（Independent Thread Scheduling, ITS）**：
+   早期的老架构（Pascal 及以前）同一 Warp 的 32 个线程共享同一个程序计数器（PC），客观上存在“隐式锁步（Implicit Lockstep）”假象。**从 Volta 架构开始，每个线程都有了自己独立的 PC 和调用栈！** 因此，千万不要再假设同一 Warp 的线程“天然同步”。所有 Warp 级协同操作都必须显式传递活跃线程掩码并同步（例如 `__syncwarp(0xffffffff)` 或 `__shfl_sync(mask, ...)`）。
+2. **`mbarrier`（异步内存屏障）与相位翻转（Phase Parity）**：
+   在异步时代，如果每次 TMA 搬运完都要用 `__syncthreads()` 让所有线程停下来，异步重叠就毫无意义。Ampere 引入、Hopper/Blackwell 强化的 **`mbarrier`** 运行在 Shared Memory 中，支持 **Arrive-on-Bytes（按预计到达的字节数自动倒计时，TMA 搬够字节后硬件自动触发完成信号）** 和 **奇偶相位（Phase 0 / Phase 1 交替）** 校验，实现无锁、极低开销的生产者-消费者双缓冲同步。
+3. **弱内存序（Weak Memory Ordering）与作用域栅栏（Memory Fence Scope）**：
+   GPU 出于极致性能考虑采用**弱内存模型**——线程 A 写入了全局显存，并不代表另一颗 SM 上的线程 B 立刻就能看见最新值（可能还停留在线程 A 所在 SM 的 L1 缓存或写缓冲区里）。必须显式指定栅栏与作用域：
+   - `__threadfence_block()`（`.cta` 作用域）：确保同 SM 内的其他线程可见。
+   - `__threadfence()`（`.gpu` 作用域）：确保整张 GPU 芯片上的所有 SM（经由 L2 持久化）可见。
+   - `__threadfence_system()`（`.sys` 作用域）：确保主机 CPU 与多卡互联（NVLink / PCIe）对端可见。
+
+---
+
+### 9.6 DSL 编译器（Triton / CuTe / MLIR）后端必须编码的硬件规则总览
+
+如果你正在构建面向 NVIDIA GPU 的 DSL 编译器，下面这张架构图浓缩了高级张量 IR 到 PTX/SASS 过程中必须嵌入的核心 Pass 与硬件契约：
+
+```mermaid
+flowchart TD
+    IR["高级张量计算图 / Tile IR<br/>(例如 tl.dot / linalg.matmul)"] --> P1["Pass 1: 算子核选择与数值 Lowering<br/>• 识别 GEMM → Tensor Core (wmma/mma/wgmma)<br/>• 识别超越函数 → Fast Math (MUFU.*) 或精确 FFMA<br/>• 注入 FP8/FP4 Scale 缩放或 HFMA2 打包"]
+
+    P1 --> P2["Pass 2: Tile 尺寸与资源约束求解 (Auto-Tuning)<br/>• 对齐指令原子形状 (m16n8k16 / wgmma 64xNx16)<br/>• 平衡 Register (≤255/线程) 与 SMEM 容量上限<br/>• 权衡 Occupancy vs ILP vs 流水线级数 (Stages)"]
+
+    P2 --> P3["Pass 3: 多层存储 Layout 推导与转换<br/>• Global Memory: 相邻 lane_id 绑定 stride-1 (Coalescing + LDG.128)<br/>• Shared Memory: 插入 XOR Swizzle 消除 32-Bank Conflict<br/>• Register: 推导 Fragment Layout 匹配 ldmatrix / stmatrix"]
+
+    P3 --> P4["Pass 4: 异步软件流水线与线程束特化<br/>• 重写主循环为 cp.async / TMA + mbarrier 多缓冲预取<br/>• Hopper/Blackwell: 拆分 Producer/Consumer Warp + setmaxnreg<br/>• Cluster 级启用 TMA Multicast & DSMEM"]
+
+    P4 --> P5["Pass 5: 同步、内存序与 PTX/SASS 代码生成<br/>• 严格插入 __syncwarp / bar.sync / fence.cta/gpu<br/>• 生成 PTX 并交由 ptxas 优化指令调度与 Scoreboard"]
+
+    style IR fill:#eff6ff,stroke:#2563eb,stroke-width:2px
+    style P2 fill:#fffbeb,stroke:#d97706
+    style P3 fill:#ecfdf5,stroke:#16a34a
+    style P4 fill:#f5f3ff,stroke:#7c3aed
+    style P5 fill:#fef2f2,stroke:#dc2626
+```
+
+---
+
+## 十、终极选型决策树与全篇自查清单
 
 当你面对一个具体的算子或计算任务时，不知道该把它交由哪个硬件单元处理？下面这张决策树可以作为你的实战路线图：
 
@@ -819,7 +1001,7 @@ flowchart TD
     style A5 fill:#f5f3ff,stroke:#7c3aed
 ```
 
-合上教程前，可以用下面 **6 个自查问题**检验自己是否彻底掌握了 NVIDIA GPU 核心体系：
+合上教程前，可以用下面 **8 个自查问题**检验自己是否彻底掌握了 NVIDIA GPU 核心体系与编译器硬件契约：
 
 1. **为什么说单个 CUDA Core 不能等同于 CPU 核心？**（它没有独立的取指、译码和控制逻辑，只是 SM 内受 Warp Scheduler 统一指挥的 SIMT 标量通道。）
 2. **为什么写了 `sinf(x)` 却未必跑到 SFU 上？**（标准数学库为满足 IEEE-754 精度通常在 FP32 CUDA Core 上展开为 `FFMA` 多项式；需通过 `__sinf()` 等内建函数或 `--use_fast_math` 才能生成 `MUFU.*` 进入 SFU。）
@@ -827,3 +1009,5 @@ flowchart TD
 4. **为什么调用 Tensor Core 时严禁线程发生分支发散？**（矩阵分片被按严格的 Fragment Layout 打散存在整个 Warp/WarpGroup 的寄存器中，硬件内部隐式跨线程收集与交叉乘加，要求所有参与线程必须同步到达。）
 5. **为什么 Hopper 架构要引入 128 线程的 `WGMMA` 与 `TMA`？**（128 线程正好匹配 SM 内 4 个 Sub-partition；`WGMMA` 允许直接从 Shared Memory 读操作数减轻寄存器压力，`TMA` 用单线程硬件级多维坐标搬运解放 CUDA Core。）
 6. **为什么 Tensor Core 只能算矩阵乘加，却不顺便把 `A + B` 这种逐元素 SIMD 一起算了？**（逐元素运算是 $O(N)$ 访存受限，交由本质上是 32-wide SIMD 且支持 `HFMA2`/`DP4A` 的 CUDA Core 处理性价比最高；而 Tensor Core 专注于吃掉占深度学习 90%+ 算力的 2D GEMM。）
+7. **为什么现代 DSL 编译器宁可用位异或 `Swizzle` 也不用 Padding 来解 Shared Memory Bank Conflict？**（Shared Memory 按 32 个 4 字节 Bank 交错映射；`Swizzle` 通过 `Col' = Col XOR Row` 在零额外空间浪费下打散同列碰撞，且完美兼容 `TMA` 对齐约束与 `ldmatrix` 指令。）
+8. **为什么高性能 GEMM 算子往往在 25%~50% Occupancy 下跑得比 100% Occupancy 更快？**（更大的分块 Tile 与更深的异步预取 Stages 需要更多寄存器与 SMEM，牺牲部分 Occupancy 换取成倍提升的数据复用率，再靠 ILP 与 `cp.async`/`TMA` 掩盖延迟。）
