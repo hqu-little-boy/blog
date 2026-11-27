@@ -233,48 +233,99 @@ flowchart LR
 
 随着大模型参数规模动辄达到千亿、万亿级，单张加速卡的显存和算力早已捉襟见肘，必须由成百上千张卡协同工作。在分布式训练与推理的语境中，**TP、EP、DP、CP、PP** 统称为 **5D 并行策略**。
 
-为什么算子开发工程师必须懂 5D 并行？因为**它们不仅决定了每张卡分到多大一块张量（Input/Output Shape），还决定了单卡算子内部的计算逻辑是否要改造，以及算子前后必须插入哪种集合通信（Collective Communication）原语**。
+为什么算子开发工程师必须懂 5D 并行？因为**它们不仅决定了单卡算子收到的张量形状（Input/Output Shape）会怎么变形，还决定了单卡算子内部的计算逻辑要不要重写、算子前后要插入哪种集合通信（Collective Communication）原语，以及会出现哪些意想不到的性能陷阱**。
 
-> **初学者先看懂 4 个通信黑话：**
-> - **`All-Reduce`（全局归约）**：每张卡手里都有一份“局部结果”，大家把所有卡的结果加起来，最后每张卡都拿到同一份“完整总和”。
-> - **`All-Gather`（全局收集）**：每张卡手里只有拼图的一小块，通信后每张卡都凑齐了“完整拼图”。
-> - **`Reduce-Scatter`（归约分散）**：先把所有卡的数据按位置相加，然后把求和后的结果拆开，每张卡只拿属于自己的那一段（`All-Reduce` 本质上就等价于一次 `Reduce-Scatter` + 一次 `All-Gather`）。
-> - **`All-to-All`（全局全交换）**：类似发牌洗牌，每张卡把手里的数据按目的地分成 $N$ 份，分别发给对应的其他 $N$ 张卡。
+### 2.0 先建立直觉：四大集合通信原语与基准张量设定
 
-下面一张总表快速对比 5D 并行策略：
+在拆解 5D 并行前，我们先用最简单的**数字例子**看懂多卡之间最常打交道的四种“群聊传话规则”（集合通信原语）：
 
-| 缩写 | 全称 | 切分的对象是什么？ | 对单卡算子逻辑与通信原语的核心影响 |
-| :--- | :--- | :--- | :--- |
-| **TP** | **Tensor Parallelism**<br/>张量并行 | 单个网络层里的**权重矩阵**（按行或按列劈开） | 单个算子内部切分，伴随高频的 `All-Reduce` / `All-Gather` / `Reduce-Scatter`，现代常将 GEMM 与通信融合重叠。 |
-| **EP** | **Expert Parallelism**<br/>专家并行 | **MoE（混合专家）模型**中的不同 Expert（专家网络） | 引入动态路由与 `All-to-All` 通信；算子层必须实现 **`Grouped GEMM`** 处理各专家分到数量不等的 Token。 |
-| **DP** | **Data Parallelism**<br/>数据并行 | 输入数据的 **Batch（批次）** 维度 | 前向单卡算子逻辑不变（仅 Batch 变小）；反向传播通过 `All-Reduce`（或 ZeRO 下的 `Reduce-Scatter`）同步梯度。 |
-| **CP** | **Context Parallelism**<br/>上下文并行 | 输入序列的 **Sequence Length（序列长度）** 维度 | 专攻超长文本（128K/1M）；核心挑战在 **Attention 算子**，需通过 **Ring-Attention**（`Send/Recv`）或 `All-Gather` 传递 KV 块。 |
-| **PP** | **Pipeline Parallelism**<br/>流水线并行 | 模型的**网络层数（Layer）**（纵向按层切分） | 单层内算子完全完整；仅在跨卡的层边界处用点对点（P2P）`Send / Recv` 传激活值，优化重点在消除流水线气泡（Bubble）。 |
+```dot
+digraph CollectiveOps {
+    rankdir=TB;
+    node [shape=box, style="rounded,filled", fontname="sans-serif", fontsize=10];
+    edge [color="#475569", fontname="sans-serif", fontsize=9];
+
+    subgraph cluster_ar {
+        label="1. All-Reduce（全局归约求和）\n场景：TP 行切分汇总部分和 / DP 同步梯度";
+        style="rounded"; color="#2563eb"; bgcolor="#eff6ff";
+        ar_in [label="通信前：GPU0=[1, 2]  |  GPU1=[3, 4]", fillcolor="#ffffff", color="#1d4ed8"];
+        ar_out [label="通信后：GPU0=[4, 6]  |  GPU1=[4, 6]\n（每张卡都拿到完全相同的总和）", fillcolor="#dbeafe", color="#1d4ed8"];
+        ar_in -> ar_out;
+    }
+
+    subgraph cluster_ag {
+        label="2. All-Gather（全局收集拼接）\n场景：ZeRO-3 拉取完整权重 / TP 列切分拼出完整输出";
+        style="rounded"; color="#16a34a"; bgcolor="#f0fdf4";
+        ag_in [label="通信前：GPU0=[A]  |  GPU1=[B]", fillcolor="#ffffff", color="#15803d"];
+        ag_out [label="通信后：GPU0=[A, B]  |  GPU1=[A, B]\n（每张卡都凑齐了完整拼图）", fillcolor="#dcfce7", color="#15803d"];
+        ag_in -> ag_out;
+    }
+
+    subgraph cluster_rs {
+        label="3. Reduce-Scatter（先求和、再一人分一段）\n场景：ZeRO-2/3 分片梯度（All-Reduce = RS + AG）";
+        style="rounded"; color="#7c3aed"; bgcolor="#f5f3ff";
+        rs_in [label="通信前：GPU0=[1, 2]  |  GPU1=[3, 4]", fillcolor="#ffffff", color="#6d28d9"];
+        rs_out [label="通信后：GPU0=[4] (只拿第0段和) | GPU1=[6] (只拿第1段和)", fillcolor="#ede9fe", color="#6d28d9"];
+        rs_in -> rs_out;
+    }
+
+    subgraph cluster_a2a {
+        label="4. All-to-All（全局洗牌重分发）\n场景：EP 混合专家路由 / Ulysses 上下文并行";
+        style="rounded"; color="#d97706"; bgcolor="#fffbeb";
+        a2a_in [label="通信前：GPU0=[给0的x, 给1的y] | GPU1=[给0的m, 给1的n]", fillcolor="#ffffff", color="#b45309"];
+        a2a_out [label="通信后：GPU0=[给0的x, 给0的m] | GPU1=[给1的y, 给1的n]\n（按目的地重新发牌洗牌）", fillcolor="#fef3c7", color="#b45309"];
+        a2a_in -> a2a_out;
+    }
+}
+```
+
+为了让你看清每一种并行方式到底“切了哪里”，下面我们统一设定一个**基准场景**：
+- 输入激活张量 $X$ 的形状为 `[Batch=4, Seq=8192, Hidden=4096]`（即 4 条样本、每条 8192 个 Token、每个 Token 用 4096 维向量表示）；
+- 线性层权重矩阵 $W$ 的形状为 `[4096, 16384]`；
+- 我们手里一共有 **4 张加速卡（GPU 0 ~ GPU 3）**。
+
+| 缩写 | 全称 | 把什么切分给 4 张卡？ | 单卡看到的输入/权重 Shape | 单卡算子内部逻辑是否要大改？ |
+| :--- | :--- | :--- | :--- | :--- |
+| **TP** | **Tensor Parallelism**<br/>张量并行 | 同一层里的**权重矩阵**（按列或按行劈开） | 输入 `[4, 8192, 4096]`<br/>权重按列劈成 `[4096, 4096]` | 单个 GEMM 算法不变，但矩阵变窄需重调 Tiling；高阶做法会与通信做融合重叠。 |
+| **EP** | **Expert Parallelism**<br/>专家并行 | **MoE 模型**中的不同专家网络（每卡管几个专家） | 收到动态条数的 Token：`[M_dynamic, 4096]` | **大改！** 必须实现 **`Permute / Unpermute`** 与 **`Grouped GEMM`** 应对动态不均形状。 |
+| **DP** | **Data Parallelism**<br/>数据并行 | 输入数据的 **Batch（样本批次）** 维度 | 输入 `[1, 8192, 4096]`<br/>权重完整 `[4096, 16384]` | 前向算子完全不改（但小心小 Batch 退化）；若开 ZeRO-3 需在算子前插 `All-Gather`。 |
+| **CP** | **Context Parallelism**<br/>上下文并行 | 输入序列的 **Sequence（序列长度）** 维度 | 输入 `[4, 2048, 4096]`<br/>权重完整 `[4096, 16384]` | 逐 Token 算子不改；**Attention 算子大改**（需 Ring-Attention 传 KV + Online Softmax 重缩放）。 |
+| **PP** | **Pipeline Parallelism**<br/>流水线并行 | 模型的**网络层数（Layer）**（每卡管几层） | 输入 `[4, 8192, 4096]`<br/>权重完整 `[4096, 16384]` | **层内算子零改动！** 仅在层交界处做点对点 `Send / Recv`，重点在微批次调度防气泡。 |
 
 ---
 
-### 2.1 TP（Tensor Parallelism，张量并行）
+### 2.1 TP（Tensor Parallelism，张量并行）——“多张卡合算同一道乘法题”
 
-TP 把**单个矩阵乘算子的权重矩阵 $W$ 劈成多份**，分给同一台机器内高速互联（如 NVLink）的多张卡共同计算一块大矩阵乘。最经典的方案是 **Megatron-LM** 提出的“先列切分、后行切分”配对设计：
+> **通俗类比**：一张超大的乘法试卷一个人算太慢且草稿纸不够写，于是把试卷**从左到右撕成两半**（列切分），两个人拿着同一道题目各自算一半；或者把求和步骤拆开，每人算一部分和再加起来（行切分）。
 
-- **列切分（Column Parallel）**：把权重矩阵 $W$ 按列竖着劈开成 $[W_1, W_2]$。各卡用相同的完整输入 $X$ 独立计算部分矩阵乘 $Y_i = X W_i$。如果下游需要完整输出，就插入 `All-Gather` 拼起来；如果下游紧跟着一个“行切分”的线性层，就可以**原地直接衔接**（省掉一次通信）！
-- **行切分（Row Parallel）**：把输入 $X$ 按列劈开（正好接住上游列切分的输出），同时把权重 $W$ 按行横着劈开。每张卡算出相同形状的**部分和（Partial Sum）**，最后必须通过 `All-Reduce` 把所有卡的部分和加在一起，才能得到最终正确结果。
+#### 1. 具体 Shape 演变与“列+行”配对巧思
+最经典的是 **Megatron-LM** 为大模型 MLP（两层全连接层中间夹一个激活函数 GeLU/SiLU）设计的**“先列切分、后行切分”**搭档（以 2 张卡为例）：
+
+1. **第一层（列切分 Column Parallel）**：
+   - 完整权重 `W1 [4096, 16384]` 按**输出列维度**竖着劈成两半：GPU 0 拿 `W1_0 [4096, 8192]`，GPU 1 拿 `W1_1 [4096, 8192]`。
+   - 两张卡拿着**完全相同**的输入 `X [M, 4096]`（注：工程中常把 `[B, S, H]` 压扁成二维 `[M, H]` 送入 GEMM）各自做矩阵乘，算出各自的半成品输出 `Y_0 [M, 8192]` 和 `Y_1 [M, 8192]`。
+   - **关键思考细节：为什么后面直接算 `GeLU` 不需要通信，算 `LayerNorm` 却不行？**
+     因为 `GeLU(y)` 是**逐元素独立计算（Elementwise）**的——第 10 号元素只取决于它自己，不需要看第 9000 号元素，所以 GPU 0 和 GPU 1 各自在本地直接算完 `GeLU` 即可，**零通信**！但如果中间夹的是 `LayerNorm / RMSNorm`，因为它必须在整个 `16384` 维上求均值和方差，只有半截向量算不出全局均值，就必须先 `All-Gather` 凑齐完整向量。
+2. **第二层（行切分 Row Parallel）**：
+   - 第二层权重 `W2 [16384, 4096]` 按**输入行维度**横着劈成两半：GPU 0 拿 `W2_0 [8192, 4096]`，GPU 1 拿 `W2_1 [8192, 4096]`。
+   - 此时神奇的事情发生了：GPU 0 手里的 `Y_0 [M, 8192]` 正好和 `W2_0 [8192, 4096]` 维度对齐！两张卡各自算出形状为 `[M, 4096]` 的**部分和（Partial Sum）** `Z_0` 和 `Z_1`（因为矩阵乘法按 $K$ 维拆开后，最终结果等于两边部分和相加）。
+   - 最后执行一次 **`All-Reduce`**（`Z = Z_0 + Z_1`），两张卡同时得到正确的完整输出 `[M, 4096]`。整个双层 MLP 块只用了一次通信！
 
 ```dot
 digraph TensorParallel {
     rankdir=LR;
-    node [shape=box, style="rounded,filled", fontname="sans-serif", fontsize=11];
-    edge [color="#475569", fontname="sans-serif", fontsize=10];
+    node [shape=box, style="rounded,filled", fontname="sans-serif", fontsize=10];
+    edge [color="#475569", fontname="sans-serif", fontsize=9];
 
-    X [label="完整输入 X\n(通过广播保持一致)", fillcolor="#f8fafc", color="#334155"];
+    X [label="完整输入 X\nShape: [M, 4096]\n(各卡相同)", fillcolor="#f8fafc", color="#334155"];
 
     subgraph cluster_col {
         label="第一层：列切分（Column Parallel）";
         style="rounded";
         color="#2563eb";
         bgcolor="#eff6ff";
-        g0_col [label="GPU 0: Y₀ = GeLU(X · W₀列)", fillcolor="#dbeafe", color="#1d4ed8"];
-        g1_col [label="GPU 1: Y₁ = GeLU(X · W₁列)", fillcolor="#dbeafe", color="#1d4ed8"];
+        g0_col [label="GPU 0: 权重 [4096, 8192]\n算 Y₀ = GeLU(X·W₁₀)\n输出 Shape: [M, 8192]", fillcolor="#dbeafe", color="#1d4ed8"];
+        g1_col [label="GPU 1: 权重 [4096, 8192]\n算 Y₁ = GeLU(X·W₁₁)\n输出 Shape: [M, 8192]", fillcolor="#dbeafe", color="#1d4ed8"];
     }
 
     subgraph cluster_row {
@@ -282,11 +333,11 @@ digraph TensorParallel {
         style="rounded";
         color="#16a34a";
         bgcolor="#f0fdf4";
-        g0_row [label="GPU 0: Z₀ = Y₀ · V₀行\n(部分和 Partial Sum)", fillcolor="#dcfce7", color="#15803d"];
-        g1_row [label="GPU 1: Z₁ = Y₁ · V₁行\n(部分和 Partial Sum)", fillcolor="#dcfce7", color="#15803d"];
+        g0_row [label="GPU 0: 权重 [8192, 4096]\n算 Z₀ = Y₀·W₂₀\n部分和 Shape: [M, 4096]", fillcolor="#dcfce7", color="#15803d"];
+        g1_row [label="GPU 1: 权重 [8192, 4096]\n算 Z₁ = Y₁·W₂₁\n部分和 Shape: [M, 4096]", fillcolor="#dcfce7", color="#15803d"];
     }
 
-    ar [label="All-Reduce 求和\nZ = Z₀ + Z₁", shape=ellipse, fillcolor="#fef3c7", color="#d97706"];
+    ar [label="All-Reduce 求和\nZ = Z₀ + Z₁\n最终 Shape: [M, 4096]", shape=ellipse, fillcolor="#fef3c7", color="#d97706"];
 
     X -> g0_col;
     X -> g1_col;
@@ -297,82 +348,238 @@ digraph TensorParallel {
 }
 ```
 
-**对算子开发的影响**：TP 的通信频率极高（Transformer 每层通常有两次 `All-Reduce`）。以前的做法是“算完整个 GEMM $\rightarrow$ 等所有卡做完 `All-Reduce` $\rightarrow$ 算下一层”，通信期间算力完全闲置。现代高性能算子开发会将 **GEMM 与集合通信做融合重叠（Comm-Compute Overlap / Fusion）**——比如按 Tile 粒度切分，当矩阵乘刚算完前 1/4 个 Tile 时，立刻在后台触发 NVLink 传输，同时算力继续算剩下的 Tile（代表开源方案如 **FlashOverlap**、**Flux**）。
+#### 2. 对单卡算子开发的具体影响
+- **矩阵变“瘦/矮”，Tiling 参数必须重调**：对于单个 GEMM 算子，核心乘加逻辑没有变，但矩阵的 $N$ 维（列切分）或 $K$ 维（行切分）被缩小为原来的 $1/\text{TP}$。当 `TP=8` 时，原本 `N=4096` 缩成 `512`，如果还用为大矩阵调优的 `BLOCK_N=256`，可能整块矩阵只切出 2 列，导致 GPU 上百个计算核心吃不饱，必须改用更小的 `BLOCK_N` 或启用 Split-K。
+- **通信-计算融合（Comm-Compute Overlap）**：Transformer 每层（Attention + MLP）都要做两次 `All-Reduce`。传统做法“算完整个 GEMM $\rightarrow$ 停下来等通信 $\rightarrow$ 算下一层”会造成严重的算力空转。现代算子（如 **Flux**、**FlashOverlap**）会在 GEMM 内部按 Tile 粒度刚算完一部分输出时，立刻在后台通过 NVLink 触发传输或对端累加，把通信时间藏在矩阵计算背后。
+
+#### 3. 初学者必看细节与注意事项
+- **Attention 按 Head（注意力头）切分与 GQA 陷阱**：在 Attention 层做 TP 时，是把不同的注意力头分给不同卡（例如 32 个头开 `TP=4`，每张卡算 8 个头，彼此独立无需通信，最后输出投影层用行切分做一次 `All-Reduce`）。**注意踩坑**：现在主流大模型多用 **GQA（分组查询注意力）**，可能 Q 有 32 个头，但 K/V 只有 8 个头甚至 4 个头！如果你开了 `TP=8` 而 KV 只有 4 个头，就会出现“头不够分”，必须在部分卡上复制 KV 头并修改算子的索引步长（Stride）。
+- **通信与计算抢占 SM 资源**：很多人以为做异步通信（Overlap）完全免费，其实像 NCCL 这样的集合通信 Kernel 在运行时**也要占用 GPU 的 SM（计算核心）**！如果通信 Kernel 抢占了太多 SM，反而会把旁边正在跑的 GEMM 拖慢。高阶算子常使用硬件 DMA/拷贝引擎（Copy Engine）或限制通信占用的 SM 数量来缓解争抢。
+- **物理拓扑要求极高**：TP 通信极其频繁，绝对不能跨慢速网卡跑，**通常严格限制在单台服务器内部的 NVLink / HCCS 高速互联域内（一般 $\text{TP} \le 8$）**。
+- **Sequence Parallelism（序列并行）搭档**：虽然 TP 把 MLP 和 Attention 的大头切分了，但残差连接和 `LayerNorm` 之前往往需要保存完整序列长度的激活值显存。Megatron 后续引入了 **SP（序列并行）**，在 `LayerNorm` 这一段把序列维度临时切分（对应通信原语从 `All-Reduce` 拆成 `Reduce-Scatter` + `All-Gather`，总通信量不变，但激活值显存再降为 $1/\text{TP}$）。
 
 ---
 
-### 2.2 EP（Expert Parallelism，专家并行）
+### 2.2 EP（Expert Parallelism，专家并行）——“按专长把词元分流给不同卡上的专家”
 
-EP 专门服务于 **MoE（Mixture of Experts，混合专家模型）**（如 DeepSeek-V3、Mixtral）。MoE 模型里有很多个 FFN（前馈网络）“专家”，但每个词元（Token）只需要激活其中最匹配的 1~2 个专家。EP 把不同的专家放进不同的计算卡里。
+> **通俗类比**：一家大型三甲医院（MoE 模型）把“内科、外科、眼科、牙科”四个专科专家分散放在两栋分院（GPU 0 和 GPU 1）里。病人（Token）先经过导诊台（Router）判断该看哪个科，然后坐班车（`Dispatch All-to-All`）去对应的分院看病，看完后再坐班车（`Combine All-to-All`）回到总院汇总病历。
+
+#### 1. 具体 Shape 与数据流全过程（以 2 张卡、4 个专家、Top-1 路由为例）
+假设 GPU 0 存放**专家 E0、E1**，GPU 1 存放**专家 E2、E3**。每张卡本地本来有 `4` 个 Token（Shape `[4, 4096]`）：
+
+1. **门控路由（Router / TopK）**：本地小线性层 + Softmax 算子给每个 Token 打分选出最合适的专家。比如 GPU 0 上的 4 个 Token 分别想去 `[E2, E0, E3, E0]`；GPU 1 上的 4 个 Token 分别想去 `[E0, E1, E0, E2]`。
+2. **元数据通信 + `Dispatch All-to-All`（洗牌发往专家所在卡）**：
+   - **关键细节**：在搬运真正的向量数据之前，各卡必须先走一次极轻量的整数数组通信，互相通知“我要给你发几个 Token”，因为 GPU Kernel 里**严禁动态申请显存（不能调用 `cudaMalloc`）**，必须提前算出偏移量从预分配缓冲区划空间！
+   - 发牌后，GPU 0 最终收到 **5 个 Token**（4 个给 E0，1 个给 E1），Shape 变成 `[5, 4096]`；GPU 1 只收到 **3 个 Token**（2 个给 E3，1 个给 E2），Shape 变成 `[3, 4096]`。
+3. **`Permute`（显存聚拢重排）+ `Grouped GEMM`（分组矩阵乘）**：
+   - 网络收进来的 Token 往往是混杂交错的（如 `[E0, E1, E0, E0, E0]`）。但矩阵乘法算子要求同一个专家的输入在内存里必须**连续紧挨着排好**！因此必须先跑一个 **`Permute` 算子**，把属于 E0 的 4 行搬到一起形成 `[4, 4096]`，属于 E1 的 1 行放到后面形成 `[1, 4096]`。
+   - 随后进入整个 EP 最核心的计算算子：**`Grouped GEMM`**——在一个 Kernel 内同时并发算出 `([4, 4096] × W_E0)` 和 `([1, 4096] × W_E1)`，得到结果后再紧接激活函数和下投影的第二次 `Grouped GEMM`。
+4. **`Combine All-to-All` + `Unpermute` 加权汇总**：每张卡把专家算完的结果发回原本的来源卡，**`Unpermute` 算子**把它们放回原本的 Token 位置；如果是 Top-2 路由（每个 Token 找了 2 个专家），还要把两个专家的结果按 Router 概率权重（例如 `0.7 * 结果A + 0.3 * 结果B`）加权求和。
 
 ```mermaid
 sequenceDiagram
-    participant C as 门控路由 Router/TopK
+    participant R as 门控路由 Router + TopK
     participant Net as 卡间网络 (All-to-All)
-    participant E0 as GPU 0 (专家0, 专家1)
-    participant E1 as GPU 1 (专家2, 专家3)
+    participant G0 as GPU 0 (专家 E0, E1)
+    participant G1 as GPU 1 (专家 E2, E3)
 
-    Note over C: 输入一批 Token，Router 决定去向
-    C->>Net: 1. Dispatch (第一次 All-to-All 洗牌分发)
-    Net->>E0: 分配到属于专家0/1的 Token (数量动态变化)
-    Net->>E1: 分配到属于专家2/3的 Token (数量动态变化)
-    Note over E0,E1: 2. 本地计算：Permute重排 + Grouped GEMM
-    E0->>Net: 3. Combine (第二次 All-to-All 归还结果)
-    E1->>Net: 3. Combine (第二次 All-to-All 归还结果)
-    Net->>C: 按原序列顺序汇总并按 TopK 权重加权融合
+    Note over R: 每张卡原有 4 个 Token [4, 4096]
+    R->>Net: 0. 先同步 Token 计数元数据，预分配显存 Offset
+    R->>Net: 1. Dispatch (第一次 All-to-All 洗牌分发)
+    Net->>G0: 收到 5 个 Token (动态数量: E0=4, E1=1)
+    Net->>G1: 收到 3 个 Token (动态数量: E2=1, E3=2)
+    Note over G0,G1: 2. 本地算子三连：Permute聚拢 → Grouped GEMM → 激活
+    G0->>Net: 3. Combine (第二次 All-to-All 归还原主卡)
+    G1->>Net: 3. Combine (第二次 All-to-All 归还原主卡)
+    Net->>R: 4. Unpermute 归位 + TopK 概率加权求和 [4, 4096]
 ```
 
-**对算子开发的影响**：
-1. **动态负载不均**：不同专家被选中的热门程度在运行时动态变化，可能专家 0 分到 500 个 Token，专家 1 只分到 12 个。
-2. **必须开发 `Grouped GEMM`（分组矩阵乘）**：普通 GEMM 算子假设矩阵大小固定，而在 EP 里，单个 Kernel 必须能同时并发计算多个尺寸各不相同的矩阵乘法（对应不同专家的 Token 批），同时还要配套编写 **`Permute / Unpermute` 算子**，负责把零散的 Token 在显存里按专家聚拢重排，算完后再按原位置和 Router 权重加权还原。
+#### 2. 对单卡算子开发的具体影响
+- **普通 GEMM 完全失效，必须上 `Grouped GEMM`**：普通 GEMM 要求输入 $M$ 维度编译期或启动前固定且单一；如果用 Python `for` 循环给每个专家单独发射一次 GEMM Kernel，当专家多（如 64~256 个专家）、每个专家只分到几个 Token 时，**CPU 发射 Kernel 的调度开销比 GPU 算矩阵的时间还要长**！因此必须把所有本地专家打包进**单个 `Grouped GEMM` Kernel**，内部通过偏移指针表（Pointer Array / Offset Table）动态切换当前处理的专家权重和分块。
+- **访存密集的辅助算子成为新热点**：`Permute`、`Unpermute` 以及带路由权重的融合算子（Fused Router + TopK + Softmax）全都是纯数据搬运与重排算子，极易吃满 HBM 带宽，需要精细的向量化读写（`float4`）与算子融合来消除多余拷贝。
+
+#### 3. 初学者必看细节与注意事项
+- **空专家边界条件（`M_i == 0` 崩溃陷阱）**：某个 Batch 里某个冷门专家可能分到 **0 个 Token**！编写 `Grouped GEMM` 时，循环遍历每个专家的 Tile 映射逻辑必须显式跳过 `M_i == 0` 的专家，否则极易出现零长度循环死锁或非法指针解引用导致 GPU `Illegal Memory Access`。
+- **热门专家导致的负载长尾（Straggler Problem）**：如果 80% 的 Token 都涌向 GPU 0 上的某一个“网红专家”，GPU 1 早就算完了还在原地干等 GPU 0，整体速度就被最慢的那张卡拖死。工程上通常在训练时加入负载均衡损失（Load Balancing Loss），并在算子侧通过**动态 Tile 调度**和**容量因子（Capacity Factor）**限制单个专家的 Token 上限，或像 DeepSeek-V3 那样将 Micro-batch 拆成两半让 `All-to-All` 通信与本地计算交错重叠。
 
 ---
 
-### 2.3 DP（Data Parallelism，数据并行）
+### 2.3 DP（Data Parallelism，数据并行）——“人多力量大，每人领一份考卷”
 
-DP 是最直观、最早被使用的并行方式：每张卡上都完整保存一模一样的模型权重，只把输入训练数据按 **Batch Size（批次大小，简称 B）** 切分，每张卡各算一部分样本。
+> **通俗类比**：有 400 道练习题，4 个水平一模一样的同学每人领 100 道回家独立写（前向+反向），写完后聚在一起对一下各自总结的错题经验（梯度 `All-Reduce` 求平均），保证大家脑子里学到的模型知识完全同步。
 
-**对算子开发的影响**：
-- **前向算子零侵入**：单卡算子代码逻辑完全不用改，只是输入张量的 Batch 维度缩小为 $B / N$。但要注意一个隐蔽陷阱：**当卡数极多导致单卡分到的 Batch 极小时，矩阵乘会变“瘦”，计算访存比急剧下降，导致算子从 Compute-bound 退化为 Memory-bound**，必须重新调整 Tiling 参数。
-- **ZeRO / FSDP 显存优化**：为了不让每张卡白白存重复的权重和优化器状态，业界发明了 **ZeRO（Zero Redundancy Optimizer）** 与 **FSDP（Fully Sharded Data Parallel）**——把权重也切散存到不同卡上。算子执行前先通过 `All-Gather` 临时拼凑出完整权重，算完立刻释放；反向传播算完梯度后，再通过 `Reduce-Scatter` 把梯度归约并切分存回各卡。
+#### 1. 具体 Shape 演变与 ZeRO 分片演变
+假设全局输入为 `[Batch=4, Seq=8192, Hidden=4096]`，开 `DP=4`：
+- **标准 DP（DDP）**：每张卡各自拿 1 条样本，单卡输入 Shape 缩小为 **`[1, 8192, 4096]`**，但**每张卡都完整保存一模一样的权重 `W [4096, 16384]`**。前向传播各算各的完全不通信；反向传播算出权重梯度后，所有卡做一次 **`All-Reduce`** 取平均。
+- **显存优化版 DP（ZeRO-1 / ZeRO-2 / ZeRO-3(FSDP)）**：当模型太大、每张卡放不下完整参数、梯度和优化器状态时，DP 演化出把状态也切碎的 ZeRO 家族：
+
+| ZeRO 级别 | 哪些数据被切分到各卡？ | 对算子执行流与通信原语的改变 |
+| :--- | :--- | :--- |
+| **传统 DDP** | 只切输入数据（Batch） | 前向无通信；反向传播后做一次 **`All-Reduce`** 同步全部梯度。 |
+| **ZeRO-1** | 切输入 + **优化器状态**（如 Adam 的 m/v） | 算子执行不变，反向同步梯度后，各卡只更新自己负责的那 $1/N$ 权重切片，再用 `All-Gather` 广播新权重。 |
+| **ZeRO-2** | 再切 **梯度（Gradients）** | 反向通信从 `All-Reduce` 变成 **`Reduce-Scatter`**（每张卡只保留属于自己那段的归约梯度，立刻释放其余梯度显存！）。 |
+| **ZeRO-3 / FSDP** | 连 **模型权重（Weights）** 也彻底切分！ | **直接改变算子调度流**：每次执行 Linear 等带权重算子**前**，必须先做 **`All-Gather`** 凑齐完整权重，算完立刻释放；反向传播先 `All-Gather` 权重算梯度，算完立刻 **`Reduce-Scatter`** 散播梯度。 |
+
+#### 2. 对单卡算子开发的具体影响（一个容易被忽略的隐藏陷阱！）
+表面上看，DP 下单卡算子代码一行也不用改，**但很多初学者会在这里踩中性能暴跌的坑**：
+- **隐藏陷阱：推理 Decode 阶段小 Batch 导致算子退化！**
+  在 Linear 层做矩阵乘法时，三维张量 `[B, S, H]` 会被压扁成二维 `[B × S, H]` 作为矩阵乘法的 $M$ 维度：
+  - **训练 / 预填充（Prefill）阶段**：因为序列很长（如 $S=8192$），哪怕 `DP` 把 $B$ 切到 `1`，$M = 1 \times 8192 = 8192$ 依然是个大矩阵，Tensor Core 照样吃满！
+  - **推理逐字生成（Decode）阶段**：每次只吐出 1 个新词，即 **$S = 1$**！如果原本单卡 `Batch=32`，开了 `DP=8` 后单卡只分到 `B=4`，矩阵乘法的维度瞬间变成 `[4, 4096] × [4096, 16384]`（$M=4$）！为了算这区区 4 行数据，GPU 却要把几百 MB 的权重矩阵完整从 HBM 搬进芯片一次——**算子瞬间从 Compute-bound（算力受限）雪崩退化为 Memory-bound（访存受限）**，算力利用率甚至不到 1%！此时必须换用专为小 $M$ 设计的 **Split-K GEMM / GEMV 专用算子**。
+
+#### 3. 初学者必看细节与注意事项
+- **ZeRO-3 必须做权重预取（Prefetch）**：如果第 $i$ 层的算子死等 `All-Gather` 拉完权重才开始算，GPU 算力会大段闲置。工程上必须在第 $i$ 层计算的同时，在另一个独立异步流（Stream）上提前发起第 $i+1$ 层的 `All-Gather`，掩盖通信延迟。
+- **`BatchNorm` vs `LayerNorm` 陷阱**：视觉模型常用的 `BatchNorm` 需要在 Batch 维度求统计量，开 DP 后每卡只有部分样本，必须改用跨卡同步的 `SyncBatchNorm`；而大模型用的 `LayerNorm / RMSNorm` 是在 `Hidden` 维度对每个 Token 单独求均值，在 DP 下完全不受影响。
+- **梯度累积（Gradient Accumulation）摊薄通信**：当单卡显存只能塞下极小 Batch（比如 `B=1`）时，连续跑 4 次本地前向+反向但不立刻触发 `All-Reduce`（框架中称 `no_sync`），把本地梯度累加起来，第 4 次再统一发一次 `All-Reduce`，可以把通信次数直接砍掉 $75\%$。
 
 ---
 
-### 2.4 CP（Context Parallelism，上下文并行）
+### 2.4 CP（Context Parallelism，上下文并行）——“几个人接力读一本超长小说”
 
-当我们要处理 **128K 甚至 1M Token 的超长文本** 时，光是激活值和 **KV Cache（大模型推理时缓存的历史 Key/Value 状态）** 就足以塞爆单卡显存，甚至连 TP 都救不了。此时就需要把输入序列沿着 **Sequence Length（序列长度，简称 S）** 维度劈成多份放到不同卡上。
+> **通俗类比**：一本 12.8 万字的超长小说，单张卡的记事本（显存）记不下全部角色的关联笔记（激活值与 **KV Cache**）。于是把书撕成 4 段分给 4 张卡，每人只负责理解自己手里的 3.2 万字（持有本地 $Q_i$）。但回答后面章节的问题时，必须回头看前面所有章节的笔记——于是大家排成一个圆圈，**一边看手头现有的笔记算题，一边把自己的笔记传给下一位同学**。
 
-**对算子开发的影响**：
-- **逐 Token 算子（MLP、LayerNorm、RMSNorm 等）**：每个 Token 自己算自己的，互不干扰，算子直接按切分后的长度 $S / N$ 执行，无需通信。
-- **Attention 算子（核心难点）**：Attention 的本质是“当前位置的 Query（查询）要和**所有历史位置的 Key/Value（键值）** 计算相关性”。既然 KV 被切散在其他卡上，算子层就必须跨卡拉取 KV！典型解法是 **Ring-Attention（环形注意力）**：所有卡连成一个逻辑环形，一边用手头现有的 KV 块计算局部 FlashAttention，一边通过 P2P 的 `Send / Recv` 把下一块 KV 沿环传给邻居，实现通信隐藏在计算之后；同时还要解决 **Causal Mask（因果掩码，上三角为 0 不需计算）** 带来的问题——前半段序列算得飞快，后半段序列要看前面全部历史导致工作量翻倍，需要交错切分序列来平衡各卡算力。
+#### 1. 具体 Shape 演变与 Ring-Attention 核心机制
+假设处理超长文本 `[B=1, S=128K, H=4096]`，开启 `CP=4`：
+- 序列沿 `S` 维度被切分成 4 段，每张卡的输入激活 Shape 变成 **`[1, 32K, 4096]`**。
+- **普通逐 Token 算子（Linear、RMSNorm、SwiGLU）**：完全不依赖序列上其他位置的词，直接按本地长度 `32K` 原地跑，**零通信、逻辑零改动**。
+- **Attention 算子（核心重难点！）**：每张卡本地只有自己的查询向量 $Q_i$（32K）和本地键值 $KV_i$（32K），但数学上 $Q_i$ 需要和**全部 128K 个 Token 的 $K, V$** 计算注意力分数！
+
+目前最经典的解决算子是 **Ring-Attention（环形注意力）**，它的单步执行逻辑如下：
+1. **边算边传（通信掩盖计算）**：共跑 $CP$ 轮（这里为 4 轮）。第 0 轮中，GPU 0 用本地 $Q_0$ 和本地 $KV_0$ 计算局部 FlashAttention，**同时在后台通过 P2P 的 `Send / Recv` 把 $KV_0$ 发给 GPU 1，并接收 GPU 3 传来的 $KV_3$**。
+2. **Online Softmax 动态重缩放（核心数学魔法）**：为什么不能把 4 轮算完的 Softmax 结果直接相加？因为 Softmax 分母里的指数和 $\sum e^{x_j}$ 和最大值 $\max(x_j)$ 是基于**全局 128K** 的，只看局部 32K 算出来的分母偏小！因此单卡 Attention 算子必须像 FlashAttention 一样，**在输出张量之外额外吐出两个统计量向量**：当前见过的局部最大值 $m_{\text{curr}}$ 和局部指数和 $l_{\text{curr}}$。下一轮收到新的 $KV$ 块算出新最大值 $m_{\text{new}}$ 时，用数学修正因子 $e^{m_{\text{old}} - m_{\text{new}}}$ 把上一轮的输出结果实时缩放纠正并融合！
 
 ```dot
 digraph RingAttention {
     rankdir=LR;
-    node [shape=box, style="rounded,filled", fontname="sans-serif", fontsize=11];
-    edge [color="#2563eb", fontname="sans-serif", fontsize=10];
+    node [shape=box, style="rounded,filled", fontname="sans-serif", fontsize=10];
+    edge [color="#2563eb", fontname="sans-serif", fontsize=9];
 
-    G0 [label="GPU 0\n持有 Q₀\n当前计算 KV₀", fillcolor="#dbeafe", color="#1d4ed8"];
-    G1 [label="GPU 1\n持有 Q₁\n当前计算 KV₁", fillcolor="#dbeafe", color="#1d4ed8"];
-    G2 [label="GPU 2\n持有 Q₂\n当前计算 KV₂", fillcolor="#dbeafe", color="#1d4ed8"];
-    G3 [label="GPU 3\n持有 Q₃\n当前计算 KV₃", fillcolor="#dbeafe", color="#1d4ed8"];
+    G0 [label="GPU 0\n固定持有 Q₀ (32K)\n计算当前 KV + 记录 (m₀, l₀)", fillcolor="#dbeafe", color="#1d4ed8"];
+    G1 [label="GPU 1\n固定持有 Q₁ (32K)\n计算当前 KV + 记录 (m₁, l₁)", fillcolor="#dbeafe", color="#1d4ed8"];
+    G2 [label="GPU 2\n固定持有 Q₂ (32K)\n计算当前 KV + 记录 (m₂, l₂)", fillcolor="#dbeafe", color="#1d4ed8"];
+    G3 [label="GPU 3\n固定持有 Q₃ (32K)\n计算当前 KV + 记录 (m₃, l₃)", fillcolor="#dbeafe", color="#1d4ed8"];
 
-    G0 -> G1 [label=" 异步 P2P Send/Recv 传递 KV 块"];
+    G0 -> G1 [label=" 后台异步 Send/Recv 传递 KV 块"];
     G1 -> G2 [label=" 异步传 KV"];
     G2 -> G3 [label=" 异步传 KV"];
-    G3 -> G0 [label=" 环形首尾相接", constraint=false];
+    G3 -> G0 [label=" 环形接力闭环", constraint=false];
 }
 ```
 
+#### 2. 初学者必看细节与三大踩坑点
+- **大坑 1：Causal Mask（因果掩码）导致的极端算力不均！**
+  自回归大模型中，第 $t$ 个词只能看前 $t$ 个词（下三角有效计算）。如果你老老实实把 `[0..32K]` 给 GPU 0，把 `[96K..128K]` 给 GPU 3：GPU 0 的词只需要看最前面一小段，算完直接跳过其余块；而 GPU 3 的每个词都要看前面整整 128K 的所有历史词——**GPU 3 的实际计算量是 GPU 0 的 7 倍**！GPU 0 算完只能干等，并行加速直接失效！
+  **标准解法：Zig-Zag / Striped 交错切分**（比如把 128K 切成 8 段，GPU 0 拿最轻的段 0 + 最重的段 7，GPU 1 拿段 1 + 段 6……），这样每张卡承担的三角面积完全相等，实现完美负载均衡！
+
+```dot
+digraph ZigZagCP {
+    rankdir=LR;
+    node [shape=box, style="rounded,filled", fontname="sans-serif", fontsize=10];
+    edge [color="#475569", fontname="sans-serif", fontsize=9];
+
+    subgraph cluster_bad {
+        label="❌ 朴素连续切分：算力严重不均";
+        style="rounded,dashed"; color="#dc2626"; bgcolor="#fef2f2";
+        b0 [label="GPU 0 (块0+1): 只算左上小三角\n工作量 1x (早早闲置)", fillcolor="#fee2e2", color="#b91c1c"];
+        b3 [label="GPU 3 (块6+7): 要算整行大梯形\n工作量 7x (累死拖垮全组)", fillcolor="#fecaca", color="#991b1b"];
+        b0 -> b3 [style=invis];
+    }
+
+    subgraph cluster_good {
+        label="✅ Zig-Zag 头尾交错切分：完美均衡";
+        style="rounded"; color="#16a34a"; bgcolor="#f0fdf4";
+        g0 [label="GPU 0: 拿 [块0(最轻) + 块7(最重)]\n总工作量 = 4x", fillcolor="#dcfce7", color="#15803d"];
+        g1 [label="GPU 1: 拿 [块1 + 块6]\n总工作量 = 4x", fillcolor="#dcfce7", color="#15803d"];
+        g2 [label="GPU 2: 拿 [块2 + 块5]\n总工作量 = 4x", fillcolor="#dcfce7", color="#15803d"];
+        g3 [label="GPU 3: 拿 [块3 + 块4]\n总工作量 = 4x", fillcolor="#dcfce7", color="#15803d"];
+        g0 -> g1 [style=invis];
+    }
+}
+```
+
+- **大坑 2：RoPE（旋转位置编码）索引偏移错误**：序列被劈开后，GPU 1 本地索引的第 `0` 个词，在整篇文章里其实是第 `32768` 号词！调用 RoPE 算子时，必须传入**全局 Position ID**（或对应的全局 $\sin/\cos$ 偏移表），如果误用本地索引 `0..32K-1`，位置信息就会彻底乱套。
+- **大坑 3：Ring-Attention vs DeepSpeed-Ulysses 的选择**：除了 Ring-Attention 这种用 P2P 环传 KV 的写法，业界还有一种 **Ulysses CP** 方案——在进入 Attention 之前，用两次 **`All-to-All`** 瞬间把张量从“按序列长度 `S` 切分”重排成“按注意力头 `Head` 切分”（每张卡拿到完整 128K 序列，但只算一部分头），本地直接跑标准 FlashAttention，算完再用 `All-to-All` 换回来。Ulysses 通信延迟更低、算子复用标准 FlashAttention 不用重写 Online Softmax 合并逻辑，但硬性限制是 **CP 并发度不能超过 KV Head 的数量**；而 Ring-Attention 不受头数限制，因此超长序列常把两者混用。
+
 ---
 
-### 2.5 PP（Pipeline Parallelism，流水线并行）
+### 2.5 PP（Pipeline Parallelism，流水线并行）——“汽车组装流水线”
 
-PP 是按模型的**层数（Layer）** 进行纵向流水线切分。例如一个 64 层的网络分给 8 张卡，GPU 0 负责第 1~8 层，GPU 1 负责第 9~16 层，以此类推。
+> **通俗类比**：造一台汽车有 4 道工序（装底盘、装发动机、喷漆、质检），4 个车间（GPU 0 ~ GPU 3）各自负责其中几层网络。如果一次只造 1 辆车，前 1 个车间干完后 3 个车间才能依次开工，75% 的时间都在空等；必须把大订单拆成多个小批次（**Micro-batch，微批次**）像流水线一样连续投料！
 
-**对算子开发的影响**：
-- **单卡算子完全独立**：因为每一层的完整权重和完整张量都在同一张卡上，单个 Kernel 内部逻辑**无需任何改动**。
-- **边界通信与调度优化**：仅在跨卡的层交界处插入点对点（P2P）`Send / Recv` 传递激活值和梯度。工程上的核心痛点在于“前卡算完后卡才能开始”，导致部分卡在某些时段闲着等待（称为 **Pipeline Bubble，流水线气泡**），优化重点在于采用更聪明的调度策略（如 **1F1B** 前向反向交错调度、**Zero-Bubble** 调度），而非魔改单个 Kernel。
+#### 1. 具体 Shape 演变与微批次调度
+假设模型共 64 层，输入 `[Batch=8, Seq=8192, Hidden=4096]`，开 `PP=4`：
+- GPU 0 负责第 `0~15` 层，GPU 1 负责 `16~31` 层，GPU 2 负责 `32~47` 层，GPU 3 负责 `48~63` 层。
+- **层内单卡算子 100% 零改动**：每一层的全部权重和整个激活张量都在同一张卡上，算子内部逻辑完全不用碰，只在层与层跨卡的边界处插一对点对点通信 **`Send / Recv`**。
+- **微批次（Micro-batch）与 1F1B 调度**：如果直接把 `B=8` 整批送入流水线，任意时刻只有 1 张卡在干活，其余 3 张卡全部空闲——这些浪费掉的空档时间就叫 **Pipeline Bubble（流水线气泡）**。因此，工程上把 `B=8` 拆成 4 个 `[B_micro=2, 8192, 4096]` 依次推进，并采用 **1F1B（One Forward One Backward，一前向一反向）** 调度策略，让最早算完前向的微批次尽快进入反向释放显存：
+
+```mermaid
+gantt
+    title PP=4 四卡流水线调度时序对比（F=前向，B=反向，空白处=Bubble 气泡）
+    dateFormat X
+    axisFormat %s
+
+    section 1F1B 稳态阶段 (GPU 0)
+    F1 :a1, 0, 1
+    F2 :a2, 1, 2
+    F3 :a3, 2, 3
+    F4 :a4, 3, 4
+    B1 (等后端传回) :active, a5, 6, 7
+    B2 :active, a6, 7, 8
+    B3 :active, a7, 8, 9
+    B4 :active, a8, 9, 10
+
+    section GPU 1
+    F1 :b1, 1, 2
+    F2 :b2, 2, 3
+    F3 :b3, 3, 4
+    B1 :active, b4, 5, 6
+    F4 :b5, 6, 7
+    B2 :active, b6, 7, 8
+    B3 :active, b7, 8, 9
+    B4 :active, b8, 9, 10
+
+    section GPU 3 (最末尾阶段)
+    等待前级 (Bubble) :crit, d0, 0, 3
+    F1 :d1, 3, 4
+    B1 (立刻反向!) :active, d2, 4, 5
+    F2 :d3, 5, 6
+    B2 :active, d4, 6, 7
+    F3 :d5, 7, 8
+    B3 :active, d6, 8, 9
+    F4 :d7, 9, 10
+    B4 :active, d8, 10, 11
+```
+
+#### 2. 初学者必看细节与注意事项
+- **Micro-batch 拆太小也会伤算子性能**：为了减少气泡，大家往往喜欢把 Micro-batch 拆得很小（比如 `B_micro=1`）。和 DP 一样，如果推理 Decode 时 $S=1$ 且 Micro-batch 太小，单卡矩阵乘同样会变成极窄矩阵，从 Compute-bound 掉进 Memory-bound。
+- **Stage 0 显存反而最大（非对称显存陷阱）**：仔细看上面的 1F1B 时序图！GPU 3 刚算完 `F1` 立刻就跑 `B1` 并释放 `F1` 的中间激活值，自始至终最多只存 **1 份**激活值；而 GPU 0 必须一口气连算 `F1, F2, F3, F4` 之后才能等到 `B1` 回来，必须同时在显存里囤积 **4 份**激活值！所以越靠前的卡越容易 OOM（爆显存），实战中常常故意给 Stage 0 少放 1~2 层网络（或者把输入 Embedding 单独算账）来均衡显存。
+- **词表权重绑定（Tied Embeddings）问题**：很多模型要求第一层的词嵌入矩阵（Embedding，住在 GPU 0）和最后一层的输出分类头（LM Head，住在末尾卡）共享同一份权重。PP 把它们拆到天各一方后，每步反向传播完必须额外增加一次头尾两卡之间的梯度 `All-Reduce`，否则两头权重就分道扬镳了。
+- **P2P `Send / Recv` 死锁与异步流陷阱**：跨卡传递激活值时，张量的 Shape、Dtype（如 BF16 vs FP32）和通信流顺序必须严丝合缝，哪怕一端多发了一个张量或顺序写反，两张卡就会互相永远等对方收发，导致训练任务无声死锁（Hang）。
+
+---
+
+### 2.6 实战决策：5D 并行在真实集群中如何协同组合？
+
+在真实的多机多卡训练/推理集群里，5 种并行不是单选，而是**按照物理网络带宽从高到低嵌套组合**的：
+
+```dot
+digraph Hybrid5D {
+    rankdir=TB;
+    node [shape=box, style="rounded,filled", fontname="sans-serif", fontsize=10];
+    edge [color="#475569", fontname="sans-serif", fontsize=9];
+
+    Node0 [label="机内超高速互联层（NVLink / HCCS：数百 GB/s ~ TB/s 带宽）\n优先放通信最频繁的策略：\n• TP（张量并行：每层两次 All-Reduce）\n• EP（单机内专家并行：高频 All-to-All）", fillcolor="#dbeafe", color="#1d4ed8", width=6.5];
+    Node1 [label="跨机高速网络层（InfiniBand / RoCE RDMA：几十~数百 GB/s）\n放通信相对稀疏或易于掩盖的策略：\n• CP（上下文并行：仅长文本时启用，Ring 异步传 KV）\n• PP（流水线并行：只传层间激活边界，通信量最小）\n• DP / ZeRO（数据并行：仅在每步结束时同步一次梯度）", fillcolor="#dcfce7", color="#15803d", width=6.5];
+
+    Node0 -> Node1 [label=" 物理带宽逐级下降，通信容忍度逐级提高"];
+}
+```
+
+**给初学者的 5D 并行排查速查口诀**：
+1. **单卡放不下模型权重？** $\rightarrow$ 先在机内开 **TP**（或训练开 **ZeRO-3 / FSDP**），跨机再加 **PP**；
+2. **MoE 模型专家太多放不下？** $\rightarrow$ 对专家层单独开 **EP**（把 TP 留给非专家层或按需混用）；
+3. **长文本（128K+）激活值 / KV Cache 爆显存？** $\rightarrow$ 开 **CP**（优先用 Zig-Zag Ring-Attention 或 Ulysses）；
+4. **模型放得下，想多加机器加速吞吐？** $\rightarrow$ 无脑扩 **DP**（注意保持单卡 Micro-batch 别太小）。
 
 ---
 
