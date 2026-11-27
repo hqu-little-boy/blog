@@ -59,12 +59,14 @@ flowchart TD
     Root --> L3["三、SASS MUFU 硬件真相<br/>(8 拍吞吐周期 vs 14~20+ 拍延迟 + Scoreboard)"]
     Root --> L4["四、Tensor Core 调用与互替边界<br/>(WMMA/PTX/Triton 与 Collective 协同映射)"]
     Root --> L5["五、终极追问<br/>(连 SIMD 张量都算不了，为何叫 Tensor Core？)"]
+    Root --> L6["六、SM 微观拓扑与工程调优实战<br/>(4 Sub-partition 布局 + cuobjdump/Nsight 验证)"]
 
     L1 --> L1A["CUDA Core / Tensor Core / RT Core<br/>+ SFU / LD-ST / TMA / TEX"]
     L2 --> L2A["隐式映射 vs Fast Math / API / 内联 PTX<br/>vs OptiX JIT 与 Host 侧独立 SDK"]
     L3 --> L3A["1 条 SASS 指令 ≠ 1 拍完成<br/>Sub-partition 仅 4 个 SFU 通道"]
     L4 --> L4A["CUDA Core 图灵完备可模拟万物<br/>Tensor Core 非图灵完备但快 1~2 个数量级"]
     L5 --> L5A["2017 营销风口 + 数学降维现实<br/>90%+ 高维张量算力最终归宿于 2D GEMM"]
+    L6 --> L6A["Sub-partition 资源切分与共享 SRAM<br/>SASS 反汇编 + Nsight Compute 管道诊断"]
 
     style Root fill:#eff6ff,stroke:#2563eb,stroke-width:2px
     style L1 fill:#ecfdf5,stroke:#16a34a
@@ -72,6 +74,7 @@ flowchart TD
     style L3 fill:#fffbeb,stroke:#d97706
     style L4 fill:#fef2f2,stroke:#dc2626
     style L5 fill:#f0f9ff,stroke:#0284c7
+    style L6 fill:#fdf4ff,stroke:#c026d3
 ```
 
 ---
@@ -641,3 +644,186 @@ flowchart LR
 ```
 
 也就是说，Tensor Core 虽然不能直接算所有种类的张量操作，但它吃掉了整个“张量计算”世界里最重、最核心的那块骨头。至于剩下的逐元素加减、激活函数、归一化这些轻量级张量操作，交给旁边的 CUDA Core（SIMD 向量通路）和 SFU 顺手打扫战场就够了。
+
+---
+
+## 七、SM 内部微观拓扑：四个 Sub-partition 是如何协同与切分资源的？
+
+前面我们反复提到 **SM（流多处理器）** 和 **Sub-partition（处理块 / 子分区）**。很多初学者在看芯片参数表时会疑惑：“为什么一块 GPU 动辄几千个 CUDA Core、几百个 Tensor Core，写代码时却经常听到线程块（CTA / Thread Block）、Register File 抢占、Shared Memory 容量限制？这些核心在一个 SM 内部到底是怎么摆放的？”
+
+把单个 SM 放大看，现代 NVIDIA GPU（从 Volta 到 Ampere、Ada、Hopper、Blackwell）普遍采用的是**高度对称的“四象限（4 Sub-partitions）”切分架构**。
+
+### 7.1 私有资源 vs 全 SM 共享资源
+
+在一个 SM 内部，硬件资源清晰地分为两层：**“4 个子分区各自独享的私有计算资源”** 和 **“全 SM 共享的公共存储与外围单元”**：
+
+1. **4 个 Sub-partition（Processing Block）的私有资源**：
+   - **1 个 Warp Scheduler + 1 个 Dispatch Unit**：负责在自己管辖的活跃 Warp 池子里挑选已就绪的 Warp，每拍发射指令。
+   - **1/4 份 Register File（寄存器文件）**：整个 SM 通常有 `65,536` 个 32 位寄存器（即 **256 KB**），均分给 4 个 Sub-partition，每个 Sub-partition 独占 `16,384` 个（**64 KB**）。
+   - **专属的标量通道与 SFU**：例如在 Ampere / Ada 中，每个 Sub-partition 拥有 `16` 个纯 FP32 通道 + `16` 个 FP32/INT32 复用通道 + `4` 个 SFU（Hopper 则是 `32` 个 FP32 + `16` 个 INT32 + `4` 个 SFU）；在 Turing/Ampere/Ada/Hopper 中，每个 Sub-partition 还有专属的 `LD/ST` 发射端口。
+   - **专属的 Tensor Core**：在 Ampere / Ada / Hopper / Blackwell 中，每个 Sub-partition 配备 **1 个宽位宽 Tensor Core**（整个 SM 共 4 个；早期 Volta / Turing 则是每 Sub-partition 2 个较窄的 Tensor Core，全 SM 共 8 个）。
+2. **全 SM 共享的公共资源**：
+   - **Unified Shared Memory / L1 Data Cache（统一片上高速缓存）**：供 SM 内全部 4 个 Sub-partition 共享。同一线程块（Thread Block）内的不同 Warp 可能被分配到不同 Sub-partition 上跑，它们正是通过这块共享 SRAM 交换数据与同步。
+   - **Texture Units（纹理单元）** 与 **Instruction Cache（L1 指令缓存）**。
+   - **RT Core**（仅图形/工作站卡每 SM 配备 1 个）与 **TMA**（Hopper/Blackwell 每 SM 配备的张量异步搬运引擎）。
+   - **TMEM（Tensor Memory，Blackwell 新增）**：每 SM 配备 256 KB 专用矩阵累加内存，供跨 Warp / 跨 CTA 的 `tcgen05` 指令直接存放累加结果。
+
+下面这张 Graphviz 微架构图清晰画出了单个 SM 内部的物理拓扑：
+
+```dot
+digraph SMInternalLayout {
+    rankdir=TB;
+    node [shape=box, style="rounded,filled", fontname="sans-serif", fontsize=10];
+    edge [color="#475569", fontname="sans-serif", fontsize=9];
+
+    subgraph cluster_sm_box {
+        label="单个 SM (Streaming Multiprocessor) 内部微观架构 (以 Ampere / Ada / Hopper 典型布局为例)";
+        style="rounded";
+        color="#1d4ed8";
+        bgcolor="#f8fafc";
+
+        l1i [label="L1 Instruction Cache + 常量缓存 (全 SM 共享)", fillcolor="#e2e8f0", color="#475569"];
+
+        subgraph cluster_sp0 {
+            label="Sub-partition 0 (Processing Block 0)";
+            style="rounded,dashed";
+            color="#2563eb";
+            bgcolor="#eff6ff";
+            ws0 [label="Warp Scheduler 0\n+ Dispatch Unit", fillcolor="#dbeafe", color="#1d4ed8"];
+            rf0 [label="Register File (64 KB)\n16,384 × 32-bit", fillcolor="#ffffff", color="#2563eb"];
+            pipes0 [label="FP32 / INT32 CUDA Cores\n+ 4 × SFU\n+ 1 × Tensor Core\n+ LD/ST 队列", fillcolor="#dcfce7", color="#15803d"];
+            ws0 -> rf0 -> pipes0 [dir=both];
+        }
+
+        subgraph cluster_sp1 {
+            label="Sub-partition 1 (Processing Block 1)";
+            style="rounded,dashed";
+            color="#2563eb";
+            bgcolor="#eff6ff";
+            ws1 [label="Warp Scheduler 1\n+ Dispatch Unit", fillcolor="#dbeafe", color="#1d4ed8"];
+            rf1 [label="Register File (64 KB)\n16,384 × 32-bit", fillcolor="#ffffff", color="#2563eb"];
+            pipes1 [label="FP32 / INT32 CUDA Cores\n+ 4 × SFU\n+ 1 × Tensor Core\n+ LD/ST 队列", fillcolor="#dcfce7", color="#15803d"];
+            ws1 -> rf1 -> pipes1 [dir=both];
+        }
+
+        subgraph cluster_sp2 {
+            label="Sub-partition 2 (Processing Block 2)";
+            style="rounded,dashed";
+            color="#2563eb";
+            bgcolor="#eff6ff";
+            ws2 [label="Warp Scheduler 2\n+ Dispatch Unit", fillcolor="#dbeafe", color="#1d4ed8"];
+            rf2 [label="Register File (64 KB)\n16,384 × 32-bit", fillcolor="#ffffff", color="#2563eb"];
+            pipes2 [label="FP32 / INT32 CUDA Cores\n+ 4 × SFU\n+ 1 × Tensor Core\n+ LD/ST 队列", fillcolor="#dcfce7", color="#15803d"];
+            ws2 -> rf2 -> pipes2 [dir=both];
+        }
+
+        subgraph cluster_sp3 {
+            label="Sub-partition 3 (Processing Block 3)";
+            style="rounded,dashed";
+            color="#2563eb";
+            bgcolor="#eff6ff";
+            ws3 [label="Warp Scheduler 3\n+ Dispatch Unit", fillcolor="#dbeafe", color="#1d4ed8"];
+            rf3 [label="Register File (64 KB)\n16,384 × 32-bit", fillcolor="#ffffff", color="#2563eb"];
+            pipes3 [label="FP32 / INT32 CUDA Cores\n+ 4 × SFU\n+ 1 × Tensor Core\n+ LD/ST 队列", fillcolor="#dcfce7", color="#15803d"];
+            ws3 -> rf3 -> pipes3 [dir=both];
+        }
+
+        shared_pool [label="全 SM 共享资源池：\n• Unified Shared Memory / L1 Data Cache (例如 128~256 KB)\n• Texture Units (纹理单元) • TMA (Hopper/Blackwell 异步张量搬运)\n• RT Core (仅图形/工作站卡) • TMEM (Blackwell 256 KB 累加内存)", fillcolor="#fef3c7", color="#d97706"];
+
+        l1i -> ws0;
+        l1i -> ws1;
+        l1i -> ws2;
+        l1i -> ws3;
+
+        pipes0 -> shared_pool [dir=both];
+        pipes1 -> shared_pool [dir=both];
+        pipes2 -> shared_pool [dir=both];
+        pipes3 -> shared_pool [dir=both];
+    }
+}
+```
+
+### 7.2 这张架构图解释了哪两个至关重要的编程现象？
+
+1. **为什么单线程块至少要配 128 个线程（4 个 Warp）以上，才不会浪费 SM 算力？**
+   因为一个 SM 内部有 **4 个独立工作的 Sub-partition**！如果你启动的线程块里只有 1 个 Warp（32 个线程），它只能被塞进某一个 Sub-partition 里运行，另外 3 个 Sub-partition 里的 Warp Scheduler、CUDA Core 和 Tensor Core 全都在原地空转干瞪眼——算力直接白白损失 **75%**！
+2. **为什么 Hopper 要推出 128 线程的 `WGMMA`（Warp Group MMA）？**
+   正好 **4 个 Warp = 128 个线程**！当一个 Warp Group 发射 `wgmma.mma_async` 时，刚好可以自然横跨或协同调度 SM 里的硬件资源，并直接从全 SM 共享的 Shared Memory 中持续拉取矩阵块喂给 Tensor Core，避免了大量数据先挤进各自 64 KB 的私有 Register File 导致寄存器溢出（Register Spilling）。
+
+---
+
+## 八、工程实战闭环：如何验证你的代码到底跑在哪个 Core 上？
+
+理解了架构原理，在实际写 CUDA / Triton / PyTorch 算子时，怎么**亲眼验证**自己的代码到底有没有走上 Tensor Core 或 SFU，而不是悄悄退化成了慢速指令？工程上有两把最权威的“照妖镜”。
+
+### 8.1 第一把照妖镜：静态反汇编 `cuobjdump` / `nvdisasm`
+
+你可以直接把编译出来的 `.cubin` 或可执行文件反汇编成原生 **SASS** 机器码，搜索对应的指令助记符：
+
+```bash
+# 导出可执行文件或目标文件中的 SASS 汇编代码
+cuobjdump --dump-sass ./my_cuda_kernel > kernel.sass
+
+# 快速排查关键核心指令是否命中
+grep -E "HMMA|GMMA|QGMMA|tcgen05|MUFU|FFMA|HFMA2|UTMALDG" kernel.sass | head -n 30
+```
+
+- 看到 **`HMMA` / `IMMA` / `DMMA` / `GMMA` / `tcgen05`**：恭喜，**Tensor Core** 已成功激活！
+- 看到 **`MUFU.SIN` / `MUFU.EX2` / `MUFU.RSQ`**：**SFU** 已成功触发！如果本该走快速数学的地方出现一大串 `FFMA` 而没有 `MUFU`，说明编译器为了满足严格 IEEE-754 精度而退回到了 CUDA Core 多项式展开（检查是否漏加 `--use_fast_math` 或 `__sinf` 等内建函数）。
+- 看到 **`UTMALDG` / `UTMASTG`**：**TMA** 异步张量搬运引擎已成功启用。
+- 如果本意是矩阵乘却只看到 **`FFMA` / `HFMA2`**：说明矩阵维度未对齐、数据类型不支持或调用路径有误，**完全没有用到 Tensor Core**！
+
+### 8.2 第二把照妖镜：动态硬件性能剖析 `NVIDIA Nsight Compute (ncu)`
+
+静态看到指令还不够——如果 Tensor Core 一直在“饿肚子等显存数据”，实际吞吐率依然很惨。此时需要用 `ncu` 抓取硬件真实运行时的流水线利用率（Pipe Utilization）：
+
+```bash
+# 使用 Nsight Compute 采集完整性能报告（含 Compute Workload 与 Roofline 分析）
+ncu --set full -o profile_report ./my_cuda_kernel
+```
+
+在 `ncu` 报告的 **Compute Workload Analysis** 面板中，重点看各条硬件执行管道（Executed Ipc / Pipe Utilization）的活跃度：
+
+| `ncu` 管道名称 | 对应的物理硬件单元 | 常见诊断结论 |
+| :--- | :--- | :--- |
+| **`Tensor` (Tensor Pipe)** | Tensor Core | 密集矩阵算子（GEMM / Attention）理想状态下应成为最高占比管道；若接近 0% 说明完全没打中 Tensor Core。 |
+| **`FMA` / `FP16` / `ALU`** | CUDA Core (FP32/FP16/INT32) | 若 Tensor Core 算子中 `ALU`/`FMA` 占比过高，说明索引计算、反量化解包或 Epilogue 逐元素后处理拖了后腿。 |
+| **`XU` (Transcendental / SFU)** | SFU | 在线 Softmax / RoPE / GELU 算子如果发现 `XU` 接近 100% 满载，说明陷入了 SFU 8 拍吞吐瓶颈（需考虑近似替代或计算融合）。 |
+| **`FP64`** | FP64 CUDA Core | 消费级卡若意外看到 `FP64` 占比上升（例如不小心写了 `0.5` 而不是 `0.5f`），算力会瞬间暴跌至 `1/64`！ |
+| **`LSU` / `TMA`** | LD/ST Unit / TMA | 若 `LSU` 长期阻塞（Long Scoreboard Stall），且算术强度低于 **Roofline 模型**拐点，说明算子处于 **Memory-Bound（访存受限）**，需要增大 Shared Memory 分块复用或启用 TMA 双缓冲。 |
+
+> [!TIP] 新手最容易中招的“隐形 FP64 降速陷阱”
+> 在 CUDA C++ 里写 `float y = x * 0.5 + 1.0;` 时，字面量 `0.5` 和 `1.0` 在 C++ 中默认是 **`double`（FP64）**！编译器会被迫先将 `x` 升格成 `double`，用慢如蜗牛的 `DFMA` 在 FP64 单元算完后再强转回 `float`。永远记得加上 `f` 后缀写成 `0.5f` 和 `1.0f`！
+
+---
+
+## 九、终极选型决策树与全篇自查清单
+
+当你面对一个具体的算子或计算任务时，不知道该把它交由哪个硬件单元处理？下面这张决策树可以作为你的实战路线图：
+
+```mermaid
+flowchart TD
+    Start["拿到一个 GPU 计算任务"] --> Q1{"是否属于视频编解码、<br/>JPEG 解码、无损解压或光流？"}
+    Q1 -->|"是"| A1["使用 Host 端独立 SDK<br/>(NVENC/NVDEC/nvJPEG/nvCOMP/OFA)<br/>输出至 CUdeviceptr 零拷贝给 Kernel"]
+    Q1 -->|"否"| Q2{"是否属于 3D 光线追踪<br/>(BVH 遍历 / 光线求交)？"}
+    Q2 -->|"是"| A2["使用 NVIDIA OptiX SDK<br/>调用 optixTrace() 驱动 RT Core"]
+    Q2 -->|"否（通用并行 CUDA Kernel）"| Q3{"核心计算能否转化为<br/>密集 2D 矩阵乘加 GEMM？"}
+    Q3 -->|"是"| A3["显式调度 Tensor Core<br/>(cuBLAS/CUTLASS/Triton/wmma/mma)<br/>配合 TMA + Shared Memory 喂饱算力"]
+    Q3 -->|"否"| Q4{"是否包含大量超越函数<br/>(sin/cos/exp/rsqrt) 且允许近似？"}
+    Q4 -->|"是"| A4["调用 __sinf() / __expf() / --use_fast_math<br/>走 SFU (MUFU.*)，注意 8 拍吞吐上限"]
+    Q4 -->|"否"| A5["常规 CUDA Core (SIMT + Packed SIMD)<br/>优先用 HFMA2/DP4A 提升吞吐，避免隐式 double"]
+
+    style Start fill:#eff6ff,stroke:#2563eb,stroke-width:2px
+    style A3 fill:#ecfdf5,stroke:#16a34a,stroke-width:2px
+    style A4 fill:#fffbeb,stroke:#d97706
+    style A5 fill:#f5f3ff,stroke:#7c3aed
+```
+
+合上教程前，可以用下面 **6 个自查问题**检验自己是否彻底掌握了 NVIDIA GPU 核心体系：
+
+1. **为什么说单个 CUDA Core 不能等同于 CPU 核心？**（它没有独立的取指、译码和控制逻辑，只是 SM 内受 Warp Scheduler 统一指挥的 SIMT 标量通道。）
+2. **为什么写了 `sinf(x)` 却未必跑到 SFU 上？**（标准数学库为满足 IEEE-754 精度通常在 FP32 CUDA Core 上展开为 `FFMA` 多项式；需通过 `__sinf()` 等内建函数或 `--use_fast_math` 才能生成 `MUFU.*` 进入 SFU。）
+3. **为什么单条 SASS `MUFU` 指令不能在硬件上 1 拍算完？**（每个 Sub-partition 通常只有 4 个 SFU，32 线程的 Warp 至少需要 8 拍发射完毕，且多级查表插值流水线有 14~20+ 拍延迟，需依靠 Scoreboard Barrier 防止 RAW 冒险。）
+4. **为什么调用 Tensor Core 时严禁线程发生分支发散？**（矩阵分片被按严格的 Fragment Layout 打散存在整个 Warp/WarpGroup 的寄存器中，硬件内部隐式跨线程收集与交叉乘加，要求所有参与线程必须同步到达。）
+5. **为什么 Hopper 架构要引入 128 线程的 `WGMMA` 与 `TMA`？**（128 线程正好匹配 SM 内 4 个 Sub-partition；`WGMMA` 允许直接从 Shared Memory 读操作数减轻寄存器压力，`TMA` 用单线程硬件级多维坐标搬运解放 CUDA Core。）
+6. **为什么 Tensor Core 只能算矩阵乘加，却不顺便把 `A + B` 这种逐元素 SIMD 一起算了？**（逐元素运算是 $O(N)$ 访存受限，交由本质上是 32-wide SIMD 且支持 `HFMA2`/`DP4A` 的 CUDA Core 处理性价比最高；而 Tensor Core 专注于吃掉占深度学习 90%+ 算力的 2D GEMM。）
