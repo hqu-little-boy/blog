@@ -17,8 +17,8 @@
   <div
     class="bg-surface-container-low dark:bg-surface-container border-outline-variant/60 flex flex-wrap items-center justify-between gap-3 rounded-3xl border p-3 shadow-xs"
   >
-    <!-- Left: Language & Compiler Flags -->
-    <div class="flex flex-wrap items-center gap-2">
+    <!-- Left: Language Selector & Workspace Mode -->
+    <div class="flex flex-wrap items-center gap-2.5">
       <!-- Language Selector -->
       <div class="flex items-center gap-1.5">
         <label
@@ -37,53 +37,12 @@
         </select>
       </div>
 
-      <!-- Compiler Arguments Input & Quick Flags -->
-      <div class="flex items-center gap-1.5">
-        <label
-          for="compiler-args"
-          class="text-on-surface-variant text-xs font-medium sm:text-sm"
-        >
-          参数:
-        </label>
-        <input
-          id="compiler-args"
-          type="text"
-          value="-O2 -std=c++23 -pthread"
-          placeholder="例如 -O2 -std=c++23"
-          class="bg-surface-container-high dark:bg-surface-container-highest text-on-surface border-outline-variant/60 focus-visible:ring-primary/40 w-32 rounded-xl border px-2.5 py-1 font-mono text-xs shadow-xs transition-colors sm:w-44"
-        />
-        <!-- Quick Optimization Pills -->
-        <div class="hidden items-center gap-1 sm:flex">
-          <button
-            type="button"
-            data-opt="-O0"
-            class="opt-btn bg-surface-container-high hover:bg-secondary-container hover:text-on-secondary-container text-on-surface-variant rounded-lg px-1.5 py-0.5 font-mono text-[11px] transition-colors"
-          >
-            -O0
-          </button>
-          <button
-            type="button"
-            data-opt="-O2"
-            class="opt-btn bg-surface-container-high hover:bg-secondary-container hover:text-on-secondary-container text-on-surface-variant rounded-lg px-1.5 py-0.5 font-mono text-[11px] transition-colors"
-          >
-            -O2
-          </button>
-          <button
-            type="button"
-            data-opt="-O3"
-            class="opt-btn bg-surface-container-high hover:bg-secondary-container hover:text-on-secondary-container text-on-surface-variant rounded-lg px-1.5 py-0.5 font-mono text-[11px] transition-colors"
-          >
-            -O3
-          </button>
-          <button
-            type="button"
-            data-opt="-Os"
-            class="opt-btn bg-surface-container-high hover:bg-secondary-container hover:text-on-secondary-container text-on-surface-variant rounded-lg px-1.5 py-0.5 font-mono text-[11px] transition-colors"
-          >
-            -Os
-          </button>
-        </div>
-      </div>
+      <span
+        class="bg-surface-container-high/80 dark:bg-surface-container-highest/60 text-on-surface-variant hidden items-center gap-1.5 rounded-xl px-2.5 py-1 text-[11px] font-medium md:inline-flex"
+      >
+        <span class="bg-primary size-1.5 rounded-full"></span>
+        <span>汇编与运行使用各自独立的编译参数</span>
+      </span>
     </div>
 
     <!-- Right: Primary Actions & Utilities -->
@@ -473,6 +432,43 @@
         </div>
       </div>
 
+      <!-- Assembly Compiler Flags Bar (Architecture-specific) -->
+      <div
+        class="bg-surface-container-low/45 dark:bg-surface-container/35 border-outline-variant/40 flex shrink-0 flex-col gap-1.5 border-b px-3.5 py-2"
+      >
+        <div class="flex items-center gap-1.5">
+          <label
+            for="asm-args"
+            class="text-on-surface-variant/80 shrink-0 text-[11px] font-medium select-none"
+          >
+            汇编参数:
+          </label>
+          <input
+            id="asm-args"
+            type="text"
+            value="-O2 -std=c++23 -march=rv64gc -mabi=lp64d"
+            placeholder="输入目标架构专属编译参数..."
+            spellcheck="false"
+            autocomplete="off"
+            class="bg-surface-container-high/80 dark:bg-surface-container-highest/60 text-on-surface border-outline-variant/50 min-w-0 flex-1 rounded-lg border px-2 py-1 font-mono text-[11px] transition-colors focus:outline-hidden focus-visible:ring-sky-500/40"
+          />
+          <button
+            id="btn-asm-args-reset"
+            type="button"
+            class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high shrink-0 cursor-pointer rounded-lg px-2 py-1 text-[11px] transition-colors"
+            title="恢复当前架构默认参数"
+          >
+            重置
+          </button>
+        </div>
+        <div
+          id="asm-flag-pills"
+          class="flex flex-wrap items-center gap-1"
+          aria-label="当前架构常用编译参数"
+        >
+        </div>
+      </div>
+
       <!-- Assembly Filter Options Bar -->
       <div
         class="bg-surface-container-low/30 dark:bg-surface-container/20 border-outline-variant/40 flex items-center justify-between border-b px-4 py-1.5 text-[11px]"
@@ -540,7 +536,7 @@
           class="m-0 h-full w-full flex-1 overflow-x-auto overflow-y-auto py-3.5 font-mono text-xs leading-6 whitespace-pre select-text"
         >
           <div class="text-muted-foreground/60 px-3.5 leading-6">
-            ; 点击顶部“编译并运行”生成目标汇编...
+            ; 点击顶部“生成汇编”或按 Alt+Enter 生成目标汇编...
           </div>
         </div>
       </div>
@@ -613,6 +609,49 @@
         </div>
       </div>
 
+      <!-- Execution Compiler Flags Bar (amd64 Sandbox) -->
+      <div
+        class="bg-surface-container-low/45 dark:bg-surface-container/35 border-outline-variant/40 flex shrink-0 flex-col gap-1.5 border-b px-3.5 py-2"
+      >
+        <div class="flex items-center gap-1.5">
+          <label
+            for="exec-args"
+            class="text-on-surface-variant/80 shrink-0 text-[11px] font-medium select-none"
+          >
+            运行参数:
+          </label>
+          <span
+            class="shrink-0 rounded-md bg-emerald-500/10 px-1.5 py-0.5 font-mono text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
+            title="云端执行沙箱架构"
+          >
+            amd64
+          </span>
+          <input
+            id="exec-args"
+            type="text"
+            value="-O2 -std=c++23 -pthread"
+            placeholder="输入沙箱运行编译参数..."
+            spellcheck="false"
+            autocomplete="off"
+            class="bg-surface-container-high/80 dark:bg-surface-container-highest/60 text-on-surface border-outline-variant/50 min-w-0 flex-1 rounded-lg border px-2 py-1 font-mono text-[11px] transition-colors focus:outline-hidden focus-visible:ring-emerald-500/40"
+          />
+          <button
+            id="btn-exec-args-reset"
+            type="button"
+            class="text-on-surface-variant hover:text-on-surface hover:bg-surface-container-high shrink-0 cursor-pointer rounded-lg px-2 py-1 text-[11px] transition-colors"
+            title="恢复当前语言默认运行参数"
+          >
+            重置
+          </button>
+        </div>
+        <div
+          id="exec-flag-pills"
+          class="flex flex-wrap items-center gap-1"
+          aria-label="运行环境常用编译参数"
+        >
+        </div>
+      </div>
+
       <!-- Collapsible Stdin Section -->
       <div
         id="stdin-panel"
@@ -637,7 +676,7 @@
       >
         <pre
           id="terminal-output"
-          class="m-0 w-full font-mono text-xs leading-relaxed whitespace-pre-wrap text-[#e6edf3]"><span class="text-muted-foreground/60">$ 控制台就绪。点击“编译并运行”查看输出...</span></pre>
+          class="m-0 w-full font-mono text-xs leading-relaxed whitespace-pre-wrap text-[#e6edf3]"><span class="text-muted-foreground/60">$ 控制台就绪。点击“运行”或按 Ctrl+Enter 查看输出...</span></pre>
       </div>
 
       <!-- Execution Footer -->
@@ -695,6 +734,238 @@
     rust: "r1830",
   };
 
+  const LANG_BADGE_MAP: Record<string, string> = {
+    cpp: "C++23",
+    c: "C23",
+    rust: "Rust 1.83",
+  };
+
+  // Default Assembly Arguments per (language, target architecture)
+  const ASM_DEFAULT_ARGS: Record<string, Record<string, string>> = {
+    cpp: {
+      "rv64-gcc1420": "-O2 -std=c++23 -march=rv64gc -mabi=lp64d",
+      g142: "-O2 -std=c++23",
+      clang1910: "-O2 -std=c++23",
+      "aarch64-gcc1420": "-O2 -std=c++23 -march=armv8-a",
+    },
+    c: {
+      "rv64-gcc1420": "-O2 -std=c23 -march=rv64gc -mabi=lp64d",
+      g142: "-O2 -std=c23",
+      clang1910: "-O2 -std=c23",
+      "aarch64-gcc1420": "-O2 -std=c23 -march=armv8-a",
+    },
+    rust: {
+      "rv64-gcc1420": "-Copt-level=2 --target=riscv64gc-unknown-linux-gnu",
+      g142: "-Copt-level=2",
+      clang1910: "-Copt-level=2",
+      "aarch64-gcc1420": "-Copt-level=2 --target=aarch64-unknown-linux-gnu",
+    },
+  };
+
+  // Default Execution Arguments per language (amd64 sandbox)
+  const EXEC_DEFAULT_ARGS: Record<string, string> = {
+    cpp: "-O2 -std=c++23 -pthread",
+    c: "-O2 -std=c23 -lm",
+    rust: "-Copt-level=2",
+  };
+
+  interface FlagPill {
+    flag: string;
+    label?: string;
+    title: string;
+    group?: "opt" | "march" | "mcpu" | "target";
+  }
+
+  const CC_OPT_PILLS: FlagPill[] = [
+    { flag: "-O0", title: "无优化 (方便保留完整变量与栈帧)", group: "opt" },
+    { flag: "-O2", title: "标准二级优化", group: "opt" },
+    { flag: "-O3", title: "激进优化 (含自动向量化)", group: "opt" },
+    { flag: "-Os", title: "体积优先优化", group: "opt" },
+  ];
+
+  const RUST_OPT_PILLS: FlagPill[] = [
+    { flag: "-Copt-level=0", label: "opt=0", title: "无优化", group: "opt" },
+    { flag: "-Copt-level=2", label: "opt=2", title: "标准优化", group: "opt" },
+    {
+      flag: "-Copt-level=3",
+      label: "opt=3",
+      title: "最高性能优化",
+      group: "opt",
+    },
+    {
+      flag: "-Copt-level=s",
+      label: "opt=s",
+      title: "体积优先优化",
+      group: "opt",
+    },
+  ];
+
+  const ASM_ARCH_PILLS: Record<string, Record<string, FlagPill[]>> = {
+    cc: {
+      "rv64-gcc1420": [
+        ...CC_OPT_PILLS,
+        {
+          flag: "-march=rv64gc",
+          title: "RISC-V 64 通用指令集 (IMAFDC)",
+          group: "march",
+        },
+        {
+          flag: "-march=rv64gcv",
+          title: "启用 RISC-V Vector (RVV 1.0) 向量扩展",
+          group: "march",
+        },
+        {
+          flag: "-march=rv64gc_zba_zbb",
+          title: "启用 Bitmanip (Zba/Zbb) 位操作扩展",
+          group: "march",
+        },
+        { flag: "-mabi=lp64d", title: "64位硬件双精度浮点 ABI" },
+      ],
+      g142: [
+        ...CC_OPT_PILLS,
+        { flag: "-mavx2", title: "启用 x86-64 AVX2 256位 SIMD 指令" },
+        { flag: "-mavx512f", title: "启用 AVX-512F 512位指令" },
+        { flag: "-mfma", title: "启用融合乘加 (FMA) 指令" },
+        { flag: "-masm=intel", title: "输出 Intel 风格汇编语法" },
+      ],
+      clang1910: [
+        ...CC_OPT_PILLS,
+        { flag: "-mavx2", title: "启用 x86-64 AVX2 256位 SIMD 指令" },
+        { flag: "-mavx512f", title: "启用 AVX-512F 512位指令" },
+        { flag: "-mfma", title: "启用融合乘加 (FMA) 指令" },
+        { flag: "-masm=intel", title: "输出 Intel 风格汇编语法" },
+      ],
+      "aarch64-gcc1420": [
+        ...CC_OPT_PILLS,
+        {
+          flag: "-march=armv8-a",
+          title: "基础 ARMv8-A 架构 (NEON)",
+          group: "march",
+        },
+        {
+          flag: "-march=armv8.2-a+fp16",
+          title: "启用 ARMv8.2 半精度浮点扩展",
+          group: "march",
+        },
+        {
+          flag: "-march=armv9-a+sve",
+          title: "启用 ARMv9 SVE 可伸缩向量扩展",
+          group: "march",
+        },
+        {
+          flag: "-mcpu=neoverse-n1",
+          title: "针对 Neoverse-N1 微架构调度",
+          group: "mcpu",
+        },
+      ],
+    },
+    rust: {
+      "rv64-gcc1420": [
+        ...RUST_OPT_PILLS,
+        {
+          flag: "--target=riscv64gc-unknown-linux-gnu",
+          label: "rv64gc",
+          title: "RISC-V 64 交叉编译目标",
+          group: "target",
+        },
+        {
+          flag: "-Ctarget-feature=+v",
+          label: "+v (RVV)",
+          title: "启用 RISC-V 向量扩展",
+        },
+        {
+          flag: "--crate-type=lib",
+          title: "以库模式编译 (便于查看 pub fn 汇编)",
+        },
+      ],
+      g142: [
+        ...RUST_OPT_PILLS,
+        {
+          flag: "-Ctarget-feature=+avx2",
+          label: "+avx2",
+          title: "启用 x86-64 AVX2 SIMD",
+        },
+        {
+          flag: "-Ctarget-feature=+avx512f",
+          label: "+avx512f",
+          title: "启用 AVX-512F",
+        },
+        {
+          flag: "--crate-type=lib",
+          title: "以库模式编译 (便于查看 pub fn 汇编)",
+        },
+      ],
+      clang1910: [
+        ...RUST_OPT_PILLS,
+        {
+          flag: "-Ctarget-feature=+avx2",
+          label: "+avx2",
+          title: "启用 x86-64 AVX2 SIMD",
+        },
+        {
+          flag: "--crate-type=lib",
+          title: "以库模式编译 (便于查看 pub fn 汇编)",
+        },
+      ],
+      "aarch64-gcc1420": [
+        ...RUST_OPT_PILLS,
+        {
+          flag: "--target=aarch64-unknown-linux-gnu",
+          label: "aarch64",
+          title: "ARM64 交叉编译目标",
+          group: "target",
+        },
+        {
+          flag: "-Ctarget-feature=+neon",
+          label: "+neon",
+          title: "启用 ARM NEON 向量指令",
+        },
+        {
+          flag: "--crate-type=lib",
+          title: "以库模式编译 (便于查看 pub fn 汇编)",
+        },
+      ],
+    },
+  };
+
+  const EXEC_PILLS: Record<string, FlagPill[]> = {
+    cpp: [
+      ...CC_OPT_PILLS.filter(p => p.flag !== "-Os"),
+      { flag: "-pthread", title: "链接 POSIX 线程库" },
+      { flag: "-mavx2", title: "启用沙箱宿主 AVX2 指令集" },
+      {
+        flag: "-fsanitize=address,undefined",
+        label: "ASan+UBSan",
+        title: "开启内存越界与未定义行为检测",
+      },
+    ],
+    c: [
+      ...CC_OPT_PILLS.filter(p => p.flag !== "-Os"),
+      { flag: "-lm", title: "链接数学库 (math.h)" },
+      { flag: "-pthread", title: "链接 POSIX 线程库" },
+      {
+        flag: "-fsanitize=address,undefined",
+        label: "ASan+UBSan",
+        title: "开启内存越界与未定义行为检测",
+      },
+    ],
+    rust: [
+      ...RUST_OPT_PILLS.filter(p => p.flag !== "-Copt-level=s"),
+      {
+        flag: "-Ctarget-feature=+avx2",
+        label: "+avx2",
+        title: "启用沙箱宿主 AVX2 指令集",
+      },
+    ],
+  };
+
+  function getAsmPills(lang: string, target: string): FlagPill[] {
+    const family = lang === "rust" ? "rust" : "cc";
+    return (
+      ASM_ARCH_PILLS[family]?.[target] || ASM_ARCH_PILLS[family]?.g142 || []
+    );
+  }
+
   function stripAnsi(str: string): string {
     return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "");
   }
@@ -706,15 +977,31 @@
 
   function initCompilerWorkspace() {
     const root = document.getElementById("compiler-root");
-    if (!root) return;
+    if (!root || root.dataset.initialized === "true") return;
+    root.dataset.initialized = "true";
 
     // Elements
     const langSelect = document.getElementById(
       "lang-select"
     ) as HTMLSelectElement;
-    const compilerArgsInput = document.getElementById(
-      "compiler-args"
+    const asmArgsInput = document.getElementById(
+      "asm-args"
     ) as HTMLInputElement;
+    const btnAsmArgsReset = document.getElementById(
+      "btn-asm-args-reset"
+    ) as HTMLButtonElement;
+    const asmFlagPills = document.getElementById(
+      "asm-flag-pills"
+    ) as HTMLElement;
+    const execArgsInput = document.getElementById(
+      "exec-args"
+    ) as HTMLInputElement;
+    const btnExecArgsReset = document.getElementById(
+      "btn-exec-args-reset"
+    ) as HTMLButtonElement;
+    const execFlagPills = document.getElementById(
+      "exec-flag-pills"
+    ) as HTMLElement;
     const btnAsm = document.getElementById("btn-asm") as HTMLButtonElement;
     const asmBtnIcon = document.getElementById("asm-btn-icon") as HTMLElement;
     const asmSpinIcon = document.getElementById("asm-spin-icon") as HTMLElement;
@@ -1194,32 +1481,275 @@
       }
     });
 
-    // Quick Optimization Pills
-    root.querySelectorAll<HTMLButtonElement>(".opt-btn").forEach(btn => {
-      btn.addEventListener("click", () => {
-        const opt = btn.dataset.opt || "-O2";
-        if (compilerArgsInput) {
-          let val = compilerArgsInput.value;
-          if (/-O[0-3sfastg]/.test(val)) {
-            val = val.replace(/-O[0-3sfastg]/, opt);
-          } else {
-            val = `${opt} ${val}`.trim();
+    // Per-(lang, target) Argument Stores
+    let currentLang = langSelect?.value || "cpp";
+    let currentAsmTarget = asmCompilerSelect?.value || "rv64-gcc1420";
+    const asmArgsByKey: Record<string, string> = {};
+    const execArgsByLang: Record<string, string> = {};
+
+    function getDefaultAsmArgs(lang: string, target: string): string {
+      return (
+        ASM_DEFAULT_ARGS[lang]?.[target] ??
+        ASM_DEFAULT_ARGS[lang]?.g142 ??
+        "-O2"
+      );
+    }
+
+    function getDefaultExecArgs(lang: string): string {
+      return EXEC_DEFAULT_ARGS[lang] ?? "-O2";
+    }
+
+    function updateFlagPillsActiveState(
+      container: HTMLElement | null,
+      inputEl: HTMLInputElement | null,
+      accent: "sky" | "emerald"
+    ) {
+      if (!container || !inputEl) return;
+      const tokens = inputEl.value.trim().split(/\s+/).filter(Boolean);
+      const activeCls =
+        accent === "sky"
+          ? [
+              "border-sky-500/50",
+              "bg-sky-500/15",
+              "text-sky-700",
+              "dark:text-sky-300",
+            ]
+          : [
+              "border-emerald-500/50",
+              "bg-emerald-500/15",
+              "text-emerald-700",
+              "dark:text-emerald-300",
+            ];
+      const inactiveCls = [
+        "border-outline-variant/40",
+        "bg-surface-container-high/80",
+        "text-on-surface-variant",
+      ];
+
+      container
+        .querySelectorAll<HTMLButtonElement>(".flag-pill")
+        .forEach(btn => {
+          const flag = btn.dataset.flag || "";
+          const isActive = tokens.includes(flag);
+          btn.classList.remove(...activeCls, ...inactiveCls);
+          btn.classList.add(...(isActive ? activeCls : inactiveCls));
+          btn.setAttribute("aria-pressed", String(isActive));
+        });
+    }
+
+    function toggleCompilerFlag(
+      inputEl: HTMLInputElement,
+      pill: FlagPill,
+      lang: string
+    ) {
+      let tokens = inputEl.value.trim().split(/\s+/).filter(Boolean);
+      const exists = tokens.includes(pill.flag);
+
+      if (pill.group === "opt") {
+        const optRegex =
+          lang === "rust" ? /^(-Copt-level=[0-3sz]|-O)$/ : /^-O[0-3sfastg]?$/;
+        const idx = tokens.findIndex(t => optRegex.test(t));
+        if (idx !== -1) {
+          tokens = tokens.filter((t, i) => !optRegex.test(t) || i === idx);
+          tokens[tokens.findIndex(t => optRegex.test(t))] = pill.flag;
+        } else {
+          tokens.unshift(pill.flag);
+        }
+      } else if (pill.group === "march") {
+        if (exists) {
+          tokens = tokens.filter(t => t !== pill.flag);
+        } else {
+          tokens = tokens.filter(t => !t.startsWith("-march="));
+          tokens.push(pill.flag);
+        }
+      } else if (pill.group === "mcpu") {
+        if (exists) {
+          tokens = tokens.filter(t => t !== pill.flag);
+        } else {
+          tokens = tokens.filter(t => !t.startsWith("-mcpu="));
+          tokens.push(pill.flag);
+        }
+      } else if (pill.group === "target") {
+        if (exists) {
+          tokens = tokens.filter(t => t !== pill.flag);
+        } else {
+          tokens = tokens.filter(t => !t.startsWith("--target="));
+          tokens.push(pill.flag);
+        }
+      } else {
+        if (exists) {
+          tokens = tokens.filter(t => t !== pill.flag);
+        } else {
+          tokens.push(pill.flag);
+        }
+      }
+
+      inputEl.value = tokens.join(" ");
+    }
+
+    function renderFlagPills(
+      container: HTMLElement | null,
+      inputEl: HTMLInputElement | null,
+      pills: FlagPill[],
+      accent: "sky" | "emerald",
+      onAfterToggle: () => void
+    ) {
+      if (!container || !inputEl) return;
+      container.innerHTML = "";
+      pills.forEach(pill => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className =
+          "flag-pill cursor-pointer rounded-md border px-1.5 py-0.5 font-mono text-[10px] font-medium transition-colors hover:opacity-90 active:scale-95";
+        btn.dataset.flag = pill.flag;
+        btn.title = pill.title;
+        btn.textContent = pill.label || pill.flag;
+        btn.addEventListener("click", () => {
+          toggleCompilerFlag(inputEl, pill, langSelect?.value || "cpp");
+          updateFlagPillsActiveState(container, inputEl, accent);
+          onAfterToggle();
+        });
+        container.appendChild(btn);
+      });
+      updateFlagPillsActiveState(container, inputEl, accent);
+    }
+
+    function syncAsmCompilerOptions(lang: string) {
+      if (!asmCompilerSelect) return;
+      const isRust = lang === "rust";
+      const labelMap: Record<string, string> = isRust
+        ? {
+            "rv64-gcc1420": "RISC-V 64 (rustc 1.83)",
+            g142: "x86-64 (rustc 1.83)",
+            clang1910: "x86-64 Clang (不支持 Rust)",
+            "aarch64-gcc1420": "ARM64 (rustc 1.83)",
           }
-          compilerArgsInput.value = val;
+        : {
+            "rv64-gcc1420": "RISC-V 64 (GCC 14.2)",
+            g142: "x86-64 (GCC 14.2)",
+            clang1910: "x86-64 (Clang 19.1)",
+            "aarch64-gcc1420": "ARM64 (GCC 14.2)",
+          };
+
+      Array.from(asmCompilerSelect.options).forEach(opt => {
+        if (labelMap[opt.value]) opt.text = labelMap[opt.value];
+        if (opt.value === "clang1910") {
+          opt.disabled = isRust;
+          opt.hidden = isRust;
         }
       });
+
+      if (isRust && asmCompilerSelect.value === "clang1910") {
+        asmCompilerSelect.value = "g142";
+        currentAsmTarget = "g142";
+      }
+    }
+
+    function syncExecEngineLabel(lang: string) {
+      if (!execEngineInfo) return;
+      const label =
+        lang === "rust"
+          ? "云端沙箱 (amd64 · rustc 1.83)"
+          : "云端沙箱 (amd64 · GCC 14.2)";
+      execEngineInfo.innerText = label;
+    }
+
+    function refreshAllFlagPills() {
+      const lang = langSelect?.value || "cpp";
+      const asmTarget = asmCompilerSelect?.value || "rv64-gcc1420";
+      renderFlagPills(
+        asmFlagPills,
+        asmArgsInput,
+        getAsmPills(lang, asmTarget),
+        "sky",
+        () => {
+          asmArgsByKey[`${lang}:${asmTarget}`] = asmArgsInput.value;
+          if (sourceEditor?.value.trim()) {
+            compileAssembly();
+          }
+        }
+      );
+      renderFlagPills(
+        execFlagPills,
+        execArgsInput,
+        EXEC_PILLS[lang] || EXEC_PILLS.cpp,
+        "emerald",
+        () => {
+          execArgsByLang[lang] = execArgsInput.value;
+        }
+      );
+    }
+
+    asmArgsInput?.addEventListener("input", () => {
+      asmArgsByKey[`${currentLang}:${currentAsmTarget}`] = asmArgsInput.value;
+      updateFlagPillsActiveState(asmFlagPills, asmArgsInput, "sky");
+    });
+
+    asmArgsInput?.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        compileAssembly();
+      }
+    });
+
+    execArgsInput?.addEventListener("input", () => {
+      execArgsByLang[currentLang] = execArgsInput.value;
+      updateFlagPillsActiveState(execFlagPills, execArgsInput, "emerald");
+    });
+
+    execArgsInput?.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        runExecution();
+      }
+    });
+
+    btnAsmArgsReset?.addEventListener("click", () => {
+      const def = getDefaultAsmArgs(currentLang, currentAsmTarget);
+      asmArgsInput.value = def;
+      asmArgsByKey[`${currentLang}:${currentAsmTarget}`] = def;
+      updateFlagPillsActiveState(asmFlagPills, asmArgsInput, "sky");
+      showToast("已重置当前架构汇编参数");
+      if (sourceEditor?.value.trim()) {
+        compileAssembly();
+      }
+    });
+
+    btnExecArgsReset?.addEventListener("click", () => {
+      const def = getDefaultExecArgs(currentLang);
+      execArgsInput.value = def;
+      execArgsByLang[currentLang] = def;
+      updateFlagPillsActiveState(execFlagPills, execArgsInput, "emerald");
+      showToast("已重置当前语言运行参数");
     });
 
     langSelect?.addEventListener("change", () => {
-      const lang = langSelect.value;
-      if (sourceBadge) sourceBadge.innerText = lang.toUpperCase();
-      if (lang === "cpp") {
-        compilerArgsInput.value = "-O2 -std=c++23 -pthread";
-      } else if (lang === "c") {
-        compilerArgsInput.value = "-O2 -std=c23 -lm";
-      } else if (lang === "rust") {
-        compilerArgsInput.value = "-O";
+      // Persist previous language args
+      if (asmArgsInput) {
+        asmArgsByKey[`${currentLang}:${currentAsmTarget}`] = asmArgsInput.value;
       }
+      if (execArgsInput) {
+        execArgsByLang[currentLang] = execArgsInput.value;
+      }
+
+      const lang = langSelect.value;
+      currentLang = lang;
+      if (sourceBadge) {
+        sourceBadge.innerText = LANG_BADGE_MAP[lang] || lang.toUpperCase();
+      }
+      syncAsmCompilerOptions(lang);
+      currentAsmTarget = asmCompilerSelect?.value || "rv64-gcc1420";
+      syncExecEngineLabel(lang);
+
+      if (asmArgsInput) {
+        asmArgsInput.value =
+          asmArgsByKey[`${lang}:${currentAsmTarget}`] ??
+          getDefaultAsmArgs(lang, currentAsmTarget);
+      }
+      if (execArgsInput) {
+        execArgsInput.value = execArgsByLang[lang] ?? getDefaultExecArgs(lang);
+      }
+      refreshAllFlagPills();
     });
 
     // Source Buttons
@@ -1274,7 +1804,8 @@
         code: sourceEditor.value,
         lang: langSelect.value,
         asmComp: asmCompilerSelect.value,
-        args: compilerArgsInput.value,
+        asmArgs: asmArgsInput.value,
+        execArgs: execArgsInput.value,
       };
       try {
         const hash = encodeURIComponent(JSON.stringify(state));
@@ -1342,7 +1873,7 @@
       clearAllHighlights();
 
       const lang = langSelect.value;
-      const userArguments = compilerArgsInput.value.trim();
+      const userArguments = asmArgsInput.value.trim();
       const asmTarget = asmCompilerSelect.value;
       const actualAsmCompiler = COMPILER_MAP[lang]?.[asmTarget] || asmTarget;
 
@@ -1455,7 +1986,7 @@
       isRunningExec = true;
 
       const lang = langSelect.value;
-      const userArguments = compilerArgsInput.value.trim();
+      const userArguments = execArgsInput.value.trim();
       const actualExecCompiler = EXEC_COMPILER_MAP[lang] || "g142";
 
       // UI state -> running
@@ -1616,14 +2147,28 @@
     btnAsm?.addEventListener("click", compileAssembly);
     btnRun?.addEventListener("click", runExecution);
 
-    // Assembly compiler change -> recompile asm
+    // Assembly compiler / architecture change -> switch arch-specific args & recompile asm
     asmCompilerSelect?.addEventListener("change", () => {
-      compileAssembly();
+      if (asmArgsInput) {
+        asmArgsByKey[`${currentLang}:${currentAsmTarget}`] = asmArgsInput.value;
+      }
+      currentAsmTarget = asmCompilerSelect.value;
+      if (asmArgsInput) {
+        asmArgsInput.value =
+          asmArgsByKey[`${currentLang}:${currentAsmTarget}`] ??
+          getDefaultAsmArgs(currentLang, currentAsmTarget);
+      }
+      refreshAllFlagPills();
+      if (sourceEditor?.value.trim()) {
+        compileAssembly();
+      }
     });
 
     [filterDirectives, filterComments, filterDemangle].forEach(checkbox => {
       checkbox?.addEventListener("change", () => {
-        compileAssembly();
+        if (sourceEditor?.value.trim()) {
+          compileAssembly();
+        }
       });
     });
 
@@ -1635,11 +2180,31 @@
         );
         const state = JSON.parse(rawJson);
         if (state.code) sourceEditor.value = state.code;
-        if (state.lang) langSelect.value = state.lang;
-        if (state.asmComp) asmCompilerSelect.value = state.asmComp;
-        if (state.args) compilerArgsInput.value = state.args;
-        if (sourceBadge)
-          sourceBadge.innerText = (state.lang || "cpp").toUpperCase();
+        if (state.lang) {
+          langSelect.value = state.lang;
+          currentLang = state.lang;
+        }
+        syncAsmCompilerOptions(currentLang);
+        if (state.asmComp) {
+          asmCompilerSelect.value = state.asmComp;
+          currentAsmTarget = state.asmComp;
+        }
+        syncExecEngineLabel(currentLang);
+        const restoredAsmArgs =
+          state.asmArgs ??
+          state.args ??
+          getDefaultAsmArgs(currentLang, currentAsmTarget);
+        const restoredExecArgs =
+          state.execArgs ?? state.args ?? getDefaultExecArgs(currentLang);
+        asmArgsInput.value = restoredAsmArgs;
+        execArgsInput.value = restoredExecArgs;
+        asmArgsByKey[`${currentLang}:${currentAsmTarget}`] = restoredAsmArgs;
+        execArgsByLang[currentLang] = restoredExecArgs;
+        if (sourceBadge) {
+          sourceBadge.innerText =
+            LANG_BADGE_MAP[currentLang] || currentLang.toUpperCase();
+        }
+        refreshAllFlagPills();
         clearAllHighlights();
         updateSourceGutter();
         if (state.code) {
@@ -1648,11 +2213,21 @@
         }
       } catch {
         sourceEditor.value = "";
+        syncAsmCompilerOptions(currentLang);
+        syncExecEngineLabel(currentLang);
+        asmArgsInput.value = getDefaultAsmArgs(currentLang, currentAsmTarget);
+        execArgsInput.value = getDefaultExecArgs(currentLang);
+        refreshAllFlagPills();
         clearAllHighlights();
         updateSourceGutter();
       }
     } else {
       sourceEditor.value = "";
+      syncAsmCompilerOptions(currentLang);
+      syncExecEngineLabel(currentLang);
+      asmArgsInput.value = getDefaultAsmArgs(currentLang, currentAsmTarget);
+      execArgsInput.value = getDefaultExecArgs(currentLang);
+      refreshAllFlagPills();
       clearAllHighlights();
       updateSourceGutter();
     }
