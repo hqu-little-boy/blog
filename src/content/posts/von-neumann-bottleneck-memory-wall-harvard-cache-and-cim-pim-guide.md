@@ -1,7 +1,7 @@
 ---
 author: hqu-little-boy
 pubDatetime: 2026-11-28T08:30:00Z
-modDatetime: 2026-11-28T09:00:00Z
+modDatetime: 2026-11-28T09:08:00Z
 title: 从冯·诺依曼、数据流、TPU 与 GPU 能效之争到 Groq LPU 与存算一体：计算机存储与 AI 芯片架构演进全景教程
 featured: false
 draft: false
@@ -14,7 +14,7 @@ tags:
   - 存算一体
   - 缓存架构
   - 教程
-description: 面向初学者的计算机体系结构与 AI 芯片存储演进全景教程。在每个专业名词首次出现时给出通俗解释，配合 14 张 Graphviz 与 Mermaid 可视化图解，从经典冯·诺依曼五大部件与“存储程序”出发，厘清“狭义冯·诺依曼瓶颈”与“广义存储墙”的本质区别；剖析 CPU 的 L1 改进型哈佛架构性能机制与硬件/MMU 区分二进制的底层原理；剥开营销外衣拆解商用模拟 NOR Flash CIM、数字 SRAM-CIM 与 DRAM-PIM 的物理鸿沟；深入数据流架构边界（四种演化形态、为何仍撞存储墙与不做完全固化）、Google TPU“宏观 VLIW + 微观固化脉动阵列”哲学；深度剖析带 Tensor Core 的 GPU 为何仍要为通用生态支付高昂“通用性税”（含阵列周长面积比、Register File 过路费、控制面静态开销、V/f 甜点区及 Hopper/Blackwell 的 TMA/wgmma/TMEM 演进）；最后解剖 Groq LPU（TSP）“正交功能切片 + 周期级确定性静态编译 + 全片纯 SRAM”的极限设计及四条主流 AI 芯片路线的全景坐标。
+description: 面向初学者的计算机体系结构与 AI 芯片存储演进全景教程。在每个专业名词首次出现时给出通俗解释，配合 26 张 Graphviz 与 Mermaid 可视化图解，从经典冯·诺依曼五大部件与“存储程序”出发，厘清“狭义冯·诺依曼瓶颈”与“广义存储墙”的本质区别；剖析 CPU 的 L1 改进型哈佛架构性能机制与硬件/MMU 区分二进制的底层原理；剥开营销外衣拆解商用模拟 NOR Flash CIM、数字 SRAM-CIM 与 DRAM-PIM 的物理鸿沟；深入数据流架构边界（四种演化形态、为何仍撞存储墙与不做完全固化）、Google TPU“宏观 VLIW + 微观固化脉动阵列”哲学；深度剖析带 Tensor Core 的 GPU 为何仍要为通用生态支付高昂“通用性税”（含阵列周长面积比、Register File 过路费、控制面静态开销、V/f 甜点区及 Hopper/Blackwell 的 TMA/wgmma/TMEM 演进）；最后解剖 Groq LPU（TSP）“正交功能切片 + 周期级确定性静态编译 + 全片纯 SRAM”的极限设计及四条主流 AI 芯片路线的全景坐标。
 ---
 
 > **导读**：在学习计算机体系结构（Computer Architecture）与 AI 芯片设计时，初学者经常会被几个看似“自相矛盾”的问题卡住：
@@ -27,7 +27,7 @@ description: 面向初学者的计算机体系结构与 AI 芯片存储演进全
 > 为了让**零基础初学者**顺畅读懂全篇并建立系统的硬件直觉，本教程坚持三条原则：
 >
 > - **名词首次出现即破冰**：任何缩写、硬件单元或物理概念在第一次登场时，都会立刻给出英文全称与生活化的白话类比；
-> - **图解驱动认知**：全篇穿插 **14 张 Graphviz 与 Mermaid 可视化图解**，把总线争抢、流水线分流、存算微电路、四种数据流、GPU SM 与 TPU 对比以及 Groq LPU 正交切片画出来；
+> - **图解驱动认知**：全篇穿插 **26 张 Graphviz 与 Mermaid 可视化图解**，把总线争抢、流水线分流、存算微电路、四种数据流、GPU SM 与 TPU 对比以及 Groq LPU 正交切片画出来；
 > - **剥开营销看工程本质**：不堆砌空泛概念，直接从物理定律、晶圆制造工艺和软硬件协同出发讲透底层原因。
 
 ---
@@ -141,6 +141,37 @@ digraph VonNeumann {
    - 默认让 **PC 自动递增**（比如 32 位定长指令下 `PC = PC + 4`），指向紧挨着的下一条指令；
    - 遇到分支（`if/else`）或跳转（函数调用 `call` / 循环 `jump`）指令时，直接改写 PC 的值，从而改变程序的控制流。
 
+```graphviz
+digraph StoredProgramAndPC {
+  rankdir=LR;
+  node [shape=box, style="filled,rounded", fontname="sans-serif", fontsize=11];
+  edge [fontname="sans-serif", fontsize=10];
+
+  subgraph cluster_mem {
+    label="统一内存中的相同 0/1 比特流";
+    style=dashed;
+    color="#2563eb";
+    BITS [label="地址 0x1000 存放：0x00100093
+本身没有贴“指令/数据”标签", fillcolor="#eff6ff", color="#2563eb"];
+  }
+
+  PC [label="PC 程序计数器
+(当前指向 0x1000)", fillcolor="#fefce8", color="#ca8a04"];
+  NEXT [label="顺序：PC = PC + 4
+分支/跳转：PC = 目标地址", fillcolor="#fef9c3", color="#ca8a04"];
+  DEC [label="控制单元 IR + 译码器
+当成指令：addi x1, x0, 1", fillcolor="#f0fdf4", color="#16a34a"];
+  ALU [label="处理单元 寄存器 + ALU
+当成数据：整数 1048723", fillcolor="#fff7ed", color="#ea580c"];
+
+  PC -> BITS [label="按取指流程读"];
+  BITS -> DEC [label="送去译码执行"];
+  DEC -> NEXT [label="更新下一拍 PC"];
+  NEXT -> PC;
+  BITS -> ALU [label="按 Load 指令读"];
+}
+```
+
 ### 1.3 关键认知跃迁：“顺序语义” vs “微体系结构实现”
 
 初学者在对比教材和现代 CPU 时，常常会迷糊：书上说计算机“一次处理一条指令”，可我听说现代 CPU 都有几十级**流水线（Pipeline，像工厂装配线一样把一条指令拆成取指、译码、执行、写回等阶段，多条指令重叠推进）**、**乱序执行（Out-of-Order Execution，后面的指令如果操作数准备好了，可以插队提前算）**、**推测执行（Speculative Execution，遇到 `if` 先猜一边往下算，猜错了再作废回滚）**，还有多核并行。这不是违背了顺序处理吗？
@@ -185,7 +216,37 @@ flowchart LR
 2. **“逐字搬运（Word-at-a-Time）”的执行范式**：
    Backus 本人当时更痛批的是这种架构绑定的命令式编程模型——CPU 像一只不停衔泥的蚂蚁，把大量宝贵的时钟周期消耗在“通过一条窄窄的管子，把单个字（Word，例如 32 bit 或 64 bit）从内存拉进寄存器、算完一个小小步骤再推回内存”的往返循环里，真正用于逻辑变换的时间占比很低。
 
-这一部分瓶颈，**确实是经典冯·诺依曼架构本身直接引入的**。
+这一部分瓶颈，**确实是经典冯·诺依曼架构本身直接引入的**。下面这张对照图展示了“单共享总线排队”与“逐字搬运”究竟把时间浪费在了哪里：
+
+```graphviz
+digraph NarrowBottleneckBus {
+  rankdir=TB;
+  node [shape=box, style="filled,rounded", fontname="sans-serif", fontsize=11];
+  edge [fontname="sans-serif", fontsize=10];
+
+  subgraph cluster_single {
+    label="经典冯·诺依曼：只有一条共享总线 (狭义瓶颈)";
+    style=dashed;
+    color="#ca8a04";
+    S_T1 [label="Cycle 1：Fetch 取指占用总线
+(Load/Store 被迫干等!)", fillcolor="#fefce8", color="#ca8a04"];
+    S_T2 [label="Cycle 2：Load 取数占用总线
+(下一条取指被迫中断!)", fillcolor="#fef9c3", color="#ca8a04"];
+    S_T3 [label="Cycle 3：逐字算完再 Store 推回内存
+真正做算术的时间占比极低", fillcolor="#ffedd5", color="#ea580c"];
+    S_T1 -> S_T2 -> S_T3 [label="串行争抢同一根窄管子"];
+  }
+
+  subgraph cluster_split {
+    label="分离总线（如哈佛架构）：I/D 各自独立通道";
+    style=dashed;
+    color="#16a34a";
+    P1 [label="Cycle 1：I-Bus 取指 (Fetch)", fillcolor="#eff6ff", color="#2563eb"];
+    P2 [label="Cycle 1：D-Bus 读写数据 (Load/Store)", fillcolor="#f0fdf4", color="#16a34a"];
+    P1 -> P2 [dir=both, style=dashed, label="同周期无阻塞并行!"];
+  }
+}
+```
 
 ### 2.2 广义层面：本质是物理规律导致的“存储墙（Memory Wall）”
 
@@ -325,6 +386,42 @@ digraph ModifiedHarvard {
 一段程序的**热点循环代码（Hot Loop）**往往体积很小（比如几 KB），会在几百万次循环里被反复执行，具有极强的**时间局部性**；但与此同时，这段循环可能正在扫描一个 100MB 的大数组或做矩阵运算（**流式大数据**）。
 如果指令和数据挤在同一个 L1 里，海量涌入的数组数据会像洪水一样瞬间把原本稳稳待在 L1 里的循环代码冲刷踢出（**Cache Thrashing，缓存抖动/污染**），导致 CPU 前端突然触发 **I-Cache Miss（指令缓存未命中）** 而直接断流！物理分离之后，哪怕数据侧在疯狂“洗劫” L1 D-Cache，核心循环代码依然安如磐石地躺在 L1 I-Cache 里。
 
+```graphviz
+digraph L1_Hazard_and_Thrashing {
+  rankdir=TB;
+  node [shape=box, style="filled,rounded", fontname="sans-serif", fontsize=11];
+  edge [fontname="sans-serif", fontsize=10];
+
+  subgraph cluster_bad {
+    label="(a) 假设 L1 不分家 (统一 L1)：结构冒险 + 缓存污染双灾难";
+    style=dashed;
+    color="#dc2626";
+    U_IFU [label="前端取指 (IFU)", fillcolor="#dbeafe", color="#1d4ed8"];
+    U_LSU [label="后端访存 (LSU)
+疯狂遍历 100MB 大数组", fillcolor="#fee2e2", color="#b91c1c"];
+    U_L1 [label="统一 L1 SRAM
+1. 端口撞车：流水线被迫 Stall
+2. 洪流冲刷：Hot Loop 指令被数组数据踢出!", fillcolor="#fef2f2", color="#dc2626"];
+    U_IFU -> U_L1 [label="争抢端口"];
+    U_LSU -> U_L1 [label="争抢端口 + 挤占容量"];
+  }
+
+  subgraph cluster_good {
+    label="(b) 改进型哈佛 (L1I + L1D 分离)：并行不撞车 + 互不污染";
+    style=dashed;
+    color="#16a34a";
+    G_IFU [label="前端取指 (IFU)", fillcolor="#dbeafe", color="#1d4ed8"];
+    G_L1I [label="L1 I-Cache
+Hot Loop 指令稳稳驻留，零写端口", fillcolor="#eff6ff", color="#2563eb"];
+    G_LSU [label="后端访存 (LSU)", fillcolor="#dcfce7", color="#15803d"];
+    G_L1D [label="L1 D-Cache
+独自承受大数组流式冲刷，不影响取指", fillcolor="#f0fdf4", color="#16a34a"];
+    G_IFU -> G_L1I [label="独占指令端口"];
+    G_LSU -> G_L1D [label="独占数据端口"];
+  }
+}
+```
+
 #### 机制四：缩短芯片物理走线延迟（Floorplan 物理布局优化）
 
 在今天几 GHz 主频的先进制程下，电信号在芯片内部**细如发丝的铜互连线（Metal Wire）**上跑的时间，往往比逻辑门开关本身还慢！
@@ -346,6 +443,18 @@ digraph ModifiedHarvard {
 >
 > - **x86 架构**：为了兼容历史包袱，用极其复杂的**硬件嗅探电路**在后端写入命中 I-Cache 地址时自动作废旧指令缓存，对程序员透明；
 > - **ARM 与 RISC-V 架构**：把电路做简做省，将同步责任交给操作系统和编译器——写入新代码后，软件必须先刷出 D-Cache，再显式执行同步指令（例如 RISC-V 的 **`fence.i`**，或 ARM 的 **`IC IVAU` + `ISB`**）来通知 I-Cache 刷新指令流。
+
+```mermaid
+flowchart LR
+    JIT["JIT 写入新机器码到 L1 D-Cache<br/>(此时 L1 I-Cache 可能还存着旧指令!)"] --> ARCH{"不同 ISA 的处理策略"}
+    ARCH -->|"x86 架构"| X86["硬件嗅探电路自动监测写入地址<br/>自动作废 L1 I-Cache 对应旧行<br/>(对软件透明，但硬件功耗/复杂度高)"]
+    ARCH -->|"ARM / RISC-V 架构"| ARM["硬件不做复杂嗅探，交由软件显式同步：<br/>1. 刷出 L1 D-Cache 到统一缓存<br/>2. 执行 fence.i / IC IVAU + ISB 清空旧 I-Cache"]
+
+    style JIT fill:#fefce8,stroke:#ca8a04
+    style ARCH fill:#eff6ff,stroke:#2563eb
+    style X86 fill:#fff7ed,stroke:#ea580c
+    style ARM fill:#f0fdf4,stroke:#16a34a
+```
 
 ---
 
@@ -385,6 +494,44 @@ digraph ModifiedHarvard {
 | **地址翻译与校验**  | 查 **iTLB**，硬件强制校验页表的 **`X`（可执行）** 权限位                                                                    | 查 **dTLB**，硬件校验页表的 **`R`（读）/ `W`（写）** 权限位                                                     |
 | **越权拦截后果**    | 若 PC 跳到了只有 `R+W` 而没有 `X` 权限的栈区/数据区，**MMU 直接触发页错误（Page Fault）异常**，请求被拦截在 L1 I-Cache 门外 | 若程序试图往只有 `R+X` 而没有 `W` 权限的代码段写入数据，MMU 同样触发 **Page Fault** 拦截（引发段错误 Segfault） |
 | **L1 未命中后行为** | 把物理地址发给统一的 L2 Cache 请求拉回 64B 内存行                                                                           | 把物理地址发给统一的 L2 Cache 请求拉回 64B 内存行                                                               |
+
+```graphviz
+digraph HardwarePath_and_MMU_WX {
+  rankdir=LR;
+  node [shape=box, style="filled,rounded", fontname="sans-serif", fontsize=11];
+  edge [fontname="sans-serif", fontsize=10];
+
+  IFU [label="前端 IFU
+(地址来自 PC)", fillcolor="#dbeafe", color="#1d4ed8"];
+  ITLB [label="iTLB + MMU 校验
+必须具备 X (可执行) 权限", fillcolor="#eff6ff", color="#2563eb"];
+  L1I [label="L1 I-Cache", fillcolor="#e0e7ff", color="#4338ca"];
+
+  LSU [label="后端 LSU
+(地址来自 Load/Store)", fillcolor="#dcfce7", color="#15803d"];
+  DTLB [label="dTLB + MMU 校验
+必须具备 R / W 权限", fillcolor="#f0fdf4", color="#16a34a"];
+  L1D [label="L1 D-Cache", fillcolor="#d1fae5", color="#059669"];
+
+  PF [label="Page Fault 异常拦截!
+(例如跳转到无 X 权限的堆栈，
+或写入只读代码段)", fillcolor="#fef2f2", color="#dc2626"];
+  L2 [label="统一 L2 Cache / 主存
+只认物理地址，不区分身份
+同一物理行 (如 memcpy/常量池) 可同时填入 L1I 与 L1D", fillcolor="#f8fafc", color="#475569"];
+
+  IFU -> ITLB;
+  ITLB -> L1I [label="有 R+X 权限"];
+  ITLB -> PF [label="无 X 权限", color="#dc2626"];
+
+  LSU -> DTLB;
+  DTLB -> L1D [label="有 R/W 权限"];
+  DTLB -> PF [label="越权写代码段", color="#dc2626"];
+
+  L1I -> L2 [dir=both, label="Miss 按原路填回 L1I"];
+  L1D -> L2 [dir=both, label="Miss 按原路填回 L1D"];
+}
+```
 
 ### 4.3 第三层：L2 Cache 与主存的视角——只认物理地址，不认身份
 
@@ -454,6 +601,45 @@ flowchart TD
 - **底层物理原理**：
   神经网络的**权重**以**电导（电阻倒数 / 晶体管阈值电压）**的形式，直接静态存在存储阵列交叉点上；输入特征通过 **DAC（数模转换器）** 变成模拟电压打在横着的**字线（Wordline）**上。
   接下来完全不需要任何数字乘法器和加法器——直接利用初中物理的**欧姆定律（电流 = 电压 $\times$ 电导，$I_i = V_i \cdot G_i$）**做乘法，再利用**基尔霍夫电流定律（多条支路汇入同一根线，电流自动相加，$I_{\text{sum}} = \sum V_i G_i$）**，竖着的**位线（Bitline）**上自然汇集出来的电流总和，就是一次完整的**矩阵乘加（MAC）**结果！最后再由 **ADC（模数转换器）** 把模拟电流转回数字信号即可。
+
+```graphviz
+digraph Analog_CIM_Crossbar {
+  rankdir=LR;
+  node [shape=box, style="filled,rounded", fontname="sans-serif", fontsize=11];
+  edge [fontname="sans-serif", fontsize=10];
+
+  IN [label="数字输入特征
+x1, x2", fillcolor="#eff6ff", color="#2563eb"];
+  DAC [label="DAC 数模转换
+转成模拟电压 V1, V2", fillcolor="#fefce8", color="#ca8a04"];
+
+  subgraph cluster_array {
+    label="NOR Flash 模拟交叉阵列 (权重掉电不丢、零搬运)";
+    style=dashed;
+    color="#16a34a";
+    W1 [label="交叉点单元 1：电导 G1
+欧姆定律：I1 = V1 × G1", fillcolor="#f0fdf4", color="#16a34a"];
+    W2 [label="交叉点单元 2：电导 G2
+欧姆定律：I2 = V2 × G2", fillcolor="#f0fdf4", color="#16a34a"];
+  }
+
+  BL [label="竖向位线 Bitline
+基尔霍夫电流定律自动汇总：
+I_sum = I1 + I2 = V1·G1 + V2·G2", fillcolor="#fff7ed", color="#ea580c"];
+  ADC [label="ADC 模数转换
+(主要面积/功耗开销来源)", fillcolor="#fef2f2", color="#dc2626"];
+  OUT [label="数字输出 MAC 结果
+(精度通常卡在 4~8 bit)", fillcolor="#f3e8ff", color="#9333ea"];
+
+  IN -> DAC;
+  DAC -> W1 [label="Wordline 1 (V1)"];
+  DAC -> W2 [label="Wordline 2 (V2)"];
+  W1 -> BL;
+  W2 -> BL;
+  BL -> ADC -> OUT;
+}
+```
+
 - **市面上真正卖出去的产品**：
   最典型的是国内**知存科技的 WTM2101**（基于 NOR Flash），累计出货量已超过千万颗，广泛用在 TWS 蓝牙耳机的 AI 语音降噪、语音唤醒、智能助听器等**毫瓦级（mW）**超低功耗端侧设备中；其后续的 WTM-8 系列也开始向端侧视觉场景延伸。
 - **工程真相与边界**：
@@ -498,6 +684,22 @@ flowchart TD
 >
 > 1. **没有任何一颗商用芯片是“全芯片存算一体”的**：芯片里只有最核心的矩阵乘加引擎（CIM Macro）采用了存算一体电路；像 **Softmax、LayerNorm、激活函数（GELU/SiLU）、控制流调度、片上互连网络（NoC）以及数据搬运引擎（DMA）**，依然是百分百传统的数字 CMOS 逻辑电路。
 > 2. **学术界最火的新型非易失存储器尚未成为大算力商用主角**：例如 **RRAM（阻变存储器）**、**MRAM（磁性随机存储器）**、**PCM（相变存储器）** 虽然论文满天飞，但目前仍在攻克良率、器件一致性、擦写寿命和代工厂工艺成熟度问题。市面上真正能大规模买来直接跑业务的商用芯片，几乎都绕开了它们，选择了更务实的 **NOR Flash（端侧小算力）** 与 **数字 SRAM（大算力）**。
+
+```mermaid
+flowchart TD
+    SOC["真实商用“存算一体”芯片内部构成 (并非全芯片都是存算)"] --> CIM["CIM Macro 存算核心引擎<br/>(仅负责最重度的矩阵乘加 GEMM)"]
+    SOC --> CTRL["传统数字 CMOS：RISC-V 控制核<br/>(负责指令调度、分支与异常)"]
+    SOC --> VEC["传统数字 CMOS：向量与特殊函数单元<br/>(负责 Softmax / LayerNorm / GELU)"]
+    CIM <-->|"片上互连网络 NoC"| VEC
+    CTRL -->|"下发配置与任务"| CIM
+    SOC <-->|"DMA 数据搬运引擎"| DRAM["片外 LPDDR / DRAM (大算力场景仍需外挂)"]
+
+    style SOC fill:#eff6ff,stroke:#2563eb
+    style CIM fill:#f0fdf4,stroke:#16a34a,stroke-width:2px
+    style CTRL fill:#fefce8,stroke:#ca8a04
+    style VEC fill:#fff7ed,stroke:#ea580c
+    style DRAM fill:#fef2f2,stroke:#dc2626
+```
 
 ---
 
@@ -651,6 +853,19 @@ flowchart LR
 3. **动态控制流与不规则负载的硬伤**：
    纯静态固化的空间流水线最擅长形状固定、路径确定的规则计算；一旦遇到动态输入尺寸（Dynamic Shape）、条件分支（如 MoE 的动态路由选择）或高度稀疏的不规则访存，纯固化电路极难表达，强行铺开所有可能分支会造成灾难性的面积浪费。因此现代数据流芯片旁边往往还要搭配传统的标量控制核（例如嵌入几颗 **RISC-V** 核），专门负责运行时发号施令、切换配置和处理动态分支。
 
+```mermaid
+flowchart LR
+    GRAPH["几百层大模型计算图"] -->|"编译器切分成子图"| LG["Layer Group A / B / C"]
+    LG -->|"前台激活当前配置"| PE["同一块片上 PE 阵列 + 可编程互连"]
+    SHADOW["双缓冲影子寄存器<br/>(后台预载子图 B 配置)"] -.->|"子图 A 尾数据清空后<br/>1 周期无缝切换"| PE
+    PE -->|"时间段 1: 变身子图 A 拓扑"| OUT1["流式输出 A"]
+    PE -->|"时间段 2: 原地变身子图 B 拓扑"| OUT2["流式输出 B"]
+
+    style GRAPH fill:#eff6ff,stroke:#2563eb
+    style PE fill:#f0fdf4,stroke:#16a34a,stroke-width:2px
+    style SHADOW fill:#fefce8,stroke:#ca8a04
+```
+
 ### 7.3 三种计算控制范式的本质对比
 
 | 架构形态                                | 计算与控制方式                   | 狭义冯·诺依曼瓶颈（取指/逐字搬运）     | 广义存储墙（片外访存带宽与能耗）               | 硬件灵活性                         |
@@ -701,6 +916,46 @@ digraph FourDataflowModels {
 4. **全图静态空间平铺（Full-Graph Static Spatial Tiling）**：
    只要物理芯片足够大（或者模型足够小），干脆把整个计算图的所有算子**一次性全部展开**铺在硅片上。配置只在部署时写一次，运行期零重配置，数据像工厂总装线一样一气呵成从头流到尾。
    - **代表架构**：在超大规模 FPGA 上部署固定轻量化模型，或 **Cerebras WSE** 这类直接用整张晶圆造出来、拥有数十万核的晶圆级芯片。
+
+```graphviz
+digraph Dataflow_Micro_Mechanisms {
+  rankdir=TB;
+  node [shape=box, style="filled,rounded", fontname="sans-serif", fontsize=11];
+  edge [fontname="sans-serif", fontsize=10];
+
+  subgraph cluster_a {
+    label="(a) 粗粒度静态重配置 PE 内部";
+    style=dashed;
+    color="#2563eb";
+    A1 [label="配置寄存器 (锁定本阶段角色)", fillcolor="#dbeafe", color="#1d4ed8"];
+    A2 [label="PE 算术核心
+Ready / Valid 硬件反压握手", fillcolor="#eff6ff", color="#2563eb"];
+    A1 -> A2;
+  }
+
+  subgraph cluster_b {
+    label="(b) 逐周期上下文切换 PE 内部";
+    style=dashed;
+    color="#ca8a04";
+    B1 [label="本地 Context Memory (存 4~64 套配置)
+节拍器每拍切换：拍 1 乘法 -> 拍 2 加法", fillcolor="#fefce8", color="#ca8a04"];
+    B2 [label="PE 算术与开关核心
+(依赖严格周期调度)", fillcolor="#fef9c3", color="#ca8a04"];
+    B1 -> B2;
+  }
+
+  subgraph cluster_c {
+    label="(c) 动态令牌驱动 PE 内部";
+    style=dashed;
+    color="#9333ea";
+    C1 [label="2D Mesh NoC 动态数据包
+(携带目标节点与 Tag 标签)", fillcolor="#f3e8ff", color="#9333ea"];
+    C2 [label="硬件标签匹配队列
+凑齐输入满足 Firing Rule 即触发", fillcolor="#fae8ff", color="#a21caf"];
+    C1 -> C2;
+  }
+}
+```
 
 ### 8.2 四种数据流形态对比与商业收敛逻辑
 
@@ -773,6 +1028,47 @@ TPU 的绝对算力心脏是 **MXU（Matrix Multiply Unit，矩阵乘法单元�
 - **拓扑完全不重配置**：与可重构数据流 NPU 需要用配置开关把 PE 重新连成卷积或 LayerNorm 不同，MXU 内部所有乘加单元（MAC）的金属连线是**永久焊死**的，一辈子只干一件事——矩阵乘加。
 - **局部纯数据流执行**：MXU 经典采用**权重驻留（Weight Stationary）**模式。权重提前移位灌入阵列并固定在各个节点内；左侧输入激活值按时钟节拍**水平向右**逐格接力传递，每个节点完成乘加后，将部分和（Partial Sums）**垂直向下**传递给相邻节点，最终在底部累加器汇总输出。
 - **彻底消灭局部狭义瓶颈**：一旦数据泵入阵列，成千上万个 MAC 单元每个周期都在仅靠相邻短线接力计算，**中间没有任何逐条取指开销，部分和也完全不读写寄存器堆或 SRAM**！为了掩盖下一批权重的加载空窗，每个节点里还内置了影子缓冲，允许后台一边偷偷移入新权重、前台一边继续算当前批次。
+
+```graphviz
+digraph TPU_MXU_Systolic_Flow {
+  rankdir=LR;
+  node [shape=box, style="filled,rounded", fontname="sans-serif", fontsize=11];
+  edge [fontname="sans-serif", fontsize=10];
+
+  X0 [label="激活行 0 (t0 先入)", fillcolor="#eff6ff", color="#2563eb"];
+  X1 [label="激活行 1 (t1 错拍入)", fillcolor="#eff6ff", color="#2563eb"];
+
+  subgraph cluster_mxu {
+    label="MXU 权重驻留 (Weight Stationary) 脉动阵列局部 2×2 示意";
+    style=dashed;
+    color="#16a34a";
+
+    MAC00 [label="MAC (0,0)
+固定权重 W00", fillcolor="#dcfce7", color="#15803d"];
+    MAC01 [label="MAC (0,1)
+固定权重 W01", fillcolor="#dcfce7", color="#15803d"];
+    MAC10 [label="MAC (1,0)
+固定权重 W10", fillcolor="#dcfce7", color="#15803d"];
+    MAC11 [label="MAC (1,1)
+固定权重 W11", fillcolor="#dcfce7", color="#15803d"];
+
+    MAC00 -> MAC01 [label="激活向右传"];
+    MAC10 -> MAC11 [label="激活向右传"];
+    MAC00 -> MAC10 [label="部分和向下传"];
+    MAC01 -> MAC11 [label="部分和向下传"];
+  }
+
+  ACC0 [label="底部累加器 0
+汇总输出列 0", fillcolor="#fefce8", color="#ca8a04"];
+  ACC1 [label="底部累加器 1
+汇总输出列 1", fillcolor="#fefce8", color="#ca8a04"];
+
+  X0 -> MAC00;
+  X1 -> MAC10;
+  MAC10 -> ACC0;
+  MAC11 -> ACC1;
+}
+```
 
 ### 9.2 宏观层（TensorCore）：VLIW 超长指令字驱动异构部件
 
@@ -872,6 +1168,50 @@ digraph GPU_vs_TPU_Efficiency {
 - **GPU**：为了同时养活几十个 Warp（线程束）实现“遇延迟零开销瞬间切换线程上下文”，每个 SM 必须配备极其庞大且多读写端口的通用 **Register File**（例如 H100 每个子分区配 $16,384 \times 32\text{-bit}$，整个 SM 高达 **256 KB**）。在传统 Tensor Core 指令（如 `mma.sync`）下，矩阵块必须先从 Shared Memory 搬进 Register File，喂给 Tensor Core 算完再写回 Register File——不仅每次读写都在烧电，多 Bank 冲突仲裁和跨区长走线全都是“过路费”。
 - **TPU**：彻底砍掉了面向几十路线程并发切换的超大通用寄存器堆。MXU 直接对接软件显式管理的片上暂存器（**VMEM**）和专用累加器缓冲，数据通路极短，且没有硬件多 Bank 动态仲裁开销。
 
+```graphviz
+digraph GPU_RF_vs_TMEM_Evolution {
+  rankdir=LR;
+  node [shape=box, style="filled,rounded", fontname="sans-serif", fontsize=11];
+  edge [fontname="sans-serif", fontsize=10];
+
+  subgraph cluster_amp {
+    label="Ampere (mma.sync)：通用寄存器堆双重过路费";
+    style=dashed;
+    color="#e11d48";
+    A_SMEM [label="Shared Memory", fillcolor="#fefce8", color="#ca8a04"];
+    A_RF [label="256KB 通用 Register File
+(高功耗读写 + Bank 仲裁)", fillcolor="#ffedd5", color="#ea580c"];
+    A_TC [label="Tensor Core", fillcolor="#dcfce7", color="#15803d"];
+    A_SMEM -> A_RF -> A_TC -> A_RF;
+  }
+
+  subgraph cluster_hop {
+    label="Hopper (TMA + wgmma)：绕过输入端 RF 读";
+    style=dashed;
+    color="#2563eb";
+    H_SMEM [label="Shared Memory
+(由 TMA 异步搬入)", fillcolor="#fefce8", color="#ca8a04"];
+    H_TC [label="Tensor Core (wgmma)
+直接从 SMEM 读矩阵!", fillcolor="#dcfce7", color="#15803d"];
+    H_RF [label="Register File (仅存输出累加)", fillcolor="#ffedd5", color="#ea580c"];
+    H_SMEM -> H_TC -> H_RF;
+  }
+
+  subgraph cluster_blk {
+    label="Blackwell (tcgen05 + TMEM)：彻底“TPU 化”";
+    style=dashed;
+    color="#16a34a";
+    B_SMEM [label="Shared Memory", fillcolor="#fefce8", color="#ca8a04"];
+    B_TC [label="Tensor Core (tcgen05)
+支持双 SM 跨 CTA 协作", fillcolor="#dcfce7", color="#15803d"];
+    B_TMEM [label="专用 TMEM 张量内存
+剥离通用寄存器堆!", fillcolor="#ecfeff", color="#0891b2"];
+    B_SMEM -> B_TC;
+    B_TC -> B_TMEM [dir=both];
+  }
+}
+```
+
 ### 10.3 控制面与面积的静态开销：硬件动态调度 vs 静态编译
 
 - **GPU**：为了兜底任意 `if-else` 分支、不规则稀疏访存、科学计算双精度（FP64）以及图形渲染，芯片必须在每个 SM 里塞满全套硬件动态控制逻辑——指令缓存、Warp 调度器、**记分板（Scoreboard，实时追踪寄存器数据依赖防冲突的硬件表格）**、硬件自动管理的 L1/L2 Cache（含 Tag 标签比对与多核一致性协议）以及访存合并单元。即使此时只跑纯稠密矩阵乘，这些电路依然消耗动态调度功耗；更要命的是，它们霸占了大量硅片面积，直接推高了静态漏电功耗，并拉长了信号走线长度（电容充放电功耗增大）。
@@ -967,6 +1307,22 @@ digraph Groq_LPU_Orthogonal {
 
 - **用片内带宽降维打击**：初代 Groq LPU 干脆**不外挂任何 HBM 和 DRAM**，所有模型权重、激活值和 KV-Cache 全部塞进片上约 **230 MB 的纯 SRAM** 里，直接换来了高达 **~80 TB/s** 的惊人片内带宽（比同期 H100 的 HBM 带宽高出一个数量级）。
 - **多芯片确定性直连（C2C, Chip-to-Chip）**：单颗芯片 230 MB 的 SRAM 肯定装不下大模型，于是 Groq 直接用无交换机的确定性片间直连（C2C）把成百上千颗 LPU 焊成一个逻辑上的“超级大单核”。跨芯片通信走哪条线、第几个时钟周期到达，同样全部由编译器静态排好，从而用海量芯片的 SRAM 聚合容量与带宽，物理绕开了单芯片的片外存储墙。
+
+```mermaid
+flowchart LR
+    subgraph LPU_Cluster ["Groq 纯 SRAM 超级单核集群 (无 HBM / 无动态交换机)"]
+        L1["LPU 0<br/>~230MB 纯 SRAM<br/>~80 TB/s 片内带宽"] <-->|"确定性 C2C 直连<br/>(编译器算死精确拍数)"| L2["LPU 1<br/>~230MB 纯 SRAM"]
+        L2 <-->|"确定性 C2C 直连"| LN["LPU N<br/>(多卡聚合容纳大模型权重)"]
+    end
+
+    subgraph Hetero_2026 ["2026 异构协同演进 (如 Groq 3 LPX 平台)"]
+        LPU_Cluster -->|"极低延迟高速吐出<br/>Draft / Agent Token"| GPU_G["Vera Rubin GPU 集群<br/>(超大 HBM 显存做批量校验与重计算)"]
+    end
+
+    style LPU_Cluster fill:#eef2ff,stroke:#4f46e5
+    style Hetero_2026 fill:#ecfeff,stroke:#0891b2
+    style GPU_G fill:#fff1f2,stroke:#e11d48
+```
 
 ### 11.4 激进设计的硬伤与 2026 年的异构协同路线
 
